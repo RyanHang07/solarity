@@ -1,0 +1,9 @@
+# Normalise line endings in the repository. Without this, files edited on
+# Windows land as CRLF and files written by tooling land as LF, and a
+# whole-file diff appears the first time either touches a file the other made.
+* text=auto eol=lf
+
+# Binary — never touch these.
+*.png binary
+*.ico binary
+*.webp binary

@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  test:
-    name: Vitest
+  verify:
+    name: Typecheck, lint, build, test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,7 +22,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npx eslint .
+
+      # No environment variables are provided on purpose. Every page is
+      # server-rendered on demand and the Upstash client is built lazily, so a
+      # build that needs a secret is a bug worth failing on here rather than
+      # discovering on Vercel.
+      - name: Build
+        run: npm run build
+
+      - name: Test
         run: npm run test -- --run
 
   audit:

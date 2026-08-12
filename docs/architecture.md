@@ -1,532 +1,869 @@
-# Goal Accountability App — Architecture Doc
+# Solarity — Architecture
 
-## 1. Product Premise
+**What the system is.** Schema, security model, server behaviour, and environment configuration — the current state of the app, and the reasoning behind the decisions that produced it.
 
-Friends who see each other's daily progress toward personal goals motivate each other to stay consistent. The app centers on small, invite-only groups (max 10 members) where each member tracks their own daily goals and checks in once per day. Progress is surfaced to the group as a daily batched digest rather than live noise.
+This doc does not track work. Next steps, open decisions, known bugs, gotchas and the change log live in `build-plan.md`. Naming, screen inventory, build phases and the deferred visual design live in `product-and-design.md`.
 
-### V1 scope vs. deferred (Phase 2)
+**Where this doc and the live database disagree, the database is authoritative and this doc is the bug.**
 
-The galaxy visualization and its entire cosmetics/unlock system (sections 11-15 below) are **deferred, not in scope for v1**. They stay documented in full — the design work is done and worth preserving — but nothing in those sections should be built until the functional core is working end to end. This includes: the rendering engine, planet/sun/nebula styles, the unlock track system, cosmetic asset hosting, the group composite galaxy view, and the galaxy-specific Redis caching layer.
+---
 
-Reasoning for deferring: this system is the single most novel and hardest-to-estimate piece of the whole build (a rendering engine with no prior team experience, driving a level-of-detail composite view and a 28-tier reward system that needs real art). Building the functional app first — users, goals, groups, check-ins, digest, notifications, and the security/robustness hardening — de-risks the whole project and gives something shippable and testable before the highest-risk feature is attempted.
+# Current state
 
-**V1 home dashboard**, in place of the galaxy: today's check-in panel (the user's goals across all groups, with checkbox/note/photo controls), a groups list (active groups first, archived section beneath), a groups-at-a-glance subtab (Overview — reading from `digest_snapshots`), and a notifications subtab. This is the dashboard described in the product's original "theoretical screens" discussion, before the galaxy was decided as the home surface — it's the fallback and the actual v1 target now.
+## What exists
 
-`goals.category` and `goal_categories` remain in v1 scope even though their primary consumer (the galaxy) is deferred — category is required at goal creation regardless (see section 3), and it's useful independently for filtering/stats even before any visualization consumes it.
+| Area | State |
+|---|---|
+| Schema — 21 tables, constraints, caps | built |
+| RLS — 41 table policies, 8 storage policies | built |
+| RPCs — 12 client-callable | built |
+| Derived data — triggers + rollover | built |
+| Digest — SQL builder + push sender | built |
+| Retention sweep, photo purge | built |
+| Edge Functions — 4 deployed | built, verified 200 end to end |
+| Storage buckets + policies | built |
+| Realtime publication | built |
+| Job scheduling — 5 pg_cron jobs | built, Vault secrets confirmed |
+| TypeScript types | generated → `lib/database.types.ts` |
+| Supabase clients, proxy, rate limiters, lint rules | in repo |
+| Migrations + Edge Functions in version control | 57 + 4, `db diff` clean |
+| PWA — manifest, service worker, registrar, icons | built |
+| Auth — sign-in, callback, sign-out, route guard | built |
+| Onboarding — username + timezone | built |
+| Application — Circles, goals, check-ins, dashboard panels | not built |
 
-## 2. Tech Stack
+## Standing invariants
+
+Verified after the last audit. Any deviation is a real finding, not noise.
+
+- 0 tables without RLS enabled
+- 0 `anon`-callable functions; 0 functions with a mutable `search_path`
+- 0 `anon` DML grants; 0 public storage buckets
+- Every `notification_type` and `audit_action_type` value has a writer
+- Expected linter output is listed in section 4 — anything beyond it is real
+
+The queries that check these live in `build-plan.md`.
+
+## Caveats on what is built
+
+- **The application layer has never run in a browser.** Auth, onboarding and the dashboard shell are committed as the "oauth skeleton" and pass `tsc`, `eslint` and `next build`; nothing more. Browser verification is the first item in `build-plan.md`, track 2.
+- **Rate limiting is wired but has never been triggered.**
+- **Turnstile is inert.** It is configured in Supabase Auth, but Supabase's CAPTCHA guards only endpoints that accept a `captchaToken` — signup, password sign-in, OTP, password reset. This app is Google-only and calls none of them, so `signInWithOAuth` has no token to attach. It becomes live the moment email/password auth is added, which is planned. The real bot defence today is Google OAuth plus Upstash rate limiting.
+- **Email is capped at 2 messages per hour** by Supabase's built-in sender. Latent, since nothing sends email yet. See section 14.
+- **The retention sweep and photo purge are scheduled but have never run against real volume.**
+- **The icon set is a generated placeholder mark** — correct dimensions, replaceable in v2.
+
+---
+
+## 1. Premise
+
+Friends who see each other's daily progress motivate each other to stay consistent. Small invite-only Circles (max 10), each member tracking their own daily goals, checking in once a day. Progress surfaces as a daily batched digest rather than live noise.
+
+Build phases, screen inventory and the deferred galaxy visualization are in `product-and-design.md`. `goal_categories` is in v1 even though its main consumer is deferred: a category is required at goal creation regardless, and it is useful for filtering and stats.
+
+---
+
+## 2. Tech stack
 
 | Layer | Choice | Why |
 |---|---|---|
-| Frontend framework | Next.js (App Router) | Server rendering / streaming for fast first paint on iOS Safari; tight native integration with Vercel (edge rendering, ISR, image optimization) |
-| Language | TypeScript, strict mode | Type safety across a schema-heavy app |
-| Data fetching / cache | TanStack Query | Client-side cache layer on top of Supabase, works well alongside Next.js server components |
-| Client state | Zustand | Lightweight, avoids Redux overhead |
-| Styling | Tailwind CSS | Fast iteration, no design system decisions needed yet |
-| Backend | Supabase (Postgres, Auth, Realtime, Storage, Edge Functions) | Single vendor for DB + auth + realtime + storage; Postgres gives full SQL control and RLS |
-| Auth providers | Supabase Auth — Google (v1). Apple (Sign in with Apple) deferred until an Apple Developer Program membership is set up — adding it later is a provider toggle in Supabase, not a schema or code change. | Native-feeling auth, avoids password friction |
-| Caching / rate limiting | Upstash Redis (REST-based) | Serverless-friendly, no persistent connection issues on Vercel functions; used for feed caching, visibility-set caching, and rate limiting. **Redis is always a fast-path cache, never the sole source of truth**: every read path backed by Redis (visibility sets, digest reads, and the galaxy snapshot once built) falls back to a live Postgres query on a cache miss or Redis outage. This is a deliberate resilience rule, not an optimization detail — without it, a Redis outage would take down whatever screen depends on it entirely, which is an unacceptable single point of failure for something as central as the home dashboard. |
-| Hosting | Vercel | Native Next.js integration, edge caching, cron support |
-| Scheduled jobs | Supabase pg_cron or Vercel Cron → Edge Functions | Daily digest computation, photo cleanup sweep |
-| Testing | Vitest + Testing Library | Standard for Vite/Next React stacks |
-| PWA / service worker | `next-pwa` | Maintained wrapper around Workbox — faster to get manifest + service worker + push-event handling working than a hand-written service worker, with less code to get wrong early in the build |
+| Framework | Next.js 16 (App Router) | Server rendering for fast first paint on iOS Safari; native Vercel integration. Note the `middleware` file convention is renamed `proxy` in 16. |
+| Language | TypeScript, strict | Schema-heavy app |
+| Data fetching | TanStack Query | Client cache over Supabase |
+| Client state | Zustand | Lightweight |
+| Styling | Tailwind | Fast iteration |
+| Backend | Supabase (Postgres, Auth, Realtime, Storage, Edge Functions) | One vendor; Postgres gives full SQL and RLS |
+| Auth | Google only (v1) | Apple deferred pending a developer account — adding it later is a provider toggle, not a schema change |
+| Cache / rate limit | Upstash Redis (REST) | Serverless-friendly |
+| Hosting | Vercel | Native Next.js, cron support |
+| Scheduled jobs | pg_cron (+ pg_net for Edge Functions) | Runs inside Postgres, so the SQL jobs need no network hop, no shared secret, and no deployed app |
+| Testing | Vitest + Testing Library | |
+| PWA | hand-rolled — no dependency | See "PWA & push delivery" below. `next-pwa` was the original choice and was reversed. |
 
-## 3. Core Entities & Schema
+**Redis is always a fast path, never the source of truth.** Every Redis-backed read falls back to a live Postgres query on a miss or outage. Without that rule a Redis outage takes down whatever screen depends on it — unacceptable for the home dashboard.
+
+---
+
+## 2b. Application structure
+
+```
+app/
+  (app)/            signed-in screens; layout.tsx is the onboarding gate
+  actions/          server actions — the only place .rpc() may appear
+  auth/             sign-in page, OAuth callback route, error page
+  onboarding/       username + timezone
+  manifest.ts       web app manifest
+components/         client components
+lib/
+  supabase/         browser client, server client, admin client, proxy helper
+  ratelimit.ts      Upstash limiters
+  errors.ts         SQLSTATE → user-facing message
+  profanity.ts      obscenity matcher
+  safe-redirect.ts  open-redirect guard for the `next=` parameter
+proxy.ts            session refresh + anonymous redirect
+```
+
+### Three enforcement points, in order
+
+1. **`proxy.ts`** refreshes the auth session and redirects anonymous requests to sign-in. It uses `getUser()`, not `getSession()` — the latter reads the cookie without verifying it, which is not a basis for an authorization decision. It deliberately does **not** check onboarding: that would be a database round trip on every request, including prefetches and asset fetches.
+2. **`app/(app)/layout.tsx`** checks that a username exists and redirects to onboarding otherwise. One query per protected navigation, and the same query the header needs anyway.
+3. **`app/actions/*`** wrap each RPC with rate limiting, profanity screening, and error mapping. RLS still protects the data if this layer is bypassed; what is lost is throttling.
+
+The service-role client is confined to work no user can be the actor of — currently the username-availability check, which must read rows RLS hides. An ESLint rule blocks importing it into components, and a second rule blocks `.rpc(` outside `app/actions/`.
+
+### Redirect handling
+
+The `next=` parameter survives the whole OAuth round trip so an invite link resolves after sign-in (section 10). It is therefore attacker-controllable, and `safeRedirect()` constrains it to a single-leading-slash relative path — rejecting `//host` and any backslash — so the sign-in page cannot be turned into an open redirect.
+
+### Rate limits
+
+Keyed by user id, enforced in server actions via `lib/ratelimit.ts`.
+
+| Action | Limit |
+|---|---|
+| Onboarding / rename | 15 / hour |
+| Create Circle | 5 / day |
+| Join Circle | 10 / hour |
+| Create goal | 20 / hour |
+| Check in | 60 / hour |
+| Photo upload | 20 / hour |
+| Create invite link | 10 / hour |
+| Submit report | 10 / day |
+
+This is the app's primary abuse control, not Turnstile. A Google account is already a higher barrier than a CAPTCHA; what needs bounding is a signed-in user hammering the RPCs.
+
+Limiters are constructed on first use rather than at module scope. `Redis.fromEnv()` throws when the Upstash variables are absent, and `lib/ratelimit.ts` sits in the import graph of every server action, so building them eagerly turned a missing runtime variable into a failed `next build`.
+
+### Error mapping
+
+`lib/errors.ts` maps SQLSTATE to a message: `23505` unique violation, `23514` check violation, `22023` the RPCs' own `invalid_parameter_value` raises, `42501` RLS or a missing grant. Anything unrecognised returns a generic message, since raw Postgres errors disclose table and column names. Mapping by code rather than message text means renaming a constraint does not silently change what users see.
+
+Server actions return `{ ok: true } | { ok: false, error }` rather than throwing. A thrown error in a server action reaches production as an opaque "An error occurred", which is useless in a form.
+
+---
+
+## 3. Schema
 
 ### `users`
-Populated via a Postgres trigger (`on_auth_user_created`) off `auth.users`, not read directly from Supabase Auth's table.
-- `id` (uuid, PK, matches `auth.users.id`)
-- `first_name`, `last_name` (from OAuth provider at signup, editable)
-- `username` (unique, user-chosen, indexed) — this is what's shown across the app (group rosters, feeds, digests) by default rather than the real name
+Populated by the `on_auth_user_created` trigger off `auth.users`.
+
+- `id` (uuid PK, matches `auth.users.id`)
+- `first_name`, `last_name` (nullable) — from structured OAuth claims (`given_name`/`family_name`) only, left null otherwise. **No whitespace-splitting fallback**: it mis-parses compound surnames, multiple given names, and family-name-first orders, producing data that looks real but is wrong. A null is more honest than a bad guess.
+- `username` (nullable, **case-insensitively unique** via a unique index on `lower(username)`) — the public identity everywhere. Case-insensitive because a plain constraint would allow both `Ryan` and `ryan`, a cheaper impersonation route than unicode lookalikes. **Lookups must query `lower(username) = lower($1)` to hit the index.** Nullable because OAuth can't supply one; onboarding sets it.
 - `avatar_url`
-- `checkin_timezone` (text, IANA timezone name, set at signup and updated only at each 2 AM rollover — see the Timezone travel note under `progress_entries` below)
-- `checkin_day_started_at` (timestamp — when the current `checkin_timezone`-based day began, paired with the field above)
-- `created_at`
+- `checkin_timezone` (IANA name), `checkin_day_started_at` — frozen at each 2 AM rollover, not read live. See check-in dates below.
+- `created_at`, `updated_at`
 
-Real name is captured for account-recovery/identity purposes but username is the public-facing identity throughout the product. Uniqueness on `username` enforced at the DB level.
+**Renames**: once per 14 days, enforced by `complete_onboarding()`, which also writes a `username_history` row. `username_history` (`user_id`, `old_username`, `changed_at`) is a support/moderation trail, never surfaced.
 
-**Username changes**: allowed, but rate-limited to once every 14 days to reduce impersonation/confusion risk inside small groups (someone renaming right after a conflict or right before a kick, for instance). A `username_history` table (`user_id`, `old_username`, `changed_at`) is kept for support/moderation lookups even though it's never surfaced in the UI. Live views (group rosters, active member lists, the galaxy itself) always resolve to the **current** username via the live FK — there's no reason to freeze those, since they're read fresh on every load anyway. The one place this needs explicit handling is `notifications.payload` and `digest_snapshots.summary`: both are jsonb written once at generation time, so the digest job must denormalize the username into the payload at write time rather than joining live — otherwise a past digest could silently relabel itself if the person referenced later changes their name, which would be confusing in a chronological notification feed.
+Live views resolve the current username via FK. The exception is `notifications.payload` and `digest_snapshots.summary` — both jsonb written once, so the username must be **denormalized in at write time**. Joining live would let a March entry silently start crediting a name that person didn't have in March.
 
 ### `goals`
-Owned by the user, **not** by a group. A user's goals stay constant across every group they belong to — group membership doesn't fork or duplicate goals.
-- `id` (uuid, PK)
-- `user_id` (FK → users)
-- `title`
-- `deadline` (nullable timestamp — independent of any group's deadline)
-- `created_at`
-- `category` (FK → `goal_categories`, **required**) — collected at goal creation alongside the title, not optional. There's no "uncategorized" state and no neutral-default color to fall back to — every goal has a category from the moment it's created.
-- `achieved_at` (nullable timestamp) — set when the user manually flags the goal as achieved, distinct from a daily check-in. This marks the goal itself as done (e.g. "run a marathon" achieved once actually run), not just a single day's completion.
-- `archived_at` (nullable) — separate from `achieved_at`: archiving without achieving means the goal was dropped/abandoned, not completed.
+User-owned, never group-owned. Goals stay constant across every Circle a user belongs to.
 
-Marking a goal achieved doesn't retroactively touch `daily_completion` or streak history — it's a distinct, one-time event layered on top of the daily tracking. After flagging achieved, the user is prompted to either archive the goal, edit it into a new one, or keep it active (e.g. a recurring habit they've hit a milestone on but still want to track).
+- `id`, `user_id` (FK → users), `title`
+- `category_id` (FK → goal_categories, **required**, `ON DELETE RESTRICT`) — no uncategorized state
+- `deadline` (nullable, **unconstrained**) — personal and informational; recording a missed or historical deadline is legitimate, so a constraint here would fight the user
+- `achieved_at` (nullable, CHECK `<= now()`) — the goal itself is done, distinct from a daily check-in
+- `archived_at` (nullable, CHECK `<= now()`) — dropped rather than completed
+- `created_at`, `updated_at`
+
+Achieving doesn't touch `daily_completion` or streak history. After achieving, the user is prompted to archive, edit into a new goal, or keep it active.
 
 ### `goal_categories`
-**Moved into v1 scope** — required at goal creation (see above), so this table has to exist and be seeded before goal creation works at all, regardless of whether the eventual visualization ever consumes `color_hex`. Fixed preset list, not user-customizable.
-- `id` (uuid, PK)
-- `name` (e.g. "Fitness", "Learning", "Career", "Health")
-- `color_hex` — currently unused by any v1 UI (no visualization consumes it yet), kept populated anyway so it can be turned on later without a data migration.
+Fixed preset, seeded. Not user-customizable.
 
-**Launch seed data:**
+- `id`, `slug` (unique), `name` (unique), `color_hex` (CHECK `^#[0-9A-Fa-f]{6}$`)
 
-| Category | Hex |
-|---|---|
-| Fitness | `#FF3131` |
-| Hobbies | `#FF8A00` |
-| Career & Professional | `#FFD500` |
-| Health & Wellness | `#6EE62E` |
-| Finances | `#00D9A3` |
-| Productivity & Habits | `#1EC8FF` |
-| Mindfulness & Mental Health | `#8A4FFF` |
-| Social & Relationships | `#F730A8` |
-| Other | `#3355FF` |
+**Reference categories by `slug`, never by `id`.** The UUIDs are generated per-environment by the seed, so a hardcoded id works in one database and silently breaks in another.
 
-Full color rationale and color-wheel spacing reasoning is preserved in section 11 (deferred visualization docs) since that's where it actually matters — this table just needs the rows to exist for v1. Adding a new category later is a data insert, not a migration. Avoid changing an existing category's `color_hex` once goals reference it, for the same reason noted in section 11.
+Seeded: Fitness `#FF3131`, Hobbies `#FF8A00`, Career & Professional `#FFD500`, Health & Wellness `#6EE62E`, Finances `#00D9A3`, Productivity & Habits `#1EC8FF`, Mindfulness & Mental Health `#8A4FFF`, Social & Relationships `#F730A8`, Other `#3355FF`.
 
-### `content_reports`
-**Moved into v1 scope** — item 8 in the earlier gap audit resolved that check-in photos and notes need a report path, which makes this a v1 table, not a galaxy-dependent one. The sun-cutout use case (`planet_avatar`) stays deferred with the rest of the galaxy, but the table and its `checkin_photo`/`checkin_note` values are needed now.
-- `id` (uuid, PK)
-- `reporter_user_id` (FK → users)
-- `reported_user_id` (FK → users)
-- `content_type` (enum: `checkin_photo`, `checkin_note`, `planet_avatar` — the last one unused until the galaxy ships)
-- `content_reference` (the Storage path/URL, or for notes the entry's text, captured explicitly at time of report so later edits don't undermine a pending review)
-- `reason` (text, nullable, ~500 char cap per the input-validation policy)
-- `status` (enum: `pending`, `reviewed`, `actioned`, `dismissed`)
-- `created_at`, `reviewed_at` (nullable), `reviewed_by` (nullable, FK → users)
-
-Reviewing `pending` reports via a direct Supabase dashboard query is sufficient for v1 scale — no dedicated admin UI needed yet.
+Colours are bright rather than muted because they eventually render as glowing tints against a dark background, spaced ~40° apart on the wheel so all nine stay distinguishable. Adding a category later is a data insert. **Avoid changing an existing `color_hex`** once goals reference it — `category_id` is a live FK, so a change retroactively recolours everything using it.
 
 ### `groups`
-- `id` (uuid, PK)
-- `name`
-- `owner_id` (FK → users)
-- `deadline` (nullable timestamp)
-- `group_status` (enum: `active`, `locked`, `archived`)
-- `streak_decision_pending` (bool, default `false`) — set when a new member joins mid-streak and the owner hasn't yet decided continue/reset (see section 21)
-- `pending_streak_joiners` (jsonb array of user ids, default `[]`) — accumulates joiners awaiting that decision
-- `leaderboard_persists_across_cycles` (bool, owner-configurable, default `false`) — see section 21
-- `default_stats_view` (enum: `cycle_stats`, `leaderboard`, default `cycle_stats`) — see section 21
-- `created_at`
+- `id`, `name`, `group_status` (enum: `active`, `locked`, `archived`)
+- `streak_decision_pending` (bool), `pending_streak_joiners` (jsonb array) — see section 13
+- `leaderboard_persists_across_cycles` (bool, default `false`), `default_stats_view` (enum) — owner-configurable
+- `created_at`, `updated_at`
 
-Membership hard-capped at 10 via a trigger on `group_members` insert (`count(*) where group_id = X` must be < 10 before allowing insert).
+**No `owner_id`, no `deadline`.** Ownership lives only in `group_members` where `role = 'owner'`, guaranteed unique per group by a partial unique index. The active deadline lives on the open `group_cycles` row. Both columns existed and were removed as duplicated state with nothing keeping the copies in sync.
+
+**Owner succession** (added because removing `owner_id` removed its `ON DELETE RESTRICT`, the only thing preventing an ownerless circle). When an `owner` row is removed, `handle_membership_removal` promotes the **longest-tenured remaining member**, or archives the circle if nobody remains. RLS blocks a normal owner departure, so this fires mainly on account deletion — written defensively because an ownerless circle is unrecoverable and there's no second chance to notice.
 
 ### `group_members`
-Many-to-many. Users may belong to multiple groups simultaneously; there is no cap on groups-per-user, only members-per-group.
-- `group_id` (FK → groups)
-- `user_id` (FK → users)
-- `role` (enum: `owner`, `admin`, `member`)
-- `streak_grace` (bool, default `false`) — set when a member joins while `groups.current_streak > 0`; excludes them from `group_daily_completion` evaluation until the owner resolves the pending decision (see section 21)
-- `joined_at`
+- PK `(group_id, user_id)` — a relationship, so the pair is the identity and duplicates are impossible by construction
+- `role` (enum: `owner`, `admin`, `member`), `streak_grace` (bool), `joined_at`, `updated_at`
+- Partial unique index on `(group_id) where role = 'owner'` — one owner, structurally
+- Separate index on `user_id`: the composite PK serves "who's in this circle" but not "which circles am I in", which is the entire home dashboard
 
-Feed and digest queries always join through **current** `group_members` rows. A user who is kicked or leaves is structurally excluded from future reads — their historical `progress_entries` remain untouched in Postgres for data integrity, but nothing in the frontend surfaces them once membership ends.
+Feed and digest queries join through **current** rows. Someone kicked or departed is structurally excluded from future reads; their `progress_entries` remain for data integrity but nothing surfaces them.
 
 ### `group_cycles`
-Represents one deadline period for a group. Enables reset-without-data-loss and keeps historical cycles queryable.
-- `id` (uuid, PK)
-- `group_id` (FK → groups)
-- `started_at`
-- `ended_at` (nullable — null while active)
-- `deadline` (nullable — null means open-ended, never locks)
-- `current_streak`, `longest_streak` (ints, default 0) — the group streak, see section 21
+One run of a Circle's challenge, from creation or reset to its deadline.
 
-**In plain terms**: think of a "cycle" as one run of a group's challenge, from creation (or reset) to its deadline. A group always has exactly one *active* cycle (`ended_at IS NULL`) at a time, plus zero or more *past* cycles once it's been reset at least once.
+- `id`, `group_id`, `started_at`, `ended_at` (null while active), `deadline` (null = open-ended, never locks)
+- `current_streak`, `longest_streak` — the group streak
+- Partial unique index on `(group_id) where ended_at is null` — exactly one active cycle, structurally
+- CHECK: streaks non-negative; `ended_at >= started_at`
 
-- **On group creation**: the group-creation flow inserts the group's row *and* its first `group_cycles` row in the same transaction — `started_at = now()`, `deadline` set to whatever the creator chose (or null for open-ended). A group is never left without an active cycle; there's no "no cycle yet" state to handle.
-- **Walking through a reset**: say a group's deadline passes. `group_status` flips to `locked` (section 7). The admin picks "Reset." That closes the current cycle (`ended_at = now()` on that row) and inserts a brand-new `group_cycles` row (`started_at = now()`, fresh `deadline` per whatever the admin chose). `group_cycle_stats` for every current member resets to zero *for the new cycle only* — the old cycle's stats rows aren't touched, they just stop being the "current" ones since new `group_cycle_stats` rows are scoped to the new `cycle_id`.
-- **A member joining mid-cycle**: `group_cycle_stats` is keyed by `(group_id, cycle_id, user_id)`, so a new member simply gets a fresh row created for the *current* cycle when they join — `current_streak = 0`, starting from their own first check-in going forward. They're not retroactively scored against days before they joined.
-- **A member leaving and rejoining the same group**: their `group_cycle_stats` row for that cycle stays in the table when they leave (matches the general "historical data isn't deleted" pattern used elsewhere, e.g. `progress_entries`). If they rejoin the *same* cycle later, that old row is reused rather than duplicated — their streak simply reflects whatever gap exists in their check-in history, the same as anyone with a lapse. If they rejoin *after* the group has since reset into a new cycle, they get a fresh row for that new cycle, same as any other new member.
+A circle always has exactly one active cycle; there's no "no cycle yet" state. `create_circle()` inserts the group, the owner's membership, and the first cycle in one transaction.
+
+**On reset**: the current cycle closes (`ended_at` set) and a new row opens. `group_cycle_stats` rows are scoped to `cycle_id`, so new rows start at zero without touching history.
+
+**A member joining mid-cycle** gets a fresh `group_cycle_stats` row for the current cycle, starting at zero — never retroactively scored. **Rejoining the same cycle** reuses the old row, so their streak reflects the gap like any lapse.
 
 ### `invite_links`
-- `id` (uuid, PK)
-- `group_id` (FK → groups)
-- `token` (unique, indexed)
-- `enabled` (bool)
-- `created_by` (FK → users, must be owner/admin)
-- `expires_at` (nullable)
+- `id`, `group_id`, `token` (unique), `enabled` (bool), `expires_at` (nullable), `created_at`
+- `created_by` (nullable FK → users, `ON DELETE SET NULL`) — the row outlives its creator's account, since it's audit data
 
-Regenerating a link creates a new token row and disables the old one (kept for audit trail rather than deleted).
+Tokens are **server-generated only** — 32 CSPRNG bytes, URL-safe base64 (43 chars), via `create_invite_link()`. Clients hold no insert grant. **Default expiry is 7 days.** Regenerating disables the previous link rather than deleting it.
 
 ### `goal_group_visibility`
-Lets a user hide a specific goal from a specific group while still keeping it visible in others.
-- `goal_id` (FK → goals)
-- `group_id` (FK → groups)
-- `hidden` (bool, default `false`)
+Hides one goal from one Circle while keeping it visible in others.
 
-When hidden, other group members see a placeholder (rendered italicized as "hidden") in place of the goal's title/detail. The goal still counts toward that user's daily completion total — hiding affects display only, not the accountability math.
+- PK `(goal_id, group_id)`, `hidden` (bool, default `false`)
 
-Because this is a row per `(goal_id, group_id)` pair, visibility is fully independent per group: a user can hide Goal X in Group A while keeping it visible in Group B, and vice versa for Goal Y. No goal's visibility state is shared across groups.
+**Sparse: a missing row means visible.** Reads must `LEFT JOIN` and `coalesce(hidden, false)` — a plain lookup returns nothing for the common case, which is easy to mistake for an error. `private.is_goal_hidden_in_group()` encodes this once so nothing else has to remember.
 
-**In the galaxy specifically**: a hidden goal's ring/planet still renders, including its category color — hiding never removes the object from view, only the detail behind it. Tapping/hovering the planet as anyone other than the owner reveals nothing beyond its color; title, note, and photo stay masked exactly as they are elsewhere in the product.
+Hiding is display-only. The goal still counts toward daily completion; the accountability math is unaffected.
+
+**Not enforceable in the schema**: nothing prevents a row pairing a goal with a Circle its owner doesn't belong to. Foreign keys can't reach across tables like that, so RLS covers it.
 
 ### `progress_entries`
-One check-in per goal per day — this app tracks daily habits, not arbitrary-frequency logging.
-- `id` (uuid, PK)
-- `goal_id` (FK → goals)
-- `user_id` (FK → users)
-- `check_in_date` (date, not timestamp)
-- `note` (text, nullable)
-- `photo_url` (nullable, Supabase Storage path)
-- `created_at`
+One check-in per goal per day. Daily habits, not arbitrary logging.
 
-Unique constraint on `(goal_id, check_in_date)` enforced at the DB level — one entry per goal per day, not just a UI restriction.
+- `id`, `check_in_date` (date), `note`, `photo_url`, `created_at`
+- `goal_id`, `user_id` — both **nullable**, `ON DELETE SET NULL`
+- Unique `(goal_id, check_in_date)`
+- CHECK: `note` ≤ 500 chars
 
-`check_in_date` is computed against the user's **local device timezone**, not a fixed UTC cutoff — "today" should match what the day actually feels like to that person, especially since groups may span timezones. This means the client sends the local date (or a timezone offset) at check-in time rather than the server deriving it from a UTC timestamp; store the resolved date, not the timezone itself, to keep downstream queries simple.
+`user_id` is denormalized from `goals.user_id` so RLS and rollups filter by user without joining `goals` on the hottest read path. The `validate_progress_entry_owner` trigger rejects any row whose `user_id` doesn't match the parent goal's owner, so the duplication can't drift.
 
-**Check-in gating**: a user can check in on a given goal once every 24 hours, with the day boundary at **2 AM local time** rather than midnight — so "today" for check-in purposes runs 2 AM to 2 AM, not midnight to midnight. This accommodates people checking in late at night without it counting as "tomorrow." `check_in_date` is derived using this 2 AM cutoff (i.e. a check-in at 1:30 AM Tuesday still resolves to Monday's date). Enforced the same way as before — DB-level unique constraint on `(goal_id, check_in_date)` — just with the date computed against a 2 AM boundary instead of a midnight one.
+**Why both FKs are nullable**: section 11 requires check-ins to survive account deletion in anonymized form, since other members' historical stats are computed against them. Nullable means "anonymized", never "a live check-in without a goal".
 
-**Timezone travel**: reading the device's *live* timezone on every check-in request would let a mid-day timezone change (e.g. flying) either grant a second same-day check-in or skip a day's eligibility, depending on direction of travel. Recommended fix: freeze the timezone used for boundary calculation at each rollover, rather than re-reading it live per request. Concretely, store `users.checkin_timezone` (the timezone active at the most recent 2 AM rollover for that user) alongside a `checkin_day_started_at` timestamp; `check_in_date` for the current cycle is computed against `checkin_timezone`, not whatever timezone the device currently reports. The stored timezone only updates at the *next* natural rollover, computed from wherever the device is at that moment — so a mid-flight check-in might feel slightly off by a few hours until the next boundary, but exactly one 24-hour window is guaranteed per cycle regardless of travel, closing off both the double-check-in and skipped-day cases.
+**Anonymized rows are invisible to clients through NULL semantics.** Both RLS predicates evaluate to NULL/false when `user_id` is null, so deleted-account rows are hidden from every client while remaining available to `service_role`. This emerges from three-valued logic rather than an explicit rule — a future rewrite adding a `coalesce` or `IS NOT DISTINCT FROM` would expose them. NULLs also being distinct means anonymized rows never collide under the unique constraint.
+
+**`check_in_date` is computed server-side, not sent by the client.** `private.current_checkin_date()` derives it from the user's frozen `checkin_timezone` under a 2 AM boundary (subtract 2 hours, cast to date), so 01:30 Tuesday resolves to Monday. The INSERT policy requires an exact match and the column is excluded from the UPDATE grant. Without this a client could post backdated check-ins and fabricate an unbroken streak.
+
+**Timezone travel is closed by freezing.** Reading the device's live timezone per request would let a mid-day flight grant a second check-in or skip a day. `checkin_timezone` updates only at a natural rollover via `sync_checkin_timezone()`, which is a **no-op mid-day**. A mid-flight check-in may feel a few hours off until the next boundary, but exactly one window per day is guaranteed.
 
 ### `daily_completion`
-Derived table, populated by a trigger after each check-in. Tracks whether a user completed **all** of their active goals (visible and hidden) on a given day — this is the binary the streak system is built on.
-- `user_id` (FK → users)
-- `date`
-- `all_completed` (bool)
+Derived. Whether a user completed **all** active goals (visible and hidden) that day — the binary the whole streak system rests on.
 
-**Zero-goal days break the streak.** `all_completed` evaluates currently-active goals (`archived_at IS NULL AND achieved_at IS NULL`); if a user has **zero** active goals on a given day, `all_completed` is written as `false` — it does **not** count as vacuously complete, and it does **not** get skipped as neutral. Reasoning: there's no point using the product or being in a group without at least one active goal, so a goal-less day is a real failure state, not an exempt one, for both individual streaks and the group streak (see the Group Streak section below, which is built on this same principle). Practically, "active goals on that day" is evaluated at the day's rollover boundary (2 AM local, per the check-in gating rule above).
+- PK `(user_id, date)`, `all_completed` (bool)
+
+**Zero-goal days are `false`, not vacuously true and not skipped.** There's no point being in the product without a goal, so a goal-less day is a real failure for both individual and group streaks.
 
 ### `group_cycle_stats`
-Per-group, per-cycle streaks. Resets to zero whenever a group cycle resets.
-- `group_id`, `cycle_id`, `user_id`
-- `current_streak`
-- `longest_streak_in_cycle`
+Per-cycle, per-member streaks.
 
-### `user_lifetime_stats`
-Persists across every cycle and every group — independent of any single group resetting.
-- `user_id` (PK)
-- `current_streak`
-- `longest_streak_ever`
-- `total_days_completed`
-- `total_goals_achieved` (incremented via trigger when a `goals` row gets `achieved_at` set)
-- `visible_on_profile` (bool, default `false`) — user-controlled opt-in. When `true`, these stats are readable by anyone who can view the user's profile (any shared group); when `false`, visible only to the user themselves.
-
-Both stats tables update off the same `daily_completion` trigger, scoped differently. RLS on `user_lifetime_stats` reads follow `visible_on_profile`: owner always sees their own row, others only see it when the flag is on.
-
-### `notifications`
-Backs the in-app notifications subtab.
-- `id` (uuid, PK)
-- `user_id` (FK → users)
-- `type` (enum: `digest`, `kicked`, `invite_accepted`, `admin_transfer_request`, `group_locked_renewal`) — `cosmetic_unlocked` deliberately excluded from the v1 enum since the unlock system it belongs to is deferred; re-add it as an enum value when the galaxy ships rather than carrying dead weight now.
-- `payload` (jsonb)
-- `read_at` (nullable)
-- `created_at`
-
-`kicked`, `admin_transfer_request`, and `group_locked_renewal` are immediate/transactional. `digest` is the once-daily batched type, written by the scheduled digest job. (`cosmetic_unlocked` will join this list when the galaxy ships — see section 12.)
-
-### `push_subscriptions`
-Standard Web Push (VAPID) subscription storage, keyed by user with support for multiple devices per user.
-- `id` (uuid, PK)
-- `user_id` (FK → users)
-- `endpoint` (unique, the browser-provided push endpoint URL)
-- `p256dh`, `auth` (subscription keys required by the Web Push protocol)
-- `device_label` (nullable, e.g. "iPhone" vs "Desktop" — cosmetic, helps a user manage their own subscriptions in settings)
-- `created_at`
-
-The digest job and immediate-notification triggers (`kicked`, `admin_transfer_request`, `group_locked_renewal`) fan out to every active subscription row for a user, not just one — covers the case of a user with the PWA installed on multiple devices.
-
-**iOS platform gap and onboarding nudge**: Web Push on iOS Safari only works for a PWA added to the home screen (iOS 16.4+) — a user who just uses it as a browser tab gets no push at all, silently. Since notifications (digest, unlocks, kicks, etc.) all persist in the `notifications` table regardless of push delivery, nothing is ever truly lost — but push is the mechanism that pulls a user back into the app, so its absence meaningfully weakens the product's core "friends motivate each other" loop for anyone who skips installing it. Onboarding must include an explicit "add to home screen" step/prompt (with instructions, since iOS doesn't offer a native install prompt the way Android does) rather than leaving this to chance.
-
-### `digest_snapshots`
-Cache of each day's computed group summary — the homescreen "your groups at a glance" subtab and the daily push notification both read from this same table, keeping notification content and in-app summary consistent.
-- `group_id`, `date`
-- `summary` (jsonb — per-member completion status, streak deltas)
-
-### `user_blocks`
-Added in section 20 (item 11). Blocks the blocked user from viewing the blocker's profile/galaxy (overriding the opt-in visibility toggle) and from joining any group via an invite link the blocker currently administers.
-- `blocker_user_id` (FK → users)
-- `blocked_user_id` (FK → users)
-- `created_at`
+- PK `(cycle_id, user_id)` — **no `group_id`**: `group_cycles` already determines it. Reach the group through the cycle.
+- `current_streak`, `longest_streak_in_cycle`, `updated_at`
+- CHECK: non-negative; `longest >= current`
 
 ### `group_daily_completion`
-Derived table backing the group streak (section 21). Populated at each day's 2 AM rollover.
-- `group_id` (FK → groups)
-- `cycle_id` (FK → group_cycles)
-- `date`
-- `all_members_completed` (bool) — `true` only if every **current** member's `daily_completion.all_completed` is `true` for that date. A member who left or was kicked mid-day doesn't factor in; only who's a current member at rollover time counts.
+Derived, backs the group streak.
+
+- PK `(cycle_id, date)` — **no `group_id`**, same reasoning
+- `all_members_completed` (bool) — true only if every current non-grace member completed everything
 
 ### `group_member_category_stats`
-Backs the leaderboard (section 21). Per-user, per-category stats scoped to a group.
-- `group_id` (FK → groups)
-- `user_id` (FK → users)
-- `category_id` (FK → goal_categories)
-- `total_completions` (int, default 0)
-- `total_possible` (int, default 0)
-- `current_streak`, `longest_streak` (ints, default 0)
+Backs the leaderboard.
 
-## 4. Row Level Security
+- PK `(group_id, user_id, category_id)` — `group_id` **is** load-bearing here; nothing else in the row determines it
+- `total_completions`, `total_possible`, `current_streak`, `longest_streak`, `updated_at`
+- CHECK: non-negative; **`total_completions <= total_possible`** (a rate above 100% is meaningless, so this catches double-counting at the source); `longest >= current`
 
-RLS is the primary access-control mechanism, not application-layer checks alone.
+### `user_lifetime_stats`
+Persists across every cycle and Circle.
 
-- **Goals / progress visibility**: a user can view another user's `progress_entries` only if both share at least one common row in `group_members` (subquery: viewer's groups ∩ target's groups, non-empty). This is more expensive than a flat friend-graph check, so the resulting "visible user ids" set is cached per-user in Redis and invalidated on group join/leave.
-- **Hidden goals**: RLS still allows the row to be read (needed for aggregate completion counts), but the API layer masks `title`/`note`/`photo_url` when `goal_group_visibility.hidden = true` for the requesting viewer's context.
-- **Group admin actions** (kick, invite link management, deadline changes): restricted to rows where the requesting user's `group_members.role` is `owner` or `admin`. **The owner is exempt as a target**: an admin can kick or otherwise act on any `member`, but never on the `owner`'s own `group_members` row — kicking or demoting the owner is blocked regardless of the actor's role. The only way an owner's role changes is the owner-initiated transfer flow described below.
-- **Owner-only actions**: leaving as owner is blocked at the application layer until an ownership transfer completes — the owner must hand off the `owner` role to another admin/member before their own `group_members` row can be deleted.
-- **`notifications`**: readable and writable (for `read_at`) only where `user_id = auth.uid()` — strictly private, no other user or group role can read someone else's notifications.
-- **`push_subscriptions`**: readable/writable only where `user_id = auth.uid()`.
-- **`daily_completion`**: same visibility rule as `progress_entries` — readable by a user who shares a group with the target user, since streak/completion status needs to surface in group-facing UI (digest, member lists).
-- **`group_cycle_stats`**: readable by members of that specific group (`group_id` in the viewer's `group_members`) — streak data is inherently group-scoped.
-- **`audit_log`**: no client-facing read policy for v1 — there's no admin UI to display it yet, so it's written by trusted server-side triggers and queried directly (e.g. via Supabase dashboard) rather than exposed through the app. Revisit if a UI for it gets built later.
-- **`content_reports`**: a reporter can read their own submitted reports (to see status); the `reported_user_id` gets **no** read access to reports made against them — revealing who reported what would undermine the reporting system and could enable retaliation. Review happens via direct Supabase dashboard query per the existing v1 approach, not through a client-facing admin role.
-- **`user_blocks`**: a user can read their own outgoing blocks (`blocker_user_id = auth.uid()`) to manage their block list. The blocked user gets no read access to check whether they've been blocked — blocking's effects (hidden profile, blocked invite joins) are enforced server-side in the relevant queries, not by letting the blocked user query the block table directly.
-- **`username_history`**: no client read policy at all — never surfaced in the UI, accessed only via service role for support/moderation lookups.
+- `user_id` (PK), `current_streak`, `longest_streak_ever`, `total_days_completed`, `total_goals_achieved`
+- `visible_on_profile` (bool, default `false`) — opt-in, and the **only** client-writable column
+- CHECK: non-negative; `longest_streak_ever >= current_streak`; `longest_streak_ever <= total_days_completed`
 
-## 5. Realtime Architecture
+**One row per user, created at signup** by `handle_new_user()`, so no read path has to distinguish "no row yet" from "all zeroes".
 
-Real-time updates are deliberately **not** used for the main progress feed — the product uses a daily batched digest instead of live pushes, which avoids notification fatigue and matches the "daily habit" framing rather than a constant-activity feed.
+### `notifications`
+- `id`, `user_id`, `type` (enum), `payload` (jsonb), `read_at`, `created_at`
+- Indexes: `(user_id, created_at desc)` for the feed; **partial** on `(user_id) where read_at is null` for the unread badge, since unread stays a small slice of a table that grows forever; `(created_at)` for the retention sweep
 
-Supabase Realtime is reserved for:
-- Immediate notification types (`kicked`, `admin_transfer_request`, `group_locked_renewal`) — these should appear promptly, not wait for the next digest cycle.
-- Any future in-app presence features (e.g. "who's currently viewing this group").
+| Type | Written by | When |
+|---|---|---|
+| `digest` | `build_daily_digests()` | daily, one per member per Circle |
+| `kicked` | `handle_membership_removal` | on a genuine kick, never on leaving or account deletion |
+| `invite_accepted` | `join_circle()` | to every existing member when someone joins |
+| `group_locked_renewal` | `run_daily_rollover()` | to the owner, once, on the lock transition |
+| `deadline_changed` | `set_circle_deadline()` | to every member except whoever made the change |
 
-## 6. Daily Digest System
+Every value has a writer. `cosmetic_unlocked` is deliberately absent until the galaxy ships — add the value in one migration, use it in the next.
 
-1. A scheduled job (pg_cron or Vercel Cron → Edge Function) runs once daily per group.
-2. For each group, compute per-member completion status for the prior day from `daily_completion`, plus streak deltas from `group_cycle_stats`.
-3. Write the result to `digest_snapshots`.
-4. Send one push notification per group per user (not one combined notification across all groups) — **teaser format**: e.g. "3 friends checked in today — tap to see," deep-linking into the homescreen subtab.
+**`admin_transfer_request` was dropped from this enum.** It implied transfer required the recipient's acceptance, but `transfer_ownership` completes immediately, and automatic succession already assigns ownership without consent when an owner deletes their account — so requiring consent on one path and not the other would have been inconsistent. Removing it meant rewriting the type, which Postgres can't avoid; doing it pre-launch with zero rows was as cheap as it will ever be.
 
-Teaser format was chosen over a named/detailed summary for two reasons: iOS truncates long notification bodies, and a detailed payload risks surfacing hidden-goal-adjacent information on a lock screen, outside the app's access controls.
+`payload` is an **immutable snapshot** — see the denormalization rule under `users`.
 
-The homescreen subtab and the notification both read from the same `digest_snapshots` row for a given day, so there's no risk of the in-app summary and the notification disagreeing.
+### `push_subscriptions`
+- `id`, `user_id`, `endpoint` (**globally** unique — registering twice would double-deliver), `p256dh`, `auth`, `device_label`, `created_at`
+- CHECK: `endpoint` matches `^https://`
 
-## 7. Group Lifecycle: Deadlines, Locking, Renewal
+Jobs fan out to every subscription for a user, covering multi-device installs.
 
-- A group with no deadline never locks.
-- **Deadline-notice rule, rescoped**: the 2-day advance notice only applies when a deadline is being *introduced for the first time* or *moved sooner* than it currently is — both of which reduce the time members have to prepare. Extending a deadline further out, or removing it entirely (going open-ended), takes effect immediately with no wait, since that only ever gives people more time, never less. Enforced as `new_deadline >= now() + interval '2 days'` only when `new_deadline` is null→non-null or earlier than the current `deadline`; skipped otherwise. This also resolves what happens during the "Continue" renewal path below, which is always an extension case and so never needs the wait.
-- When a cycle's deadline passes, `group_status` flips to `locked`. Check-ins are blocked. Members see a summary/congratulations screen computed from the cycle's aggregated `progress_entries` and `group_cycle_stats`.
-- The admin/owner is prompted (immediate notification) to either:
-  - **Continue**: keep the same cycle's goals/history intact, extend the deadline or remove it (open-ended) — immediate, no notice period, per the rescoped rule above.
-  - **Reset**: close the current `group_cycles` row (`ended_at` set), open a new cycle. `group_cycle_stats` zero out for the new cycle. `user_lifetime_stats` are unaffected — they persist independently of any cycle reset.
+**iOS gap**: web push only works for a PWA added to the home screen (16.4+), and iOS offers no native install prompt. A user who skips it silently gets nothing. Notifications persist in the table regardless, so nothing is lost — but push is what pulls people back, so onboarding must include an explicit add-to-home-screen step.
 
-### Group streaks & consistency rankings — resolved, see section 21
+### `digest_snapshots`
+- PK `(group_id, date)`, `summary` (jsonb, immutable snapshot), `created_at`
 
-Raised during an earlier review as an idea worth a dedicated pass, the same way the galaxy got one — now fully designed in section 21 (Group Streak & Leaderboard).
+The Overview subtab and the push notification read the same row, so they can't disagree.
 
-## 8. Photo Check-Ins
+### `content_reports`
+- `id`, `content_type` (enum), `content_reference`, `reason` (≤500), `status` (enum), `created_at`, `reviewed_at`, `reviewed_by`
+- `reporter_user_id`, `reported_user_id` — nullable, `ON DELETE SET NULL`: a report must outlive the accounts involved
+- CHECK: `reviewed_at >= created_at`; **status/review consistency** — `pending` must have null `reviewed_at`, non-pending must have one. Makes "resolved but no record of when" unrepresentable.
+- CHECK: `reporter_user_id <> reported_user_id`
+- Index: partial on `(created_at) where status = 'pending'` — the moderation queue
 
-- Accepted input formats: HEIC (iPhone default), JPG, PNG.
-- HEIC is converted client-side before upload — it isn't reliably renderable outside Safari/iOS, so nothing stores the raw HEIC.
-- All uploads are normalized to **WebP**: resized to a max dimension (~1600px, sufficient for a progress photo), compressed to ~75-80% quality, performed in-browser (canvas or a library such as `browser-image-compression`) before hitting Supabase Storage.
-- Max pre-compression upload size: 10MB (accounts for large HEIC originals; compression brings the stored file down well below this).
-- Rate limiting on the upload endpoint via Upstash's ratelimit package — a sliding window per user (e.g. ~20 uploads/hour), generous for legitimate daily use while blocking abuse.
-- **Retention**: photos auto-delete once their `group_cycles.ended_at` passes. The scheduled cleanup job sweeps `progress_entries` for rows tied to an ended cycle, deletes the corresponding Supabase Storage object, and nulls `photo_url` on the row. The entry itself (and its contribution to stats) is preserved — only the photo is dropped.
+`content_reference` snapshots the flagged content at report time so later edits can't undermine a pending review. Review happens via Supabase dashboard at v1 scale.
 
-## 9. Groups & Invites
+### `user_blocks`
+- PK `(blocker_user_id, blocked_user_id)`, both `ON DELETE CASCADE` — a block is meaningless once either party is gone
+- CHECK: no self-blocking
+- Index on `blocked_user_id` for the "who blocked me" lookup that filters invite joins
 
-- Groups are **invite-only**: join via a shareable invite link (`invite_links.token`) or a direct invite.
-- Owner/admins can enable, disable, or regenerate the invite link at any time. Enabling a link first checks current `group_members` count — if the group is already at 10, the enable action is blocked with a "group full" state rather than producing a link that can't actually be used.
-- A user opening an invite link who isn't authenticated is routed through registration/sign-in (Google) before the join completes — the invite token is held through the auth redirect so they land back on the join confirmation afterward rather than losing the invite context.
-- Joining is blocked once a group reaches 10 members — hard cap, enforced at the DB level, not adjustable per-group. This is an intentional product constraint to keep circles small and check-ins socially enforced. Since membership can change between link generation and link use, this check happens again at join time, not just at link-enable time.
-- Roles: `owner` (one per group, can transfer but not leave without transferring first), `admin` (can kick members, manage invite links), `member` (can leave at any time, no admin privileges). No cap on the number of admins a group can have — the owner can promote any subset of members. This is left uncapped deliberately since the 10-member hard cap already bounds the risk of over-promotion; enforcing a separate admin limit would add complexity without a clear benefit at this scale.
-- **Admins cannot act on the owner**: kicking and demoting are both scoped to targets with role `member` or `admin` — an admin (promoted or otherwise) can never kick or demote the `owner`, regardless of how many admins a group has. Only the owner can change their own role, via the transfer flow, and only the owner can demote another admin back to `member`. This prevents a promoted member from ever removing or downgrading the person who promoted them.
-- Kicked members receive an immediate notification and lose access to the group's data going forward; their historical progress rows remain in Postgres but are excluded from all future queries once their `group_members` row is removed.
-
-## 10. Group List Display
-
-- `locked` and `archived` groups are never removed from the user's group list — they move into a distinct "Archived" section rather than disappearing.
-- A user setting toggles whether archived groups are shown at all in the main list view — **defaults to on**, so archived groups are visible unless the user turns them off.
-- Note the distinction: `locked` (deadline passed, awaiting admin renewal decision) is not the same as `archived` (cycle explicitly ended/reset or group otherwise retired) — both live in the archived section, but the summary/congratulations screen only applies to freshly `locked` groups, not long-archived ones.
-
-Invite links do not use a max-use count; capacity is governed solely by the group-space checks described above (at enable time and again at join time). No separate usage-limit field needed on `invite_links`.
-
-## 11-15. Phase 2 (Deferred) — Galaxy System
-
-**Everything in sections 11 through 15 is deferred, not v1 scope** — see the V1 scope note in section 1. Kept in full below since the design work is done and shouldn't be redone later, but none of it should be built until the functional core (sections 3-10, 16-20) is working end to end.
-
-## 11. Galaxy / Visual Progression Data Model
-
-Backs the frontend "galaxy" visualization (full design discussion lives in `frontend-visual-design.md`) — the following is the data side of it, kept in the core architecture since it's driven by goal completion events, not just a rendering concern.
-
-### `goal_categories` — moved to section 3 (v1 scope)
-
-Full color rationale, moved here for reference since it only matters once the galaxy renders these colors: colors are pitched bright/saturated rather than muted so they work as glowing tints on stars and planets against a dark space background. The palette is respaced around the color wheel at roughly 40° of hue separation between neighbors so all nine stay visually distinct at a glance — granularity was worth keeping over merging when Finance and Health's greens originally clashed. "Fixed at launch" means no self-serve in-app UI for creating categories, not that the table is immutable — adding one later is a data insert. Avoid changing an existing category's `color_hex` once goals reference it: `goals.category` is a live FK (unlike `galaxy_stars`, which denormalizes color at time of achievement), so a change would retroactively recolor every ring/planet using it.
-
-### `galaxy_stars`
-A ledger of star-generation events, rather than deriving stars implicitly from `goals` at render time — keeps the frontend query simple (just fetch this table) and gives an explicit, append-only record independent of whether the source goal later gets edited or archived.
-- `id` (uuid, PK)
-- `user_id` (FK → users)
-- `goal_id` (FK → goals)
-- `category_id` (FK → goal_categories, denormalized copy of the goal's category **at the time of achievement** — so if a user later changes a goal's category, past stars keep their original color rather than retroactively shifting)
-- `color_hex` (denormalized copy of the category's color at time of achievement, same reasoning)
-- `star_count` (small int — how many stars this achievement event adds, in case that's tuned later e.g. by streak length rather than always a flat amount)
-- `created_at`
-
-Row is inserted by the same trigger/flow that sets `goals.achieved_at` — one `galaxy_stars` row per achievement event. This keeps "stars added" as a discrete, replayable history rather than something computed on the fly from scattered goal states, which matters for the aggregation/nebula-clustering strategy mentioned as an open question in the frontend doc (aggregation can operate on this table by age/count without touching the underlying goals data).
-
-### `users` (additional galaxy fields)
-Supports the custom "sun" overlay described in the group galaxy view (see `frontend-visual-design.md`).
-- `planet_avatar_url` (nullable) — the user's hand-cropped cutout image, stored in Supabase Storage, used in place of the default dimmed profile photo on their sun.
-- `planet_avatar_crop` (jsonb, nullable) — crop/positioning parameters (offset, scale, shape mask reference) kept alongside the cropped asset so the crop can be re-edited later without re-uploading the source photo.
-
-This is per-user, not per-group — the same custom sun renders in every group the user belongs to, consistent with goals being user-owned rather than group-owned elsewhere in this schema.
-
-### `content_reports` — moved to section 3 (v1 scope)
-
-The `planet_avatar` content type (sun cutout reporting) stays unused until the galaxy ships; the table itself and its `checkin_photo`/`checkin_note` values are already live in v1.
-
-## 12. Unlock Track System (Galaxy Cosmetics)
-
-Backs the frontend's permanent planet/sun style rewards (see `frontend-visual-design.md`). Structured as independent tracks per achievement mechanism rather than one combined ladder, so progress on any single axis (streaks, consistency, total achievements) rewards a user regardless of which they lean into.
-
-### `unlock_tracks`
-- `id` (uuid, PK)
-- `name` (e.g. "Streak Track", "Consistency Track", "Achievement Track")
-- `metric` (enum: `longest_streak_ever`, `total_days_completed`, `total_goals_achieved`) — which `user_lifetime_stats` field drives this track's progress.
-- `reward_category` (enum: `planet_style`, `sun_style`, `nebula_effect`) — which cosmetic slot this track's unlocks apply to.
-
-### `unlock_tiers`
-- `id` (uuid, PK)
-- `track_id` (FK → unlock_tracks)
-- `threshold_value` (int — the metric value required to reach this tier)
-- `tier_order` (int, for display ordering)
-- `reward_reference` (identifier for the specific style asset unlocked)
-
-### `user_unlocks`
-- `user_id` (FK → users)
-- `tier_id` (FK → unlock_tiers)
-- `unlocked_at`
-
-Populated by a trigger watching `user_lifetime_stats` updates — whenever a tracked metric crosses a tier's `threshold_value`, insert the corresponding `user_unlocks` row. Deliberately keyed off `longest_streak_ever` rather than `current_streak` for the Streak Track, since these are permanent rewards — a broken streak shouldn't retroactively revoke something already earned.
-
-Adding a new tier or an entirely new track later is a data insert into these tables, not a code change or migration, consistent with how `goal_categories` is managed.
-
-### Equipped styles
-Unlocking a tier (via `user_unlocks`) makes a style *available*, not automatically active — a user can have multiple unlocked planet styles, for instance, and choose which one is currently showing.
-- `users.equipped_sun_style_id` (nullable FK → `unlock_tiers`, filtered to `reward_category = sun_style`)
-- `goals.equipped_planet_style_id` (nullable FK → `unlock_tiers`, filtered to `reward_category = planet_style`) — planet styles are equipped per-goal, not globally, since each goal has its own ring/planet
-- `users.equipped_nebula_style_id` (nullable FK → `unlock_tiers`, filtered to `reward_category = nebula_effect`)
-
-**Default when unequipped**: if any of these fields is null (e.g. right after a fresh unlock, before the user has made an active choice), the renderer falls back to the **highest-tier unlocked style** on that track — not the very first/lowest one. This means a new unlock is visible immediately without requiring the user to go equip it manually, while still respecting an explicit choice if they've set one.
-
-**Unlock notifications**: unlocking a tier fires a `cosmetic_unlocked` notification (see the `notifications` table above), separate from and in addition to inserting the `user_unlocks` row — the trigger that writes `user_unlocks` also writes the notification, so a user is told what they earned rather than discovering it silently next time they open the galaxy.
-
-**Launch seed data** — each track maps to one reward category, chosen for thematic fit: streaks are about sticking with one thing (→ planet styles), total days completed is a whole-person cross-goal metric (→ sun styles, layered on top of the 4 free onboarding sun choices), and total goals achieved already drives star/nebula generation (→ nebula effect variants).
-
-| Track | Metric | Reward | Tier thresholds |
-|---|---|---|---|
-| Streak Track | `longest_streak_ever` (days) | Planet styles | 3, 7, 14, 30, 60, 100, 180, 365 |
-| Consistency Track | `total_days_completed` | Sun styles | 3, 7, 14, 25, 50, 75, 100, 200, 365, 500, 750, 1000 |
-| Achievement Track | `total_goals_achieved` | Nebula effects | 1, 3, 7, 15, 30, 50, 100, 200 |
-
-Spacing is deliberately front-loaded — tight early tiers for a fast first reward, wider gaps later for long-term retention. The final tier on each track (365-day streak, 1000 days, 200 goals) is a "flagship" prestige reward, visually distinct from earlier tiers in the same track (e.g. an animated trail, a corona effect, or — for the top nebula tier specifically — an effect that breaks the normal 3-color/5-category blend rule as a deliberate rarity signal). The baseline nebula color-blending behavior (up to 3 categories, gated behind 5 categories achieved) stays universal for every user regardless of tier; Achievement Track rewards add shape/effect variants on top of it, not new colors. Exact visual assets for each tier are deferred — this table fixes the progression structure and thresholds only.
-
-## 13. Galaxy Cosmetic Asset Hosting
-
-Planet styles, sun styles, and nebula effect variants are a small, fixed set of assets identical for every user — fundamentally different from check-in photos or avatar cutouts, which are per-user, dynamic, and access-controlled. That difference should drive where they live.
-
-**Recommendation: static assets served from Vercel's edge network (Next.js `public/` or a dedicated asset build step), not Supabase Storage.**
-
-Reasoning: Supabase Storage is built for dynamic, access-controlled, user-generated content — every read goes through Supabase's infrastructure and (where applicable) RLS-equivalent bucket policies. Cosmetic assets need none of that: they're the same for everyone, never change per-request, and aren't sensitive. Routing them through Storage adds a network hop and infrastructure that doesn't buy anything here. Static assets on Vercel's CDN, by contrast, can be served with long-lived, immutable `Cache-Control` headers — once a device has fetched a style texture, it never needs to fetch it again, which matters directly for the "quick to load" priority on repeat visits.
-
-**Format**: pack styles into texture atlases/spritesheets (one atlas per `reward_category`, e.g. all planet styles in one image) rather than individual files per style. PixiJS batches draw calls far more efficiently from a shared atlas than from many separate textures, and it collapses what could be dozens of HTTP requests into a handful.
-
-**Loading strategy**: only load the atlas for a style category when it's actually needed. The initial galaxy load only needs the *currently equipped* styles' textures (one planet style per active goal, one sun style, one nebula style) — not the full library of everything the user has unlocked. The full atlas of unlocked-but-inactive options only needs to load when the user opens a style-selection/customization screen. This keeps the home dashboard's initial payload as small as possible, consistent with the galaxy now being the first thing rendered on every app open.
-
-**Versioning**: filename/path includes a content hash or version number (standard practice, and something Next.js's build pipeline does automatically for bundled assets) so that updating or adding a style doesn't require invalidating the cache for existing ones.
-
-## 14. Group Composite Galaxy View — Performance Approach
-
-The composite view (up to 10 member sub-galaxies at once) has different data needs than an individual galaxy load, and reusing the per-user full snapshot (section 15 below) for all 10 members would fetch far more data than the composite actually renders — it only needs lightweight LOD stand-ins, not each member's full star field and ring set.
-
-**Recommendation: a dedicated, incrementally-updated Redis structure per group, separate from the per-user galaxy snapshot.**
-
-Use a Redis hash keyed by group: `HSET group_composite:{group_id} {user_id} {compact_json}`, where each member's value is a small payload with only what the LOD view renders — username, equipped sun style/avatar reference, active goal count (ring count), today's overall completion status, and a rough category-color summary for a mini nebula preview. No individual star lists, no per-goal detail.
-
-This structure has two performance advantages over recomputing from the per-user snapshots on every group view load. First, reading the whole composite is a single `HGETALL`, bounded at 10 entries — cheap and fast regardless of how large any individual member's actual galaxy has grown. Second, updates are incremental: when a member checks in, achieves a goal, or unlocks a cosmetic, only their one hash field needs to be rewritten (`HSET group_composite:{group_id} {user_id} {new_json}`) — not the whole group's payload. Extend the same event handlers that already update the per-user Redis snapshot (section 15) to also loop over that user's `group_members` rows and patch each relevant group's composite hash — cheap fan-out, since a user is realistically in a handful of groups at most.
-
-**On the rendering side**: the composite scene should never instantiate full individual galaxy scene graphs for all 10 members — only the lightweight LOD stand-ins (matching the recommendation already in the frontend doc). When the user zooms into one member, that's a distinct route transition (already decided) into the normal individual galaxy screen, which fetches that member's full per-user Redis snapshot fresh at that point — there's no need to preload or keep full-detail data warm for members who haven't been zoomed into.
-
-## 15. Galaxy Initial Load Caching (Redis)
-
-Resolves the frontend doc's initial-load-strategy question: **Option A**, a cached snapshot shown instantly while live data hydrates behind it — implemented via Upstash Redis rather than a client-only service worker cache, consistent with Redis's existing role elsewhere in this doc (feed caching, visibility-set caching).
-
-- On any write that changes a user's galaxy state (check-in, achievement, star generation, unlock), the API recomputes and writes a compact JSON snapshot of that user's galaxy (rings, planet states, recent stars, unlock status) to Redis, keyed by `user_id`.
-- On galaxy load, the client fetches from this Redis-backed endpoint first — a fast key lookup, not a live Postgres join across `goals`, `daily_completion`, `galaxy_stars`, and `user_unlocks` — so the initial payload arrives fast enough to render near-instantly. **On a cache miss or Redis error, the endpoint falls back to running the live Postgres join directly** (slower, but correct) rather than failing the request — per the fast-path-not-source-of-truth rule stated in section 2.
-- This complements, rather than replaces, client-side caching (e.g. a service worker holding the last-rendered frame for the very first paint before any network round-trip completes) — Redis solves the "server response is slow because of complex joins" problem, client caching solves the "network round-trip itself takes time" problem. Both apply.
-
-## 16. Account Lifecycle: Deletion & Export
-
-- Self-serve, in-app deletion flow — not a support-ticket process. Apple's App Store review expects apps offering account creation to also offer in-app account deletion, and given OAuth sign-in plus stored photos/notes, a manual-only path isn't a great experience anyway.
-- Deletion triggers a cascade job (Edge Function, not a raw `ON DELETE CASCADE` at the schema level, since some data needs different handling): remove the user's `push_subscriptions`, `goals`, `progress_entries` photos from Storage, `planet_avatar_url`/`planet_avatar_crop` assets, and their `group_members` rows. `progress_entries` rows themselves are anonymized (user reference nulled or replaced with a "deleted user" placeholder) rather than hard-deleted where they're load-bearing for other members' historical group stats, rather than outright removed — deleting them entirely would retroactively corrupt other members' `group_cycle_stats` for cycles they shared.
-- Data export: a simple on-demand job that compiles the user's own `goals`, `progress_entries`, `user_lifetime_stats`, and profile data into a downloadable JSON, delivered via a signed Storage URL. Lower priority than deletion, but straightforward to build on the same job infrastructure.
-
-## 17. Deferred / Future Work
-
-- Exact digest notification copy/format per group size (e.g. behavior when only 1-2 members checked in vs the whole group) — to be designed later, not a blocking architectural decision.
-
-## 18. Security & Gap Audit — Resolved
-
-All items from the architecture/frontend gap audit, resolved:
-
-1. Hidden goals in the galaxy — a hidden goal's ring/planet **still renders** in the galaxy, including its category color, even to other group members. What's suppressed is only the detail on interaction: tapping/hovering the planet as anyone other than the owner reveals nothing beyond its color — no title, note, or photo. This keeps the galaxy visually honest (progress is perceptible) while preserving the same content-hiding guarantee used everywhere else in the product.
-2. Daily shine reset — purely derived, no scheduled job. "Shining" was never a stored state; the frontend just checks whether a `progress_entries` row exists for the current `check_in_date` (2 AM-boundary local day) on each render. If a session stays open across the 2 AM boundary, this re-derives naturally next time the relevant state is read, rather than needing an explicit reset trigger.
-
-3. Storage bucket policies — two buckets, two rules. Check-in photos: readable only by a user who (a) shares a group with the photo's owner **and** (b) the underlying goal is not hidden (`goal_group_visibility.hidden`) in that shared group — enforced directly as a Storage RLS policy (not just API-layer masking as originally scoped in section 4), so the restriction holds even if a client somehow obtains a direct Storage URL. Writes restricted to the owning user, path scoped by `user_id`. Sun cutouts/avatars: read open to any authenticated user, write restricted to owner — lower sensitivity, consistent with how a profile picture behaves generally.
-4. Rate limiting — extended via the existing Upstash sliding-window pattern: goal creation (~20/hour), group creation (~5/day), invite-link join attempts (per-token, not just per-user, since brute-forcing a single token is the actual risk), report submissions (~10/day), and a light rate limit added to the check-in endpoint itself even though the DB unique constraint already caps successful check-ins to one per day — this blunts repeated failed-attempt hammering.
-
-5. Input validation/sanitization — length caps enforced at the DB level, not just client-side: goal `title` ~100 chars, `progress_entries.note` ~500 chars, `groups.name` ~50 chars, `content_reports.reason` ~500 chars, `username` ~20-30 chars restricted to alphanumeric + underscore (no unicode lookalikes, closes off a cheap impersonation trick). Usernames and group names additionally run through a profanity/distasteful-language filter at creation/rename time, rejected synchronously with a friendly error rather than allowed through and moderated after the fact, since these are high-visibility identity fields. Recommended package: **`obscenity`** — actively maintained, TypeScript-native (fits the existing strict-TS stack), and detects common obfuscation (leetspeak, character substitution) that older wordlist libraries like `bad-words` miss. Sanitization note: nothing in the schema currently needs rich text/markdown, so React/JSX's default escaping at render time is sufficient as long as no field is ever rendered via `dangerouslySetInnerHTML` — worth stating as an explicit rule now. If a rich-text field is ever added later, sanitize with DOMPurify at that point rather than pre-building for a need that doesn't exist yet.
-6. Image upload risk — validate uploaded files are genuinely images by inspecting content/magic bytes rather than trusting the client-reported extension or MIME type (stops a renamed executable posing as a `.jpg`). Cap decompression dimensions during the existing client-side compression step to prevent a decompression-bomb image from ballooning memory. Strip EXIF metadata during the WebP re-encode as an explicit requirement, not just an incidental side effect — otherwise a check-in photo could unintentionally leak the poster's GPS location to the group.
-
-7. Invite link token security — tokens generated from a CSPRNG, 24+ bytes, base62/URL-safe encoded (not sequential or otherwise guessable). Join attempts rate-limited per-token (~10/hour), separate from any per-user rate limit, since brute-forcing a single token is the actual risk.
-8. Moderation asymmetry — `content_reports.content_type` extended to cover check-in photos and notes, not just the sun cutout (`planet_avatar`, `checkin_photo`, `checkin_note`). Same report → manual-review flow applies to all three; `content_reference` continues to capture the flagged content's location/value at time of report so later edits don't undermine a pending review.
-9. Secrets management — stated explicitly: the Supabase service-role key, VAPID private key, and Upstash token are used only in server-side contexts (Edge Functions, Next.js server actions/API routes) and are never bundled into client code or exposed via `NEXT_PUBLIC_*` environment variables.
-
-## 19. Audit Log
-
-Reviewing the full doc for every privileged action surfaced one small gap: there's currently a path to **promote** a member to admin, but no explicit path to **demote** an admin back to member without fully kicking them — added here as `admin_demoted`, since it's a natural companion to `admin_promoted` and the only alternative today is removing someone from the group entirely just to revoke admin rights.
+**Directional.** A→B and B→A are separate rows. Blocking prevents viewing the blocker's profile stats and joining via a link the blocker administers. It does **not** remove anyone from a shared Circle — that's kick's job.
 
 ### `audit_log`
-- `id` (uuid, PK)
-- `actor_user_id` (FK → users — who performed the action)
-- `group_id` (nullable FK → groups — most actions are group-scoped; nullable since not all are)
-- `target_user_id` (nullable FK → users — who the action was performed on, where applicable)
-- `action_type` (enum: `member_kicked`, `ownership_transferred`, `admin_promoted`, `admin_demoted`, `invite_link_toggled`, `invite_link_regenerated`, `group_deadline_changed`, `group_cycle_reset`, `group_cycle_extended`, `group_streak_continued`, `group_streak_reset` — the last two added alongside the Group Streak feature in section 21)
-- `metadata` (jsonb — action-specific detail, e.g. old/new deadline values on a `group_deadline_changed` row)
-- `created_at`
+**Append-only.** Every FK is `ON DELETE SET NULL`, never cascade: an audit trail that deletes itself when the actor leaves isn't an audit trail. A record with both names nulled still proves the event happened and carries its timestamp.
 
-Covers every privileged action currently defined across sections 7 and 9 (group roles, invites, lifecycle). `content_reports` resolution is deliberately **not** duplicated here — that table already carries `status`, `reviewed_at`, and `reviewed_by`, so a separate audit row would be redundant; `audit_log` is for actions that don't already carry their own history elsewhere (username changes are similarly excluded, already covered by `username_history`).
+- `id`, `actor_user_id`, `group_id`, `target_user_id` (all nullable FKs), `action_type` (enum), `metadata` (jsonb), `created_at`
+- Index: `(group_id, created_at desc)`
 
-## 20. Remaining Security / Robustness Gaps — Resolved
+Actions: `member_joined`, `member_left`, `member_kicked`, `ownership_transferred`, `admin_promoted`, `admin_demoted`, `invite_link_toggled`, `invite_link_regenerated`, `group_deadline_changed`, `group_cycle_reset`, `group_cycle_extended`, `group_streak_continued`, `group_streak_reset`. **All thirteen have a writer.**
 
-**11. User-level blocking.** `user_blocks` table, defined in section 3. Doesn't retroactively remove someone from a group you're already both in — that stays kick's job.
+**Role changes and invite toggles are audited by trigger, not by RPC**, because both happen through a direct `UPDATE` that no function mediates. Without those triggers, `admin_promoted`, `admin_demoted`, and `invite_link_toggled` had no writer at all — a promotion left no trace. The invite trigger fires only on a deliberate toggle: regeneration also disables the old row, but `create_invite_link` already logs that as `invite_link_regenerated`, and double-logging one action makes a trail misleading rather than complete.
 
-Important gap this closes: kicking someone today does **not** block them — nothing stops them from being re-invited later (by anyone with a valid invite link, including a link generated after the kick) unless a block is separately in place. Blocking is presented as a distinct follow-up step after a kick, not bundled into it automatically — the kick flow should surface a prompt like "also block this user?" immediately after the kick completes, so it's a deliberate second action rather than an assumption.
+`member_joined`/`member_left` were added after noticing only *kicks* were audited. `group_members.joined_at` answers "when did they join" only while they're still a member and vanishes when they leave, so membership history has to outlive membership.
 
-**12. Cap on goals per user.** A hard cap of **10 active goals** per user (archived and achieved goals don't count against it), enforced via a trigger on `goals` insert, the same pattern used for the group member cap.
+Deliberately **not** duplicated here: `content_reports` resolution (that table carries its own `status`/`reviewed_at`/`reviewed_by`) and username changes (`username_history`).
 
-**13. CSP/headers, dependency scanning, bot defenses.**
-- Security headers via Next.js middleware/`next.config`: Content-Security-Policy (nonce-based `script-src`, restricted to `self` plus the specific CDNs actually used), `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`.
-- Dependency scanning: GitHub Dependabot as the baseline, `npm audit` as a CI check on top.
-- Bot/fake-account defenses: **CAPTCHA added preemptively at signup** (Cloudflare Turnstile — privacy-friendly, free tier, low-friction compared to traditional CAPTCHA) rather than waiting for observed abuse, layered on top of the existing OAuth-only friction (Google, no password form).
+### Cross-cutting conventions
 
-## 21. Group Streak & Leaderboard
+- **`updated_at`** on every mutable table, maintained by a shared `set_updated_at()` BEFORE UPDATE trigger so it can't be forgotten at a call site. Append-only tables have `created_at` only.
+- **Trigger functions are not API endpoints.** Anything in `public` is published at `/rest/v1/rpc/<name>`. Trigger functions have `EXECUTE` revoked from `anon`, `authenticated`, and `public`; triggers run as the table owner and ignore grants, so revoking costs nothing.
+- **Every function pins `search_path = ''`** and fully qualifies references. `SECURITY DEFINER` only where genuinely required.
+- **Never compare or order by an enum.** Postgres allows it, using *declaration order*, which is an accident of how the type was written — and `ADD VALUE` appends, so `member_joined` now sorts after `group_streak_reset`. If a status ever needs meaningful ordering, that's the signal it should be a lookup table with an explicit `sort_order`, like `goal_categories`.
+- **Adding an enum value and using it must be separate migrations.** Postgres rejects using a new value in the transaction that added it.
+- **Every `CREATE TABLE` must be followed by an explicit `ENABLE ROW LEVEL SECURITY` in the same migration.** The project's "Enable automatic RLS" setting does this via an event trigger, but that trigger is created by the dashboard and exists in no migration. For 56 migrations nothing enabled RLS explicitly — a rebuild into a fresh database produced 21 tables with RLS **off** and all 41 policies present but inert, which with `authenticated` holding real grants meant a wide-open database. Found the first time `supabase db diff` replayed the history into a shadow database. The dashboard setting stays on as a safety net; the migration history has to stand alone.
 
-New v1 feature, raised during the final review pass. Builds directly on the reversed zero-goal rule above: the group streak only holds when **every current member completes every one of their own active goals** on a given day — one member with no goals, or an incomplete goal, breaks it for everyone.
+- **Never depend on a platform-created object without guarding it.** Migration 17 revoked `EXECUTE` on `public.rls_auto_enable()`, which the dashboard creates. In a shadow database that function doesn't exist and the unconditional `REVOKE` aborted the whole replay. It's now wrapped in an existence check. Anything owned by Supabase rather than by this history — `rls_auto_enable`, vault secrets, project settings — needs the same treatment.
 
-### Group streak mechanics
+- **Count-based caps lock the parent row first.** The 10-member and 10-active-goal caps can't be CHECK constraints since they require counting other rows. A naive count-then-decide trigger is racy: two simultaneous joins to a 9-member circle both read 9 and both insert. Each cap does `SELECT ... FOR UPDATE` on the parent (the group, or the user) before counting, serializing writes *for that parent only* so different circles never block each other.
 
-Fields live on `group_cycles` and the derived `group_daily_completion` table — both defined in section 3. `group_cycles.current_streak` increments on a day where `group_daily_completion.all_members_completed = true`, resets to 0 on a `false` day; `longest_streak` tracks the running maximum, same pattern as every other streak field in this doc.
+### Length and format constraints
 
-### New-member join handling
+| Field | Rule |
+|---|---|
+| `users.username` | 3–30 chars, `^[A-Za-z0-9_]+$` — ASCII only, blocking unicode-lookalike impersonation |
+| `users.first_name` / `last_name` | ≤ 100 |
+| `goals.title` | 1–100 |
+| `progress_entries.note` | ≤ 500 |
+| `groups.name` | 1–50 |
+| `content_reports.reason` | ≤ 500 |
+| `push_subscriptions.device_label` | ≤ 50 |
 
-Since a brand-new member almost certainly has zero goals on day one, joining an existing streak would otherwise break it immediately by the rule above — which would make joining an active group feel punishing rather than welcoming. Handled with a grace-and-decide flow rather than an automatic exemption:
+The `obscenity` profanity filter for usernames and Circle names stays in the app layer — it needs a maintained wordlist and obfuscation detection that doesn't belong in a CHECK. These constraints are the floor beneath it, not a replacement.
 
-- When a user joins a group where `current_streak > 0`, that member is flagged with `group_members.streak_grace = true`. While flagged, they're excluded from `group_daily_completion` evaluation entirely — their goal-less days neither break nor extend the group streak, effectively pausing the "everyone" requirement around them until a decision is made.
-- The group is flagged `groups.streak_decision_pending = true`, with `groups.pending_streak_joiners` accumulating anyone who joins while a decision is outstanding — so multiple joins before the owner next visits are handled by a single decision, not one popup per person.
-- Next time the **owner** (not any admin) opens the group, they see a popup: continue the streak, or reset it. This is owner-only since it's a judgment call about the group's culture/standards, not a routine admin action.
-  - **Continue**: `streak_grace` clears for all pending joiners, they're now fully counted going forward, `current_streak` is untouched throughout.
-  - **Reset**: `current_streak` set to 0 immediately, `streak_grace` clears the same way — new members are now counted from a streak of zero, so there's no punitive gap to worry about.
-- If the owner never opens the app, grace simply persists indefinitely for that member with no penalty — the group streak keeps accruing based on everyone else, unaffected by the pending decision.
-- Logged to `audit_log` as `group_streak_continued` or `group_streak_reset`, both added to the `action_type` enum (section 19).
+---
+
+## 4. Security model
+
+### Grants come first
+
+**Postgres checks table grants before evaluating any policy.** A perfect policy with no grant returns nothing. Because "Automatically expose new tables" is disabled on this project, no role — including `service_role` — holds DML by default. Every table needs an **explicit grant paired with its policy in the same migration** so they can't drift.
+
+This is the stronger posture: access is an allowlist, and a forgotten grant fails closed.
+
+- **`anon` holds no grant on any table.** The product is invite-only and unauthenticated visitors are routed through sign-in before anything is read.
+- **Column-scoped `UPDATE` grants** where a table has immutable columns. A column that was never granted can't be targeted at all, which is stronger than a `WITH CHECK` expression someone has to write correctly.
+- **`TRUNCATE` is revoked** from all client roles, with default privileges altered so new tables don't reacquire it. **TRUNCATE bypasses RLS entirely** — policies are never consulted — so the grant would have undercut every rule here. Not reachable through PostgREST today, but relying on the API surface staying narrow forever isn't a security argument.
+- `REFERENCES` and `TRIGGER` remain: both need ownership-level access and neither reads data.
+- **`service_role` bypasses RLS but still needs grants.** When grants were rebuilt as an explicit allowlist, everything went to `authenticated` and nothing to `service_role`, so every Edge Function query returned a 500 — grants are checked *before* RLS, and bypassing RLS does not help a role that cannot touch the table. This went unnoticed because pg_cron runs as the table owner; only the Edge Functions exercise the path. `service_role` now holds blanket DML deliberately: it already bypasses RLS, so per-table grants add no real restriction and only produce failures of this kind. Its real control is that the key never leaves server-side contexts. `TRUNCATE` stays revoked even here, since it bypasses RLS *and* skips triggers.
+- **PostgREST cannot address the `private` schema, so job helpers live in `public`.** Edge Functions calling `.schema("private").rpc(...)` fail: PostgREST honours a schema header only for schemas in its exposed list, and `private` deliberately is not one — exposing it would hand clients the RLS-bypassing helpers it exists to hide. The three job-only functions (`job_list_expired_photos`, `job_mark_photos_purged`, `job_scrub_and_list_user_media`) therefore sit in `public` with `EXECUTE` granted to **`service_role` alone**. PostgREST resolves them, Postgres refuses any other caller, and they stay off the linter's report, which flags only what `anon` and `authenticated` can call.
+
+### Access matrix (`authenticated`)
+
+| Table | Read | Insert | Update (columns) | Delete |
+|---|---|---|---|---|
+| `users` | self + circle-mates | — | `first_name, last_name, avatar_url` | — |
+| `user_lifetime_stats` | self; circle-mate if opted-in and not blocking you | — | `visible_on_profile` | — |
+| `goal_categories` | all | — | — | — |
+| `goals` | self + circle-mates | own | `title, category_id, deadline, achieved_at, archived_at` | — |
+| `progress_entries` | self + circle-mates | own, **active** goal, **today only** | `note, photo_url` | own |
+| `daily_completion` | self + circle-mates | — | — | — |
+| `goal_group_visibility` | goal owner or circle member | own goal + member | `hidden` (member only) | own goal |
+| `groups` | members | — | `name` (admin); leaderboard settings (owner, via trigger) | — |
+| `group_members` | circle-mates | — | `role` (owner only, never targeting owner) | self or admin-kick, never the owner |
+| `group_cycles` | members | — | — | — |
+| `invite_links` | admins | — (RPC only) | `enabled` | — |
+| `group_cycle_stats` / `group_daily_completion` | cycle members | — | — | — |
+| `group_member_category_stats` / `digest_snapshots` | circle members | — | — | — |
+| `notifications` | self | — | `read_at` | own |
+| `push_subscriptions` | self | own | `device_label` | own |
+| `user_blocks` | blocker only | own | — | own |
+| `content_reports` | own submissions | own, circle-mate target | — | — |
+| `audit_log`, `username_history` | — | — | — | — |
+
+### Policy mechanics
+
+- `USING` filters existing rows (`SELECT`/`UPDATE`/`DELETE`); `WITH CHECK` validates rows being written (`INSERT`/`UPDATE`). An `UPDATE` needs both, and they differ — `USING` says which rows you may edit, `WITH CHECK` what they may become, which is what stops editing your row into someone else's.
+- Multiple policies on the same operation are **OR-ed**. Each grants a reason; they never narrow each other.
+- **`(select auth.uid())`, not bare `auth.uid()`** — the wrapped form evaluates once per query rather than once per row.
+- **RLS filters silently.** An `UPDATE` on an invisible row affects zero rows without erroring, unlike a missing column grant which raises `insufficient_privilege`. Code that assumes success because nothing threw needs to check the affected row count.
+
+### The `private` schema
+
+Shared policy predicates live in `private`, resolving a genuine conflict: a policy is evaluated with the privileges of whoever runs the query, so these **must** be `EXECUTE`-able by `authenticated` — but anything in `public` is published as an RPC endpoint, and these are `SECURITY DEFINER` functions that bypass RLS. PostgREST doesn't expose `private`, so policies can call them and HTTP clients can't reach them.
+
+They also solve a recursion problem: the natural policy on `group_members` ("you can see rows for groups you belong to") queries `group_members` to decide, which Postgres rejects as infinite recursion. `SECURITY DEFINER` runs the lookup with RLS bypassed so it never re-enters.
+
+| Function | Purpose |
+|---|---|
+| `is_group_member(group_id)` | caller belongs to the circle |
+| `is_group_admin(group_id)` | caller is owner or admin |
+| `is_group_owner(group_id)` | caller is owner |
+| `is_cycle_member(cycle_id)` | reaches the circle through `group_cycles` |
+| `shares_group_with(user_id)` | the core visibility rule; symmetric |
+| `is_blocked_by(user_id)` | has that user blocked the caller — **directional** |
+| `is_goal_hidden_in_group(goal_id, group_id)` | encodes the sparse-table coalesce once |
+| `owns_goal(goal_id)` | caller owns it |
+| `owns_active_goal(goal_id)` | owns it **and** it's neither achieved nor archived |
+| `current_checkin_date()` | today under the caller's frozen timezone and 2 AM rule |
+
+Not client-granted (jobs and triggers only): `checkin_date_for`, `recompute_daily_completion`, `rollover_user_day`, `rollover_group_day`, `list_expired_photos`, `mark_photos_purged`, `scrub_and_list_user_media`.
+
+**`ALTER DEFAULT PRIVILEGES` is a convenience, not a guarantee.** A default revoking `EXECUTE` from `PUBLIC` in `private` was set early, yet five helpers created afterwards still came out `anon`-executable. The linter did not flag it because `anon` lacked schema `USAGE`, so one barrier stood where two were intended. Currently **41 functions, 0 anon-executable, 0 with a mutable `search_path`**. The query that verifies this is in `build-plan.md`; re-run it after any migration that adds a function.
+
+### Notable policy decisions
+
+**Check-ins require an ACTIVE goal.** Without this a user could check in on archived goals — the 10-goal cap bounds only *active* ones, so someone could accumulate unlimited archived goals and check into all of them daily, inflating the raw `total_completions` the leaderboard ranks on while `total_possible` stayed flat, until the `completions <= possible` invariant started rejecting legitimate writes. The cap was meant to bound exactly this; check-ins were routing around it.
+
+**Goals have no `DELETE`.** `archived_at` is the retirement path, keeping check-in history intact where a delete would strand entries with a null `goal_id`.
+
+**`daily_completion` has no client write access at all.** The entire streak system is built on it.
+
+**Hidden goals stay readable.** RLS returns the row because aggregate completion counts need it; the API masks `title`/`note`/`photo_url`. Circle-mates can also read the visibility flag, which is what lets the UI render the placeholder. Hiding is a display rule, never an access rule.
+
+**Blocking doesn't hide the `users` row or a circle-mate's goals.** It hides `user_lifetime_stats`. Hiding identity would leave a member in a roster with no name to render, which advertises the block rather than concealing it; hiding goals would break the accountability the Circle exists for.
+
+**`group_members` `DELETE` covers leaving and kicking in one policy**: `role <> 'owner' AND (user_id = auth.uid() OR is_group_admin(group_id))`. The owner is unreachable as a target of either, so an owner can't leave without transferring and no admin can remove them — enforced in the policy, not the app layer.
+
+**Owner-only Circle settings use a trigger, not a grant.** Column grants are per-*role*, so they can't distinguish owner from admin. `guard_group_owner_only_settings` compares old and new rows to see which columns actually changed and who changed them.
+
+**Onboarding can't be a client query.** Since a user only reads rows for people they share a Circle with, the "is this username taken?" check runs server-side under `service_role` — which is also where the profanity filter and rate limiting belong.
+
+### RPCs
+
+Some operations span multiple tables and can't be made safe by a policy:
+
+| Operation | Why not a policy |
+|---|---|
+| Create a circle | group + owner membership + first cycle must be atomic, or a failure halfway leaves an ownerless circle nobody can clean up |
+| Join via invite | RLS can't see the token; also needs capacity, block check, and an audit write |
+| Transfer ownership | demote-then-promote must be ordered inside one transaction, since the one-owner index forbids two owners existing even momentarily |
+| Cycle continue / reset | closes one cycle, opens another, zeroes stats |
+
+These are `SECURITY DEFINER` functions in `public`. A function body *is* a transaction, so atomicity is free, and the logic sits next to the constraints it depends on.
+
+| Function | Returns | Checks |
+|---|---|---|
+| `create_circle(name, deadline)` | `group_id` | authenticated |
+| `circle_preview(token)` | `status, circle_name, member_count, is_full` | authenticated |
+| `join_circle(token)` | `group_id` | token valid, circle active, not blocked, under 10, has an owner. Idempotent. |
+| `transfer_ownership(group_id, new_owner)` | void | caller is owner; target is a member |
+| `cycle_continue(group_id, new_deadline)` | void | owner or admin; deadline may only extend or clear |
+| `cycle_reset(group_id, new_deadline)` | `cycle_id` | owner or admin |
+| `create_invite_link(group_id, expires_at, use_default_expiry)` | token | owner or admin; circle active and under 10 |
+| `complete_onboarding(username, timezone)` | void | validates timezone against `pg_timezone_names`; enforces the 14-day rename limit |
+| `sync_checkin_timezone(timezone)` | void | **no-op unless the check-in day has elapsed** |
+| `resolve_streak_decision(group_id, continue)` | void | owner only; requires a pending decision |
+| `set_circle_deadline(group_id, deadline)` | void | owner or admin; Circle active; deadline ≥ next day or NULL |
+| `export_user_data()` | jsonb | **`SECURITY INVOKER`** — RLS applies, so it can't return another user's rows |
+
+**Unlike the `private` helpers, these are intentional API surface.** Each validates its caller in its own body — `SECURITY DEFINER` gets no RLS for free. All pin `search_path` and are granted only to `authenticated`.
+
+**Invoked from Next.js server actions, not the browser.** A browser calling `supabase.rpc()` goes straight to Supabase and never touches the app, so Upstash rate limiting, Turnstile, and the profanity filter would have nowhere to run — circle creation and joins would be entirely unthrottled.
+
+**Enforced by lint, not by the database.** A stray `supabase.rpc()` in a component works fine and silently skips all three protections. The database cannot enforce the boundary: revoking `EXECUTE` from `authenticated` would force calls through the server, but the RPCs check `auth.uid()` internally and `service_role` has none, so every call would raise "Not authenticated". An ESLint rule therefore bans `.rpc(` outside `app/actions/`.
+
+Trade-off accepted: PL/pgSQL is harder to unit-test under Vitest. These are tested with `DO` blocks in SQL instead.
+
+### Expected, permanent linter output
+
+Anything beyond this list is a real finding.
+
+- `rls_enabled_no_policy` on `audit_log` and `username_history` — deliberately client-inaccessible.
+- `authenticated_security_definer_function_executable` on the 12 client-callable `public` RPCs — deliberately callable; `anon` is excluded.
+- `unused_index` on everything, until there's real traffic.
+
+**A replay into a shadow database is its own category of test.** `supabase db diff` builds a fresh Postgres and runs all 57 migrations, which is the only way to catch a history that depends on state it never creates. The recurring bug patterns this schema has produced, and the checks that find them, are catalogued in `build-plan.md`.
+
+---
+
+## 5. Derived data
+
+Split into a **live layer** (triggers) and a **rollover layer** (scheduled). The line: anything the dashboard shows *today* is a trigger; anything only knowable once a day has ended is the job.
+
+### Live layer
+
+| Trigger | Fires on | Effect |
+|---|---|---|
+| `progress_entries_maintain_completion` | check-in insert or **delete** | recomputes `daily_completion` for that date |
+| `goals_maintain_completion` | goal insert, or `achieved_at`/`archived_at` change | recomputes today, since the denominator moved |
+| `goals_count_achievement` | `achieved_at` null → non-null | increments `total_goals_achieved` once |
+
+`recompute_daily_completion()` writes `all_completed = (active > 0 AND checked_in >= active)`. Adding a goal mid-day reopens a completed day; archiving one can re-complete it.
+
+**Deliberate limitation**: it evaluates active goals as of *now*, not as of the target date. Correct for today, the only date it's called with, but it must never backfill history — a goal archived since would be wrongly excluded from a past day it was part of.
+
+### Rollover — `run_daily_rollover(date)`
+
+Not client-callable. Anyone who could invoke it could advance their own streaks.
+
+Per user, for the day just ended: finalize `daily_completion` (creating the row for someone who never checked in), extend or reset `current_streak`, raise `longest_streak_ever`, increment `total_days_completed`, update `group_cycle_stats` for every active cycle.
+
+Per active cycle: `group_daily_completion` holds only if every **non-grace** member completed everything.
+
+**Leaderboard counters move only here, and always together** — each active goal adds 1 to `total_possible`, and 1 to `total_completions` only if checked in. That's why `completions <= possible` can never be transiently violated; incrementing completions live on check-in would break it on a user's first day.
+
+Finally, circles past their deadline flip to `locked`.
+
+**Streaks lag one day by design** — a day is not final until it is over. To include today, compute `current_streak + (1 if today is complete)` at display time rather than storing it.
+
+**Not idempotent for streaks.** `daily_completion` and `group_daily_completion` recompute identically, but streak counters are incremental — running twice for the same date double-counts. **The scheduler must not retry blindly.**
+
+---
+
+## 6. Realtime
+
+Deliberately **not** used for the progress feed — the daily digest is the design, and live pushes would contradict it and add load.
+
+`notifications` is published to `supabase_realtime`; nothing else is. Reserved for the immediate types (`kicked`, `group_locked_renewal`) and any future presence feature.
+
+Realtime respects RLS, so `notifications_select_own` governs the socket too — one access model, not two. **Corollary**: a missing or wrong policy produces *silence*, not an error, so "realtime is broken" and "RLS is filtering everything" look identical from the client.
+
+---
+
+## 7. Daily digest
+
+Split into two independently retryable halves, because they need different runtimes and have different failure modes.
+
+**`build_daily_digests()` (SQL)** computes each Circle's summary for its own previous day, writes `digest_snapshots`, and inserts one `notifications` row per member. This alone makes the Overview subtab and the in-app feed work. Idempotent: it skips any Circle already holding a digest for the target date, so an extra run neither duplicates snapshots nor re-notifies.
+
+**`send-digest-push` (Edge Function)** delivers web push. VAPID signing needs the `web-push` package, so it can't live in Postgres.
+
+Separating them means a push outage never blocks the in-app digest, and either half can be re-run without corrupting the other.
+
+**`notifications.pushed_at`** tracks delivery, distinct from `read_at` — one is our action, the other the user's.
+
+**Teaser payloads only.** iOS truncates long bodies, and a detailed body risks surfacing hidden-goal-adjacent information on a lock screen, outside the app's access controls entirely. Circle names are deliberately kept out of push *bodies* for the same reason, even though the payload carries them for in-app rendering. One notification per Circle per user, never one combined across Circles.
+
+The sender has a teaser per notification type, with a generic fallback. **Adding a notification type means adding a teaser case**, or it silently ships as "You have a new notification".
+
+**A user with no push subscription is not a failure.** On iOS push works only for an installed PWA, so many users legitimately have none. Those notifications are marked delivered rather than retried forever; the in-app row is the durable channel regardless.
+
+**Dead subscriptions are pruned.** A 404 or 410 from the push service means the browser permanently discarded that subscription. Deleting those rows is required maintenance, not an optimization — otherwise they accumulate and every future send retries them.
+
+---
+
+## 7b. PWA & push delivery
+
+Notifications are the app's re-engagement loop, and on iOS they only work for an installed PWA. That makes the PWA layer functional infrastructure, not polish.
+
+**Files**: `app/manifest.ts` (Next.js native), `public/sw.js` (plain JS — served statically, not compiled), `components/service-worker-registrar.tsx` (mounted in the root layout).
+
+**No PWA library.** `next-pwa` was the original choice and was reversed: it's unmaintained, pulls a high-severity build-time advisory that fails `npm audit` in CI, and its actual value is Workbox caching this app barely benefits from — the product needs the network to do anything meaningful, TanStack Query handles client caching, and Redis handles the server side. Crucially, **no PWA library writes the push handlers**; those are the same ~40 lines either way. If real offline support is ever wanted (viewing goals with no signal, queuing check-ins to sync later), Serwist is the migration target and the manifest and handlers port over unchanged.
+
+**iOS needs more than the manifest.** iOS ignores the web manifest for standalone display and reads `apple-mobile-web-app-capable` instead, set via `metadata.appleWebApp` in the root layout. Without it, "Add to Home Screen" produces a browser-chrome window rather than an installed app — and push only fires for the installed case. The manifest alone is not enough.
+
+**The worker claims control immediately** (`skipWaiting` + `clients.claim`). Otherwise someone who has just installed the PWA receives no push until they fully quit and reopen it.
+
+**Notifications are tagged per Circle** (`circle-{group_id}`). A phone replaces a notification carrying the same tag rather than stacking another beneath it, so someone who ignores the app for a week returns to one notification per Circle instead of seven. The tradeoff is losing the "I missed several days" signal — reversible by dropping the tag if that turns out to matter more.
+
+**Registration deliberately does NOT request notification permission.** Browsers effectively allow one ask: a denial is sticky and cannot be re-prompted, only reversed by the user digging through settings. Asking on first page load, before anyone knows what Solarity is, mostly buys a permanent no. The prompt belongs in onboarding, **after** the add-to-home-screen step, once the reason is obvious.
+
+**Icons are in place** — sizes and constraints are tabulated in section 14. They are load-bearing rather than decorative: without at least 192 and 512 a phone will not offer installation, and on iOS no installation means no notifications at all. The current set is a generated placeholder mark, correct in dimensions and replaceable in v2.
+
+**Outstanding:**
+
+- **`pushsubscriptionchange` handling.** A push service can invalidate a device's subscription and issue a new one; that device then stops receiving notifications **silently** — nothing errors. The worker detects it and posts `RESUBSCRIBE_PUSH` to any open window, but nothing acts on it yet. The handler needs the VAPID public key and an authenticated call, so it lands with the push opt-in flow in onboarding. Until then, `send-digest-push` prunes the dead subscription on the next 404/410, which stops the retries but doesn't restore delivery.
+
+## 8. Group lifecycle
+
+- A Circle with no deadline never locks.
+- **The deadline date is the last playable day.** A deadline of March 15 means March 15 is fully playable and the Circle locks at the 2 AM rollover on the 16th, evaluated by the same job as everything else rather than at an arbitrary wall-clock moment.
+- **Changing a deadline mid-cycle**: `set_circle_deadline(group_id, deadline)`, owner or admin. Sets, moves, or clears the active cycle's deadline. **Minimum is the next day in the Circle's timezone**; `NULL` goes open-ended, which is always allowed since it only ever gives people more time. Evaluated against `circle_checkin_date()`, the same basis as locking, so a deadline can never land on a day already underway.
+
+  This replaces an earlier two-day-notice rule that was specified but never implemented. Under it an open-ended Circle could **never** gain a deadline, and shortening one required a cycle reset that wipes every member's per-cycle stats. The next-day floor keeps the protection that mattered — an owner cannot end a cycle out from under people mid-day — without the rest.
+
+  **Every other member is notified** (`deadline_changed`), with the actor excluded: the notice rule protected against surprise through delay, and this restores that protection through information. Re-submitting the same value neither audits nor notifies, so a double-tap does not spam the Circle.
+
+  `cycle_continue` still only extends or clears, since it exists for the renewal prompt rather than general editing.
+- On lock, check-ins stop and members see a summary screen. The owner or an admin chooses:
+  - **Continue** — keep history, extend or clear the deadline.
+  - **Reset** — close the cycle, open a new one, zero `group_cycle_stats`. `user_lifetime_stats` is unaffected.
+
+**Group list display**: `locked` and `archived` Circles move to an Archived section rather than disappearing. A user setting toggles whether that section shows at all, defaulting to on. The two states differ — `locked` awaits a renewal decision, `archived` is retired — and only freshly locked Circles get the summary screen.
+
+---
+
+## 9. Photo check-ins
+
+- Accepts HEIC, JPG, PNG. HEIC is converted client-side; nothing stores raw HEIC since it doesn't render reliably outside Safari.
+- Normalized to **WebP**, max ~1600px, 75–80% quality, compressed in-browser before upload.
+- Max pre-compression upload: 10MB.
+- Upload endpoint rate-limited via Upstash (~20/hour).
+- **Validate magic bytes, not the extension or MIME type** — stops a renamed executable posing as a `.jpg`. Cap decompression dimensions against decompression bombs. **Strip EXIF during re-encode** as an explicit requirement, or a check-in photo leaks the poster's GPS location to the Circle.
+
+### Storage buckets
+
+**Path convention — fixed. Changing it later means migrating objects.**
+
+```
+checkin-photos : {user_id}/{goal_id}/{entry_id}.webp
+avatars        : {user_id}/{filename}
+```
+
+The check-in path encodes owner **and** goal so the policy evaluates both the shared-Circle rule and the not-hidden rule from the path alone, without joining `progress_entries` on every object read.
+
+Both buckets are private, capped (`checkin-photos` 10MB, `avatars` 2MB), and restricted to `image/webp`. Since everything is normalized to WebP client-side, that restriction means a client skipping conversion is rejected by Storage rather than silently storing an unrenderable HEIC.
+
+**The read rule is "at least one", not "this Circle".** Hiding is per-Circle and a viewer may share several Circles with the owner, so a photo is readable if **there exists at least one shared Circle where the goal isn't hidden**. Evaluating a single Circle would hide a photo that's legitimately visible elsewhere — verified by test: a user sharing two Circles with the owner, with the goal hidden in one, still sees it.
+
+Enforced as a Storage policy rather than only API-layer masking, so the restriction holds even against a direct object URL. Writes are owner-only, scoped by the first path folder.
+
+**Retention: fixed 90 days**, via the `purge-expired-photos` Edge Function. The row and all derived statistics survive; only the image goes.
+
+*Not cycle-based, as originally specified*: a check-in belongs to a user-owned goal visible in every Circle that user is in, so "the cycle this photo belongs to" is not a question the schema can answer. A fixed age is predictable and unaffected by membership churn.
+
+*Ordering matters*: objects are removed from Storage **before** `photo_url` is nulled. Reversed, a crash between the steps leaves rows claiming no photo while the objects linger unreferenced.
+
+---
+
+## 10. Circles, invites & roles
+
+- Invite-only, via a shareable link or direct invite.
+- Unauthenticated visitors are routed through Google sign-in first, with the token held through the redirect so they land back on the join confirmation.
+- **Join confirmation shows name and member count only.** A link may have been forwarded to anyone, including a previously kicked member who kept the URL. Name and size are what the inviter implicitly shared; the roster is not.
+- **10-member hard cap**, enforced at the DB level, re-checked at join time since membership changes between link creation and use.
+- No max-use count on links; capacity checks cover it.
+
+**Roles**: `owner` (one, can transfer but not leave without transferring), `admin` (kick members, manage links), `member`. No cap on admins — the 10-member cap already bounds the risk.
+
+**Admins cannot act on the owner.** Kicking and demoting target only `member` or `admin`. Only the owner demotes an admin, and only the owner changes their own role via transfer. This stops a promoted member removing the person who promoted them.
+
+**Kicking does not block.** Nothing prevents re-invitation unless a block is separately in place, so the kick flow should surface "also block this user?" as a deliberate second step.
+
+### Invite links respect the Circle's lifecycle
+
+Originally they checked only the token, which meant an archived Circle still accepted joins — and joining an archived *empty* Circle produced a member with no owner, the same unrecoverable state that owner succession fixes, reached from the opposite direction. Succession guards departures; nothing guarded arrivals.
+
+Now: both entry points require `group_status = 'active'`; `join_circle` additionally refuses a Circle with zero owners; a trigger disables outstanding links when a Circle leaves `active`; and `create_invite_link` will not mint a link for a non-active Circle.
+
+**Links expire after 7 days by default.** A link is a bearer credential, so a permanent one means a forwarded message or screenshot keeps a way in open indefinitely. Callers may set a longer window or opt out explicitly.
+
+### Failure states
+
+Each error carries a machine code in the **HINT**, so clients branch on the code rather than the prose.
+
+| Situation | `circle_preview.status` | `join_circle` HINT | Name shown |
+|---|---|---|---|
+| Valid | `ok` | — | yes |
+| Token doesn't exist | `not_found` | `INVITE_INVALID` | **no** |
+| **Blocked** | previews normally | `INVITE_INVALID` | — |
+| Revoked | `revoked` | `INVITE_REVOKED` | yes |
+| Expired | `expired` | `INVITE_EXPIRED` | yes |
+| Cycle ended | `circle_locked` | `CIRCLE_LOCKED` | yes |
+| Archived | `circle_archived` | `CIRCLE_ARCHIVED` | yes |
+| Full | `circle_full` | `CIRCLE_FULL` | yes |
+| Already a member | `ok` | — (idempotent) | yes |
+
+**Two stay generic on purpose.** A nonexistent token must be indistinguishable or the endpoint becomes an oracle for guessing tokens. A blocked user gets the *same* message — naming the block confirms it and points at whoever administers the Circle.
+
+**The rest are safe to name** because the caller demonstrably held a real token, so nothing is revealed they couldn't already infer.
+
+**UI asymmetry to expect**: a blocked user's preview succeeds and only the join fails. Mildly confusing by design; the alternative leaks the block.
+
+---
+
+## 11. Account lifecycle
+
+Self-serve in-app deletion, not a support ticket — Apple requires it for apps offering account creation.
+
+### Edge Functions
+
+| Function | `verify_jwt` | Auth | Notes |
+|---|---|---|---|
+| `delete-account` | yes | caller's JWT | user id comes from the token, **never** the body |
+| `export-data` | yes | caller's JWT | runs as the user; RLS enforces isolation |
+| `purge-expired-photos` | no | `x-cron-secret` | scheduler-invoked; **fails closed** if the secret is unset |
+
+**`delete-account` ordering is load-bearing:**
+
+1. Identify the caller from their own JWT.
+2. Scrub note text and collect Storage paths — **before** the user row is gone, since afterwards the rows can't be located.
+3. Delete Storage objects (check-in photos, avatar).
+4. Delete the auth user, cascading into `public.users` → `group_members`, firing owner succession and audit.
+
+`progress_entries` survive, anonymized: the FKs null attribution automatically, and the function additionally scrubs the free-text `note`, which a foreign key can't reach. Hard-deleting them would retroactively corrupt other members' stats for cycles they shared.
+
+**Export returns JSON directly** rather than a signed Storage URL — at v1 volumes a user's history is small, and an export artifact would need its own retention and access rules, which is attack surface for no benefit.
+
+**Removal is classified three ways**, decided by whether the *target user row still exists* rather than by comparing `auth.uid()`:
+
+| Situation | Recorded as | Leaderboard |
+|---|---|---|
+| Account deleted | `member_left`, `via: account_deletion`, actor and target nulled | untouched |
+| Left voluntarily | `member_left`, `via: left` | **kept** |
+| Removed by someone else | `member_kicked`, `via: kicked` | **zeroed** |
+
+An earlier version compared `auth.uid()`, which recorded account deletion as a *kick* — wrongly implying moderation and applying the stat penalty to someone who just closed their account.
+
+---
+
+## 12. Scheduled jobs
+
+Scheduled with **pg_cron**, which runs inside Postgres: no network hop, no shared secret, and no deployed app needed for the SQL jobs.
+
+| Job | Schedule | Kind |
+|---|---|---|
+| `solarity-rollover-hourly` | `5 * * * *` | SQL — `run_daily_rollover()` |
+| `solarity-digest-daily` | `20 * * * *` | SQL — `build_daily_digests()` |
+| `solarity-push-delivery` | `25 * * * *` | Edge — `send-digest-push` |
+| `solarity-retention-daily` | `30 4 * * *` | SQL — `run_retention_sweep()` |
+| `solarity-photo-purge-daily` | `45 4 * * *` | Edge — `purge-expired-photos` |
+
+The digest and push jobs run hourly despite being "daily" work: both are idempotent and self-skipping, and hourly means a Circle's digest lands soon after *its own* day ends rather than at one global moment. Push delivery is hourly regardless, since notifications also come from immediate events (kicks, renewals), not just the digest.
+
+**Edge Function jobs read their secret from Vault, not from the job command.** A secret in `cron.job` sits in plaintext for anyone with database access. `private.invoke_edge_function()` pulls `cron_secret` and `project_url` from `vault.decrypted_secrets` and calls via `pg_net`. If either is missing it logs a warning and no-ops rather than hammering the endpoint with unauthenticated requests — and the functions themselves also fail closed, so that's two independent guards.
+
+**Vault setup required before the two Edge jobs do anything:**
+
+```sql
+select vault.create_secret('<your CRON_SECRET>', 'cron_secret');
+select vault.create_secret('https://wyuadcnrxisqmzygzhzd.supabase.co', 'project_url');
+```
+
+**The rollover must run hourly, not daily.** "2 AM local" happens at 24 different UTC moments, so a single daily run would process most users at the wrong time.
+
+**A Circle's day follows its owner's timezone**, via `private.circle_checkin_date()`. Members can span timezones and there's no single correct "yesterday" otherwise. Quirk worth knowing: transferring ownership across timezones shifts the Circle's boundary. Rare and harmless, but it's a real consequence of the rule.
+
+**Idempotency is guarded by `users.last_rollover_date` and `group_cycles.last_rollover_date`.** Running hourly guarantees repeat visits, and streak counters are incremental, so without these a user would be counted multiple times per day. Repeat runs now process zero rows — verified across three consecutive invocations.
+
+**Passing an explicit date bypasses both guards.** That's deliberate, for backfill and testing, and it *will* double-count if that date was already processed. Scheduled invocations must pass no argument.
+
+---
+
+## 13. Group streak & leaderboard
+
+The group streak holds only when **every current member completes every one of their active goals** that day. One member with no goals breaks it for everyone — the same principle as the zero-goal rule.
+
+### New-member grace
+
+A brand-new member almost certainly has zero goals on day one, so joining an active streak would break it immediately and make joining feel punishing.
+
+- Joining a Circle with `current_streak > 0` sets `group_members.streak_grace`. While flagged they're excluded from evaluation entirely — neither breaking nor extending the streak.
+- The Circle is flagged `streak_decision_pending`, with `pending_streak_joiners` accumulating everyone who joins meanwhile, so multiple joins produce one decision rather than one prompt each.
+- The **owner** (not an admin — it's a judgment call about the Circle's standards) calls `resolve_streak_decision(group_id, continue)`: **continue** clears grace and leaves the streak, **reset** zeroes the streak and clears grace so there's no punitive gap. Either way grace ends and the joiners count from then on. Logged as `group_streak_continued` or `group_streak_reset`.
+- If the owner never decides, grace persists with no penalty and the streak keeps accruing on everyone else.
+
+**This flow had no implementation until an audit found it.** `join_circle` set both flags and nothing cleared either, so a member flagged on join was excluded from the group streak **permanently** — no error, no visible symptom. It is the clearest instance of the pattern this schema is most prone to: a state with a setter and no resolver.
 
 ### Leaderboard
 
-Per-user, per-category stats scoped to a group, in `group_member_category_stats` (defined in section 3). Three ranking dimensions:
+Three ranking dimensions from `group_member_category_stats`:
 
-- **Completion rate** — `total_completions / total_possible`. `total_possible` increments whenever a goal in that category was active and eligible for check-in on a given day; `total_completions` increments on an actual check-in. Both counters start accruing from the user's `joined_at`, not the group's creation — matches "user stats start when they join."
-- **Consecutive streak #** — this is the **group streak** described above (a single value for the whole group, not a separate per-user-per-category streak), surfaced on the leaderboard tab alongside the per-user category breakdown.
-- **Daily goals completed** — `total_completions`, the raw count, usable as its own sort column independent of rate.
+- **Completion rate** — `total_completions / total_possible`, both accruing from `joined_at` rather than Circle creation.
+- **Group streak** — a single value for the whole Circle, shown alongside the per-user breakdown.
+- **Daily goals completed** — raw `total_completions`, sortable independently of rate.
 
-**Persistence across cycles**: `groups.leaderboard_persists_across_cycles` (bool, owner-configurable, default your call). When `true`, `group_member_category_stats` and the group streak survive a cycle reset (a true "since group inception" metric). When `false`, both reset alongside `group_cycle_stats` on reset — kept as a toggle since you flagged this as optional rather than fixed either way.
+**Persistence across cycles**: `leaderboard_persists_across_cycles`, owner-configurable, **default `false`**. When true, stats and the group streak survive a reset; when false, both zero out.
 
-**Display**: `groups.default_stats_view` (enum: `cycle_stats`, `leaderboard`) — owner sets which tab is the primary/default view; both remain accessible regardless.
+**Reset on kick**: a kicked member's stats zero out entirely, and stay zero if they rejoin. Being kicked costs standing. Their `progress_entries` are untouched.
 
-**Reset on kick**: on kick, a member's `group_member_category_stats` rows for that group are zeroed/deleted outright (not just excluded from queries like `progress_entries` elsewhere in this doc). If they're re-invited and rejoin later, they start over at zero — being kicked costs standing on the leaderboard, even for a returning member. Their raw `progress_entries` history stays untouched in Postgres either way, consistent with how deletion/anonymization is handled everywhere else in this doc.
+---
+
+## 14. Environment & external services
+
+Everything here is already configured — these are the notes worth keeping, not the steps.
+
+### Environment variables
+
+Client-exposed (`NEXT_PUBLIC_*` is bundled into the browser — anything here is public):
+
+| Var | Source |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Project Settings → API |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | same (now labelled "publishable") |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | `npx web-push generate-vapid-keys` |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Cloudflare Turnstile |
+
+Server-only — never `NEXT_PUBLIC_`, never imported into a component:
+
+| Var | Notes |
+|---|---|
+| `SUPABASE_SERVICE_ROLE_KEY` | bypasses RLS entirely. Only `createAdminClient` touches it, and lint bans importing that into components. |
+| `UPSTASH_REDIS_REST_URL` / `_TOKEN` | regional database; global costs more and buys nothing yet |
+| `VAPID_PRIVATE_KEY` | |
+| `TURNSTILE_SECRET_KEY` | |
+| `CRON_SECRET` | **Set as a Supabase Edge Function secret, not only a Vercel env var** — the functions read it from the Supabase runtime. Also mirrored into Vault as `cron_secret` so `cron.job` doesn't hold it in plaintext. |
+
+Vercel needs all of them under Project Settings → Environment Variables. `.env*` is gitignored.
+
+**`supabase/config.toml` is committed and holds no secrets.** It is the only version-controlled record of which Supabase project this checkout points at, since the link state lives in the gitignored `supabase/.temp/`. It configures the local stack only; its `[auth]` block is stock and does **not** describe the hosted project. `supabase config push` would therefore reset the dashboard's auth settings — see `build-plan.md`, "config.toml".
+
+### Google OAuth
+
+Client ID and secret live in **Supabase's dashboard** (Auth → Providers → Google), not in app env vars. The authorized redirect URI registered in Google Cloud Console is Supabase's callback, not the app's:
+
+```
+https://wyuadcnrxisqmzygzhzd.supabase.co/auth/v1/callback
+```
+
+The app's own `/auth/callback` route is where Supabase redirects *after* that, and must be listed in Supabase → Auth → URL Configuration → Redirect URLs. Add both `http://localhost:3000/**` and the Vercel URL.
+
+### Email delivery
+
+The project currently sends through **Supabase's built-in sender, which is capped at 2 messages per hour** and documented as demonstration-grade with best-effort availability.
+
+Nothing in the app relies on email today: authentication is Google-only, so no confirmation, reset or magic-link mail is ever sent. The cap is therefore latent rather than active, and it is recorded here because it becomes load-bearing the moment any email-shaped feature exists. On the built-in sender, the third person to sign up within an hour never receives a link, with no error and nothing to debug.
+
+Replacement is **Brevo SMTP** (free tier, 300/day), configured in Supabase → Project Settings → Authentication → SMTP Settings rather than in application environment variables, exactly like the Google OAuth client secret. Two credential traps: the SMTP login is a generated `xxxxxx@smtp-brevo.com` address rather than the account email, and an SMTP key is not the same thing as an API key.
+
+With custom SMTP enabled, Supabase applies a **separate** cap of 30 new users per hour by default, adjustable under Auth → Rate Limits. That secondary limit binds before Brevo's does.
+
+**Deliverability is the real constraint, not volume.** Without a custom domain, SPF and DKIM cannot align with the From address, so mail is more likely to be filtered. That failure is silent: the recipient simply never gets in. Setup steps and the accepted mitigation are in `build-plan.md`, track 1.
+
+### Deferred, with reasons
+
+- **Apple Sign In** — needs an Apple Developer membership ($99/yr). Adding it later is a provider toggle plus a Services ID; no schema or app changes. Google-only is enough to ship v1.
+- **Custom domain** — a PWA needs HTTPS and a valid manifest, both of which `*.vercel.app` provides. Two things want one and neither is a v1 blocker: Apple Sign In's domain verification, and email deliverability (above). Its cost has grown from "nothing" to "silently degraded email", which is worth revisiting at launch.
+
+### Icons
+
+| File | Size | Notes |
+|---|---|---|
+| `public/icons/icon-192.png` | 192×192 | manifest, `purpose: any` |
+| `public/icons/icon-512.png` | 512×512 | manifest, splash screen source |
+| `public/icons/icon-512-maskable.png` | 512×512 | `purpose: maskable`. Artwork inside the centre 80% circle so Android can crop to any shape. |
+| `public/icons/badge-72.png` | 72×72 | notification badge, Android status bar. **Monochrome white on transparent** — the OS tints it; colour is discarded. |
+| `app/apple-icon.png` | 180×180 | iOS home screen. Opaque, square, no transparency and no pre-rounded corners — iOS applies the mask. Next.js serves it from `app/` automatically. |
+| `app/favicon.ico` | multi-size | 16/32/48/64/256 in one file. |
+
+Current set is a placeholder sun mark generated programmatically — correct dimensions, replaceable in v2.
+
+### Other standing config
+
+- **Dependabot** on in GitHub (alerts + version updates).
+- **CI**: `.github/workflows/ci.yml` runs Vitest and `npm audit` on every PR.
+- **Not installed yet**: `pixi.js` and anything galaxy-specific. No reason to carry the weight before v3.
+
+---

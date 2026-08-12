@@ -13,10 +13,10 @@ npm install
 npm run dev
 ```
 
-Copy `.env.local` placeholders and fill in values (see `docs/setup-checklist.md`).
+The app talks to the hosted Supabase project via `.env.local` — no local Postgres needed. See `docs/build-plan.md`.
 
 ## Docs
 
-- [`docs/architecture.md`](docs/architecture.md)
-- [`docs/setup-checklist.md`](docs/setup-checklist.md)
-- [`docs/naming-and-vision.md`](docs/naming-and-vision.md)
+- [`docs/architecture.md`](docs/architecture.md) — what the system is: schema, security model, server behaviour, environment
+- [`docs/build-plan.md`](docs/build-plan.md) — what the work is: change log, next steps, bug patterns, open items
+- [`docs/product-and-design.md`](docs/product-and-design.md) — what the product is meant to be: phases, naming, visual design

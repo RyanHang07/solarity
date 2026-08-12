@@ -30,5 +30,12 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    // Supabase Edge Functions run on Deno, not Node: they import from jsr:/npm:
+    // specifiers and use the global `Deno` object, neither of which resolves
+    // under this project's module resolution. They are type-checked by
+    // `supabase functions serve` / `deno check`, not by `tsc` here.
+    "supabase/functions"
+  ]
 }
