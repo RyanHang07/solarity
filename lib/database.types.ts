@@ -712,9 +712,8 @@ export type Database = {
           checkin_day_started_at: string | null
           checkin_timezone: string
           created_at: string
-          first_name: string | null
+          display_name: string | null
           id: string
-          last_name: string | null
           last_rollover_date: string | null
           updated_at: string
           username: string | null
@@ -724,9 +723,8 @@ export type Database = {
           checkin_day_started_at?: string | null
           checkin_timezone?: string
           created_at?: string
-          first_name?: string | null
+          display_name?: string | null
           id: string
-          last_name?: string | null
           last_rollover_date?: string | null
           updated_at?: string
           username?: string | null
@@ -736,9 +734,8 @@ export type Database = {
           checkin_day_started_at?: string | null
           checkin_timezone?: string
           created_at?: string
-          first_name?: string | null
+          display_name?: string | null
           id?: string
-          last_name?: string | null
           last_rollover_date?: string | null
           updated_at?: string
           username?: string | null

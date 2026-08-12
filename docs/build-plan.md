@@ -8,6 +8,34 @@ This doc does not describe the system. What exists and why it is shaped that way
 
 ## Change log
 
+### 12 August 2026 — verification pass, and migration 58
+
+**Browser verification complete. All six tests passed.** The application layer has now run for the first time.
+
+| Test | Result |
+|---|---|
+| 1. Sign-in round trip | Pass. `next` survives the OAuth round trip; signed-in users never see signed-out screens. |
+| 2. Open-redirect guard | Pass, including `%5C`. Valid relative paths still work, so the guard is not simply refusing everything. |
+| 3. Onboarding | Pass, including the case-insensitive uniqueness check. Timezone stored as a real IANA zone, not `UTC`. |
+| 4. Gate | Pass. A null username bounces from every route under `(app)`, confirming one gate rather than per-page checks. |
+| 5. PWA install | Pass on iOS. Opens from the home screen with **no Safari chrome**, so `appleWebApp` metadata is reaching the page and push remains viable. |
+| 6. Regressions | `tsc`, `eslint`, `next build` clean; `db diff` silent. |
+
+**Test 1 found a real bug, which is what the pass exists for.** `first_name` and `last_name` had a reader and no writer: `handle_new_user` read `raw_user_meta_data ->> 'given_name'` and `'family_name'`, keys Supabase's Google provider does not supply. Its actual keys are `avatar_url, email, email_verified, full_name, iss, name, phone_verified, picture, provider_id, sub`. Both columns were null on every account and always would have been, and `/onboarding` degraded silently from "Welcome, Ryan" to "Welcome".
+
+**Migration 58 collapsed three name concepts into two.** A legal-shaped first/last pair earns its place in a product with billing or formal correspondence; Solarity has neither, and carrying it alongside an OAuth full name and a username made three overlapping ideas where two would do.
+
+| Concept | Role |
+|---|---|
+| `username` | unique, ASCII, the identity. Rosters, digests, leaderboards. |
+| `display_name` | optional, non-unique, cosmetic. Render `coalesce(display_name, username)`. |
+
+`first_name` and `last_name` dropped, `display_name` added (1 to 50 characters after trimming, whitespace-only rejected). `handle_new_user` now reads `display_name`, then `full_name`, then `name`, truncating to 50 so an over-long value cannot abort signup over a decorative field. `export_user_data` updated, since it is a data-subject obligation and must describe columns that exist. Existing rows backfilled from Google's `full_name`.
+
+Verified: over-length rejected, whitespace-only rejected, null accepted, exactly 50 accepted, `authenticated` holds SELECT and UPDATE on `display_name` but not on `username`, `anon` holds nothing. Types, `app/onboarding/page.tsx`, and both docs updated. `tsc` and `eslint` clean.
+
+Migration 58 fetched into the repo: 58 files, comments intact, local and remote match.
+
 ### 12 August 2026 — auth, onboarding, icons `committed as "oauth skeleton"`
 
 The app has a running front end for the first time: sign in with Google, choose a username, land on a dashboard.
@@ -42,9 +70,11 @@ Supporting modules: `lib/errors.ts` (SQLSTATE to message), `lib/profanity.ts`, `
 
 **`supabase/config.toml` created** via `supabase init`, `project_id` set, project re-linked. See "config.toml" below.
 
+**Email delivery.** Brevo SMTP configured in Supabase, replacing the built-in 2-per-hour demonstration sender. Verified end to end with `scripts/test-email.mjs`, which is deliberately independent of Supabase so a failure names whether the credentials or the auth configuration is at fault. Details and tripwires in track 1.
+
 **Documentation.** `setup-checklist.md` folded into `architecture.md` section 14. `plan-public-and-auth.md` folded into this doc. Section 2b added to architecture, describing the application structure. The three docs are now split by concern: architecture records the system, this doc records the work, product-and-design owns phasing and appearance.
 
-**Verified:** `tsc --noEmit` clean, `eslint` clean, `next build` succeeds with and without environment variables, `supabase db diff` prints nothing. **Nothing has run in a browser.**
+**Verified at the time:** `tsc --noEmit` clean, `eslint` clean, `next build` succeeds with and without environment variables, `supabase db diff` prints nothing. Browser verification came later, in the entry above.
 
 ### Earlier
 
@@ -56,40 +86,93 @@ Supporting modules: `lib/errors.ts` (SQLSTATE to message), `lib/profanity.ts`, `
 
 # Next steps
 
-Three tracks. The first is a browser task you can do now and takes about fifteen minutes. The second is the code work. The third is deferred until the second is done.
+Three tracks. Track 1 is done. **Track 2 is where the work is now**, and it is the only track that tests whether the product works. Track 3 waits until it does.
 
 ---
 
-## Track 1 — Brevo setup (do this now, in a browser)
+## Track 1 — Brevo setup ✅ done
 
-**Why now.** Supabase's built-in email sender does **2 messages per hour** and is explicitly for demonstration. Every email-shaped feature depends on replacing it: signup confirmation, password reset, and the support contact form. It is also a self-contained manual task with no dependency on any code, so it can be done immediately and then forgotten about.
+**Result, 12 August 2026.** Brevo free plan configured, sender `ryanhang07@gmail.com` verified, SMTP key generated, Supabase pointed at `smtp-relay.brevo.com:587` with login `b55571001@smtp-brevo.com`. `scripts/test-email.mjs` authenticated and delivered **to the inbox, not spam**.
 
-**What you are doing.** Pointing Supabase at Brevo's SMTP relay instead of its own sender.
+**Do not over-read that result.** A Gmail address sending to itself is close to the easiest case a mail system can face: no reputation history is required and the receiving provider is unusually forgiving. It proves the credentials and the verified sender are correct. It does **not** prove deliverability to a stranger on a different provider, which is the case that actually matters at signup. Re-run the script against a non-Gmail address (Outlook, Yahoo, a work account) before relying on confirmation email, and treat the spam-folder copy on `/auth/check-email` as required regardless.
+
+Steps retained below as a record of what was configured and where the settings live.
+
+**Why this was done first.** Supabase's built-in email sender does **2 messages per hour** and is explicitly for demonstration. Every email-shaped feature depends on replacing it: signup confirmation, password reset, and the support contact form. It was also a self-contained manual task with no dependency on any code.
+
+### The 90-day expiry, and the alert for it
+
+Brevo expires **inactive SMTP keys after 90 days**. Nothing in Solarity sends email until the signup flow exists, so this key is idle from now on and the clock is running.
+
+**How the failure would actually surface.** Not silently, but not visibly to you either:
+
+| Who | What they see |
+|---|---|
+| The person signing up | A hard failure. Supabase returns `500: Error sending confirmation email` and `signUp` rejects. They cannot create an account. |
+| Supabase Auth logs | `535 5.7.8 Error: authentication failed`, which names the cause precisely. |
+| You | Nothing, unless you happen to be reading those logs or somebody tells you. |
+
+So the real risk is not a silent failure, it is an **unwitnessed** one: broken for everybody, obvious in a log nobody is watching.
+
+**The fix: `.github/workflows/email-heartbeat.yml`.** A scheduled workflow sends one email through Brevo on the 1st of each month, using `scripts/test-email.mjs`. That does two jobs at once:
+
+1. **Prevents the expiry.** A key used monthly never goes 90 days idle.
+2. **Alerts on failure.** GitHub emails the repository owner when a scheduled workflow fails, so a revoked, rotated or expired key surfaces as a failed run rather than as a broken signup.
+
+Twelve emails a year against a 300-per-day allowance. Monthly gives roughly three times the margin the expiry needs.
+
+**Repository secrets required** (Settings → Secrets and variables → Actions). The workflow does nothing until these exist:
+
+| Secret | Value |
+|---|---|
+| `BREVO_SMTP_LOGIN` | the `xxxxxx@smtp-brevo.com` login |
+| `BREVO_SMTP_KEY` | the SMTP key |
+| `BREVO_SENDER` | the verified sender address |
+| `BREVO_ALERT_TO` | where the heartbeat lands; the sender address is fine |
+
+Run it once by hand from the Actions tab (`workflow_dispatch`) to confirm the secrets are right, rather than waiting a month to find out.
+
+**One caveat.** GitHub disables scheduled workflows in repositories with no activity for 60 days. It warns by email first, but if the repo goes quiet for two months, re-enable this before trusting it again. It is a monitor, not a guarantee.
+
+### 0. Decide the sender address first
+
+This address appears in the From line of every confirmation and reset email, so it becomes public the moment anyone signs up. Using a personal address publishes it.
+
+**Recommendation: create a free mailbox for the project**, something like `solarity.app@gmail.com`. It costs nothing, keeps your personal address out of strangers' inboxes, and it doubles as the destination for the support contact form later. Do this before touching Brevo, because the next two steps both need it.
 
 ### 1. Create a Brevo account
 
-Free plan, 300 emails per day. No card required.
+Free plan, 300 emails per day, no card required. Some new accounts are held for a short manual review before transactional sending is enabled, so if sending is blocked at first, that is expected rather than a misconfiguration.
 
-### 2. Verify a sender address
+### 2. Verify the sender
 
-Senders and IPs, then create a sender. Use whichever address you want confirmation emails to appear to come from.
+**Settings → Senders, Domains, IPs → Senders**, then **Add a sender**. Two fields:
 
-Brevo emails that address a **6-digit code**. Enter it. **An unverified sender cannot send transactional email at all**, and the failure is a rejection rather than a warning, so do not skip this.
+- **From name**: `Solarity`. Inboxes truncate around 20 to 30 characters, so keep it short.
+- **From email**: the address from step 0.
 
-You have no custom domain, so this is single-sender verification rather than domain authentication. That works, with the caveat in "The spam problem" below.
+Save, then Brevo emails that address a **6-digit code**. Paste it back and click **Verify sender**.
+
+**An unverified sender cannot send transactional email at all**, and it fails as a rejection rather than a warning, so this is not skippable.
+
+**Expect a warning icon next to DKIM and DMARC.** That is correct, not a mistake: free sender domains like gmail.com cannot be authenticated, because you do not own the domain. It is the same fact as the spam problem below, surfaced in Brevo's UI.
 
 ### 3. Create an SMTP key
 
-Settings, then SMTP & API, then the SMTP tab.
+**Settings → SMTP & API → SMTP tab**, then **Generate a new SMTP key**.
+
+- **Name it** after the integration, for example `supabase-auth`. One key per integration means a single compromised key can be revoked without taking everything else down.
+- **Variant: Standard** (64 characters). The Short variant exists only for clients that cannot handle long passwords; Supabase can.
+- **Expiry: no expiration.** An expiry date on a credential that gates signup produces a silent outage on a date nobody remembers. If you prefer an expiry, set a calendar reminder to match it.
+
+The full key is displayed **once**. Copy it straight into a password manager. Afterwards only the last few characters are visible and there is no way to recover it, only to generate a replacement.
 
 Two values matter, and **they are not what you would guess**:
 
 | Field | Where it comes from |
 |---|---|
-| SMTP login | The **Login** field on that page. It looks like `xxxxxx@smtp-brevo.com`. It is **not** your Brevo account email. |
-| SMTP password | The **SMTP key** you generate. It is **not** an API key, and the two are listed side by side. |
-
-The key is shown once. Copy it immediately; afterwards only the last few characters are visible.
+| SMTP login | The **Login** field on that same page. Looks like `xxxxxx@smtp-brevo.com`. It is **not** your Brevo account email. |
+| SMTP password | The **SMTP key** you just generated. It is **not** an API key, and the two are listed side by side on the same screen. |
 
 ### 4. Point Supabase at it
 
@@ -112,7 +195,64 @@ Supabase, Authentication, Rate Limits. With custom SMTP enabled, Supabase applie
 
 ### 6. Confirm it works
 
-Trigger any auth email and check it arrives. If nothing arrives, the cause is almost always one of: sender not verified, API key used where an SMTP key was required, or the account email used where the `@smtp-brevo.com` login was required.
+Two separate questions, and conflating them wastes time:
+
+- **A. Are the Brevo credentials right?**
+- **B. Is Supabase configured to send anything at all?**
+
+Test A first, because it is unambiguous and does not involve Supabase.
+
+#### A. Test the credentials directly
+
+Add to `.env.local` (server-only, never `NEXT_PUBLIC_`):
+
+```
+BREVO_SMTP_LOGIN=xxxxxx@smtp-brevo.com
+BREVO_SMTP_KEY=<the SMTP key>
+BREVO_SENDER=<the verified sender address>
+```
+
+Then:
+
+```bash
+npm i -D nodemailer
+node --env-file=.env.local scripts/test-email.mjs you@example.com
+```
+
+The script authenticates first and sends second, so a failure names which half broke. Check the inbox, the **spam folder**, and **Brevo → Transactional → Logs**, which distinguishes "never sent" from "sent and filtered".
+
+#### B. Why Supabase sends nothing
+
+**Supabase only sends auth email when an auth flow asks it to.** This project is Google-only, and Google accounts arrive pre-confirmed, so no confirmation, magic link or reset email has ever been generated. Correct SMTP settings change nothing on their own.
+
+The dashboard's **Add user** form does not help either: it has an **Auto Confirm User** toggle that is on by default, which creates the account already confirmed and sends nothing.
+
+To force a real send:
+
+1. Authentication → Providers → enable **Email**.
+2. Authentication → Users → **Add user**, with **Auto Confirm User unchecked**.
+3. A confirmation email is generated. Delete the test user afterwards.
+4. Turn the Email provider back off if you do not want it live yet. Nothing can reach it regardless, since no signup UI exists.
+
+Confirmation that a send was attempted, rather than trusting the inbox:
+
+```sql
+select left(email,3) || '***' as who, created_at,
+       confirmation_sent_at, email_confirmed_at,
+       raw_app_meta_data ->> 'provider' as provider
+from auth.users order by created_at desc limit 5;
+```
+
+`confirmation_sent_at` stays null when nothing was sent. A `provider` of `google` with `email_confirmed_at` matching `created_at` is a pre-confirmed OAuth account, which never triggers mail.
+
+#### Failure table
+
+| Symptom | Cause |
+|---|---|
+| Script fails at authentication | Account email used instead of the `@smtp-brevo.com` login, or an API key used instead of an SMTP key |
+| Script authenticates, refuses the message | `BREVO_SENDER` does not exactly match a verified sender |
+| Script succeeds, Supabase sends nothing | No auth flow is generating email. See B. |
+| Brevo logs show delivered, inbox empty | Filtered. See below. |
 
 ### The spam problem, and what to do about it
 
@@ -128,7 +268,14 @@ The real fix is a domain, roughly $10 to $15 a year, which also unlocks Resend's
 
 No new application environment variable is needed. The credentials live in Supabase's dashboard, exactly like the Google OAuth client secret.
 
-The **contact form** is different: it sends mail directly rather than through Supabase Auth, so it will need `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY` and `BREVO_SENDER` as server-only variables when that gets built. Not yet.
+The **contact form** is different: it sends mail directly rather than through Supabase Auth, so it will need `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY` and `BREVO_SENDER` as server-only variables when that gets built. Not yet. Generate it a **separate** SMTP key named for that integration, so revoking one does not break auth.
+
+### Tripwires to remember
+
+- **Inactive SMTP keys expire after 90 days.** The monthly heartbeat workflow prevents this and alerts if it happens anyway. If email stops working after a long gap and the heartbeat was disabled, regenerate the key before debugging anything else.
+- **"Minimum interval per user" is set to 60 seconds** in Supabase's SMTP settings. That is the floor between two emails to the same address, so a resend button pressed twice inside a minute is silently refused. The check-email page must disable resend for 60 seconds and say why, or it looks broken.
+- The sender address is public. Changing it later means re-verifying in Brevo and updating Supabase.
+- Brevo's 300/day and Supabase's 30 new users/hour are **separate** limits. Supabase's binds first.
 
 ---
 
@@ -138,8 +285,7 @@ The **contact form** is different: it sends mail directly rather than through Su
 
 Ordered so the app is usable **alone** before it is usable **together**. Single-player first means streaks can be tested without a second account.
 
-**1. Verify the skeleton in a browser.** Use "Verifying the current build" below. Nothing else starts until sign-in and onboarding are known good.
-*Prerequisite:* in Supabase, Authentication, URL Configuration, Redirect URLs must contain `http://localhost:3000/**` and the Vercel URL, or the OAuth callback bounces.
+**1. Verify the skeleton in a browser.** ✅ **Done, 12 August.** All six tests passed; results in the change log, procedure retained below as a regression checklist. Found and fixed the `first_name` bug that became migration 58.
 
 **2. `app/actions/circles.ts` and Circle creation.** Wrap `create_circle` with the `createCircle` rate limit and the profanity filter on the Circle name. A form on the dashboard; a Circle appears in the list.
 *Done when:* you can create a Circle and see it listed.
@@ -190,7 +336,7 @@ Deferred until track 2 works end to end. All of the design thinking is settled; 
 | Decision | Rationale |
 |---|---|
 | Signup collects email, password, **username** | Username is the only field the product cannot run without: it appears in every roster and digest. Google users still set theirs in `/onboarding`, so both paths need the same validation. Factor it once. |
-| Plus **first and last name** | Costs nothing: `handle_new_user` reads `given_name` and `family_name` from `raw_user_meta_data`, and `signUp({ options: { data } })` writes exactly there. No migration, no trigger change. |
+| Plus an optional **display name** | `signUp({ options: { data: { display_name } } })` writes to `raw_user_meta_data`, which `handle_new_user` already reads first. No migration, no trigger change. Optional, because `coalesce(display_name, username)` always renders something. Needs the same profanity screening as username. |
 | Plus **terms acceptance**, versioned | Two new columns. "They agreed" is worth little once terms change; storing *which version* lets a future change target only who needs to re-accept. |
 | **Email confirmation required** | Blocks throwaway addresses and guarantees password reset works. Costs three screens. |
 | **Enumeration protection stays on** | Signup never reveals whether an address is already registered. See below. |
@@ -365,9 +511,9 @@ Keep the posture deny-by-default: enumerate what is *public*, so a forgotten rou
 
 ---
 
-## Verifying the current build
+## Regression checklist
 
-Nothing has run in a browser. Work through these in order; each fails distinctively, so an early failure tells you where to look.
+Passed in full on 12 August 2026. Retained because these are the checks worth repeating after any change to auth, the proxy, the gate, or the PWA layer. Work through them in order; each fails distinctively, so an early failure tells you where to look.
 
 ### 1. Sign-in round trip
 
@@ -435,11 +581,13 @@ npm run build
 npx supabase db diff        # should print nothing
 ```
 
-### Gaps this plan will not catch
+### Still unverified after this pass
 
-- Rate limiting is untested; triggering it takes 15 onboarding attempts in an hour.
-- The profanity filter has false positives on innocent substrings. That is the intended trade for names that appear in other people's notifications, but worth knowing before someone reports it as a bug.
-- Nothing exercises the RPCs beyond `complete_onboarding`.
+- **Rate limiting.** Wired but never triggered; it takes 15 onboarding attempts in an hour.
+- **Every RPC except `complete_onboarding`.** Circles, goals, check-ins and invites have all been tested in SQL and none of them through the app.
+- **Email deliverability to a stranger.** Brevo delivers to the sender's own Gmail, which proves nothing about another provider.
+- **Push notifications end to end.** The service worker registers, but nothing has ever sent a push to a real device.
+- The profanity filter has false positives on innocent substrings. Intended, but worth knowing before someone reports it as a bug.
 
 ---
 
@@ -541,7 +689,6 @@ The app talks to the **hosted** Supabase project through `.env.local`. `npx supa
 
 ### Blocking
 
-- **Redirect URLs in Supabase.** Nothing signs in until `http://localhost:3000/**` and the Vercel URL are listed.
 - **Migration workflow, undecided.** Schema changes currently go straight to the project, which drifts from the repo. Either continue and re-run `npx supabase migration fetch` afterwards, or write files into `supabase/migrations/` and `npx supabase db push`. The second gives review over schema changes, and track 3 adds two migrations, so this wants deciding before then.
 
 ### Before launch

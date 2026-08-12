@@ -39,4 +39,4 @@ alter table public.push_subscriptions           enable row level security;
 alter table public.digest_snapshots             enable row level security;
 alter table public.content_reports              enable row level security;
 alter table public.user_blocks                  enable row level security;
-alter table public.audit_log                    enable row level security;
+alter table public.audit_log                    enable row level security;;

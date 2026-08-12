@@ -1,0 +1,47 @@
+name: Email heartbeat
+
+# Brevo expires SMTP keys after 90 days of inactivity, and Solarity will not
+# send email of its own until the signup flow exists. An idle key would expire
+# silently and only announce itself when the first real user cannot sign up.
+#
+# This does two jobs with one send:
+#   1. Keeps the key active, so the 90-day clock never runs out.
+#   2. Fails loudly if the credentials have stopped working, because GitHub
+#      emails the repository owner when a scheduled workflow fails.
+#
+# Monthly gives roughly three times the margin the expiry needs.
+#
+# Caveat worth knowing: GitHub disables scheduled workflows in repositories
+# with no activity for 60 days. It warns by email first, but if this repo goes
+# quiet for two months, re-enable this workflow before trusting it again.
+
+on:
+  schedule:
+    - cron: "0 9 1 * *" # 09:00 UTC on the 1st of each month
+  workflow_dispatch: # and on demand, for testing the workflow itself
+
+jobs:
+  heartbeat:
+    name: Send a keepalive through Brevo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The script authenticates before it sends, so a failure distinguishes
+      # an expired or revoked key from a rejected sender.
+      - name: Send
+        env:
+          BREVO_SMTP_LOGIN: ${{ secrets.BREVO_SMTP_LOGIN }}
+          BREVO_SMTP_KEY: ${{ secrets.BREVO_SMTP_KEY }}
+          BREVO_SENDER: ${{ secrets.BREVO_SENDER }}
+          BREVO_ALERT_TO: ${{ secrets.BREVO_ALERT_TO }}
+        run: node scripts/test-email.mjs

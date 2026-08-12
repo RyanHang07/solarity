@@ -13,7 +13,7 @@ export default async function OnboardingPage() {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("username, first_name")
+    .select("username, display_name")
     .eq("id", user.id)
     .maybeSingle()
 
@@ -23,7 +23,7 @@ export default async function OnboardingPage() {
   return (
     <main className="flex min-h-full flex-1 flex-col items-center justify-center gap-6 p-8">
       <h1 className="text-xl font-semibold">
-        {profile?.first_name ? `Welcome, ${profile.first_name}` : "Welcome"}
+        {profile?.display_name ? `Welcome, ${profile.display_name}` : "Welcome"}
       </h1>
       <OnboardingForm />
     </main>

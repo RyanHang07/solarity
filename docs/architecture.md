@@ -46,10 +46,10 @@ The queries that check these live in `build-plan.md`.
 
 ## Caveats on what is built
 
-- **The application layer has never run in a browser.** Auth, onboarding and the dashboard shell are committed as the "oauth skeleton" and pass `tsc`, `eslint` and `next build`; nothing more. Browser verification is the first item in `build-plan.md`, track 2.
+- **Auth, onboarding, the gate and the PWA are browser-verified** as of 12 August 2026, on desktop Chrome and on iOS installed to the home screen. Everything beyond them is not: Circles, goals, check-ins and invites exist only as tested SQL with no interface.
 - **Rate limiting is wired but has never been triggered.**
 - **Turnstile is inert.** It is configured in Supabase Auth, but Supabase's CAPTCHA guards only endpoints that accept a `captchaToken` — signup, password sign-in, OTP, password reset. This app is Google-only and calls none of them, so `signInWithOAuth` has no token to attach. It becomes live the moment email/password auth is added, which is planned. The real bot defence today is Google OAuth plus Upstash rate limiting.
-- **Email is capped at 2 messages per hour** by Supabase's built-in sender. Latent, since nothing sends email yet. See section 14.
+- **Email deliverability is unproven.** Brevo SMTP is configured and verified, but only against the sender's own Gmail address, which is the easiest case there is. Sending from an unauthenticated free domain to a stranger on another provider is the case that matters and has not been tested. See section 14.
 - **The retention sweep and photo purge are scheduled but have never run against real volume.**
 - **The icon set is a generated placeholder mark** — correct dimensions, replaceable in v2.
 
@@ -148,7 +148,13 @@ Server actions return `{ ok: true } | { ok: false, error }` rather than throwing
 Populated by the `on_auth_user_created` trigger off `auth.users`.
 
 - `id` (uuid PK, matches `auth.users.id`)
-- `first_name`, `last_name` (nullable) — from structured OAuth claims (`given_name`/`family_name`) only, left null otherwise. **No whitespace-splitting fallback**: it mis-parses compound surnames, multiple given names, and family-name-first orders, producing data that looks real but is wrong. A null is more honest than a bad guess.
+- `display_name` (nullable, **not unique**) — cosmetic only. **Render `coalesce(display_name, username)` everywhere**; username is guaranteed present after onboarding, so there is never nothing to show.
+
+  This replaced a `first_name` / `last_name` pair that had a reader and no writer. `handle_new_user` read `given_name` and `family_name`, which Supabase's Google provider does not supply — its keys are `avatar_url, email, email_verified, full_name, iss, name, phone_verified, picture, provider_id, sub`. Both columns were null on every account and always would have been. Found by the first browser verification pass, not by any test.
+
+  The deeper problem was three overlapping concepts. A legal-shaped first/last pair earns its place in a product with billing, invoicing or formal correspondence; Solarity has none. Two concepts is the conventional split: **`username` is identity, `display_name` is cosmetic**. The trigger now reads `display_name`, then `full_name`, then `name`, and truncates to 50 — an over-long value would otherwise violate the CHECK and abort signup over a decorative field.
+
+  Profanity screening happens in the app layer, as it does for username, since this appears in other people's rosters.
 - `username` (nullable, **case-insensitively unique** via a unique index on `lower(username)`) — the public identity everywhere. Case-insensitive because a plain constraint would allow both `Ryan` and `ryan`, a cheaper impersonation route than unicode lookalikes. **Lookups must query `lower(username) = lower($1)` to hit the index.** Nullable because OAuth can't supply one; onboarding sets it.
 - `avatar_url`
 - `checkin_timezone` (IANA name), `checkin_day_started_at` — frozen at each 2 AM rollover, not read live. See check-in dates below.
@@ -363,7 +369,7 @@ Deliberately **not** duplicated here: `content_reports` resolution (that table c
 | Field | Rule |
 |---|---|
 | `users.username` | 3–30 chars, `^[A-Za-z0-9_]+$` — ASCII only, blocking unicode-lookalike impersonation |
-| `users.first_name` / `last_name` | ≤ 100 |
+| `users.display_name` | 1–50 after trimming; whitespace-only rejected |
 | `goals.title` | 1–100 |
 | `progress_entries.note` | ≤ 500 |
 | `groups.name` | 1–50 |
@@ -393,7 +399,7 @@ This is the stronger posture: access is an allowlist, and a forgotten grant fail
 
 | Table | Read | Insert | Update (columns) | Delete |
 |---|---|---|---|---|
-| `users` | self + circle-mates | — | `first_name, last_name, avatar_url` | — |
+| `users` | self + circle-mates | — | `display_name, avatar_url` | — |
 | `user_lifetime_stats` | self; circle-mate if opted-in and not blocking you | — | `visible_on_profile` | — |
 | `goal_categories` | all | — | — | — |
 | `goals` | self + circle-mates | own | `title, category_id, deadline, achieved_at, archived_at` | — |
@@ -832,15 +838,23 @@ The app's own `/auth/callback` route is where Supabase redirects *after* that, a
 
 ### Email delivery
 
-The project currently sends through **Supabase's built-in sender, which is capped at 2 messages per hour** and documented as demonstration-grade with best-effort availability.
+Auth email goes through **Brevo SMTP** (free tier, 300/day), configured in Supabase → Project Settings → Authentication → SMTP Settings rather than in application environment variables, exactly like the Google OAuth client secret. Verified end to end.
 
-Nothing in the app relies on email today: authentication is Google-only, so no confirmation, reset or magic-link mail is ever sent. The cap is therefore latent rather than active, and it is recorded here because it becomes load-bearing the moment any email-shaped feature exists. On the built-in sender, the third person to sign up within an hour never receives a link, with no error and nothing to debug.
+This replaced Supabase's built-in sender, which is capped at **2 messages per hour** and documented as demonstration-grade. That cap was latent rather than active, since nothing sends email yet, but it becomes load-bearing the moment email confirmation exists: on the built-in sender the third person to sign up within an hour never receives a link, with no error and nothing to debug.
 
-Replacement is **Brevo SMTP** (free tier, 300/day), configured in Supabase → Project Settings → Authentication → SMTP Settings rather than in application environment variables, exactly like the Google OAuth client secret. Two credential traps: the SMTP login is a generated `xxxxxx@smtp-brevo.com` address rather than the account email, and an SMTP key is not the same thing as an API key.
+| Setting | Value |
+|---|---|
+| Host, port | `smtp-relay.brevo.com`, 587 |
+| Username | a generated `xxxxxx@smtp-brevo.com` login, **not** the Brevo account email |
+| Password | an SMTP key, **not** an API key |
+| Sender | a single verified address; no domain authentication, since no custom domain exists |
+| Minimum interval per user | 60 seconds |
 
-With custom SMTP enabled, Supabase applies a **separate** cap of 30 new users per hour by default, adjustable under Auth → Rate Limits. That secondary limit binds before Brevo's does.
+Two caps apply and they are independent. Brevo allows 300/day; Supabase separately caps **30 new users per hour** by default under Auth → Rate Limits, and that one binds first.
 
-**Deliverability is the real constraint, not volume.** Without a custom domain, SPF and DKIM cannot align with the From address, so mail is more likely to be filtered. That failure is silent: the recipient simply never gets in. Setup steps and the accepted mitigation are in `build-plan.md`, track 1.
+**Deliverability is the real constraint, not volume.** Without a custom domain, SPF and DKIM cannot align with the From address, so mail is more likely to be filtered. That failure is silent: the recipient never gets in and concludes the product is broken. A test to the sender's own Gmail reached the inbox, which is the easiest possible case and not evidence about strangers on other providers. The accepted mitigation is explicit spam-folder copy on the check-email screen; the real fix is a domain.
+
+`scripts/test-email.mjs` exercises the credentials **without** involving Supabase, so a failure distinguishes bad credentials from an auth flow that was never going to send anything. Worth keeping: Supabase only generates auth email when a flow asks it to, and a Google-only project asks for none, so "SMTP is configured" and "email works" are separate claims.
 
 ### Deferred, with reasons
 
