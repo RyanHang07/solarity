@@ -46,7 +46,10 @@ function limiter(name: LimitName): Ratelimit {
   existing = new Ratelimit({
     redis,
     limiter: Ratelimit.slidingWindow(tokens, window),
-    analytics: true,
+    // Off: it writes extra Redis keys per request against a free-tier command
+    // budget, to populate an Upstash dashboard nobody is reading yet. Turn on
+    // when there is traffic worth analysing.
+    analytics: false,
     prefix: `solarity:${name}`,
   })
   limiters.set(name, existing)
@@ -56,6 +59,12 @@ function limiter(name: LimitName): Ratelimit {
 /**
  * Throws if the caller is over their limit. Keyed by user id, so one abusive
  * account can't degrade the service for everyone.
+ *
+ * **Call this after cheap local validation, immediately before the first call
+ * that leaves the process.** A token spent on a typo or a filtered word is a
+ * penalty for a mistake, and the limits bound expensive operations rather than
+ * keystrokes. Validation that touches nothing but memory costs nothing worth
+ * metering; a database round trip does.
  */
 export async function enforce(
   name: LimitName,

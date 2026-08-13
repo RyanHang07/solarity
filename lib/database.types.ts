@@ -759,6 +759,7 @@ export type Database = {
         Args: { p_timezone: string; p_username: string }
         Returns: undefined
       }
+      current_checkin_date: { Args: never; Returns: string }
       create_circle: { Args: { p_deadline?: string; p_name: string }; Returns: string }
       create_invite_link: {
         Args: {

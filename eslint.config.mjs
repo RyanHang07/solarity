@@ -32,7 +32,11 @@ const eslintConfig = defineConfig([
   // ---------------------------------------------------------------------
   {
     files: ["**/*.{ts,tsx}"],
-    ignores: ["app/actions/**"],
+    // `lib/supabase/checkin-date.ts` is the single exemption, and the file
+    // explains why: a read-only, argument-free function that both the read
+    // path and the write path need, with nothing to rate limit. Confining it
+    // to app/actions/ would only mean duplicating it back into the page.
+    ignores: ["app/actions/**", "lib/supabase/checkin-date.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",

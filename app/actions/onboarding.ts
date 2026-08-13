@@ -27,11 +27,9 @@ export async function completeOnboarding(
   } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: "Please sign in again." }
 
-  try {
-    await enforce("onboarding", user.id)
-  } catch (e) {
-    return { ok: false, error: toMessage(e) }
-  }
+  // Cheap local checks first, so a rejected attempt costs no allowance.
+  // Picking a username is guess-and-retry by nature; charging for each guess
+  // would lock people out of onboarding for fumbling their own name.
 
   // Mirrors users_username_format, so the person gets a sentence rather than a
   // constraint violation.
@@ -48,6 +46,14 @@ export async function completeOnboarding(
 
   if (!timezone) {
     return { ok: false, error: "We couldn't detect your timezone. Please pick one." }
+  }
+
+  // Immediately before the first call that leaves this process. The
+  // availability check below is a real database round trip, so it is metered.
+  try {
+    await enforce("onboarding", user.id)
+  } catch (e) {
+    return { ok: false, error: toMessage(e) }
   }
 
   // Message-quality pre-check only; the real guard is users_username_lower_key
