@@ -1,6 +1,6 @@
 "use client"
 
-import { useActionState } from "react"
+import { useActionState, useState } from "react"
 import { useFormStatus } from "react-dom"
 import { checkIn, undoCheckIn } from "@/app/actions/check-ins"
 import type { ActionResult } from "@/lib/errors"
@@ -49,9 +49,20 @@ export function TodayPanel({
   )
 
   const done = goals.filter((g) => g.checkedIn).length
-  const error = (checkState && !checkState.ok && checkState.error)
-    || (undoState && !undoState.ok && undoState.error)
-    || null
+
+  /**
+   * Two actions share one error line, so which state is current has to be
+   * tracked. Reading both and taking the first failure looks equivalent and is
+   * not: a failed check-in keeps its result forever, so undoing successfully
+   * afterwards left the old error on screen under a row that had just worked.
+   *
+   * Recorded on submit rather than derived. Neither form unmounts when it
+   * submits, so this is safe here, unlike the confirm-and-replace flow in
+   * `invite-panel.tsx` where the same trick would abort the action.
+   */
+  const [last, setLast] = useState<"check" | "undo" | null>(null)
+  const current = last === "undo" ? undoState : last === "check" ? checkState : null
+  const error = current && !current.ok ? current.error : null
 
   return (
     <section className="flex flex-col gap-3">
@@ -98,7 +109,10 @@ export function TodayPanel({
                 </span>
               </span>
 
-              <form action={g.checkedIn ? undoAction : checkAction}>
+              <form
+                action={g.checkedIn ? undoAction : checkAction}
+                onSubmit={() => setLast(g.checkedIn ? "undo" : "check")}
+              >
                 <input type="hidden" name="goalId" value={g.id} />
                 <RowButton
                   label={g.checkedIn ? "Undo" : "Check in"}

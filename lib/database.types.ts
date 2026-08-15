@@ -557,6 +557,7 @@ export type Database = {
           goal_id: string | null
           id: string
           note: string | null
+          note_shared: boolean
           photo_url: string | null
           user_id: string | null
         }
@@ -566,6 +567,7 @@ export type Database = {
           goal_id?: string | null
           id?: string
           note?: string | null
+          note_shared?: boolean
           photo_url?: string | null
           user_id?: string | null
         }
@@ -575,6 +577,7 @@ export type Database = {
           goal_id?: string | null
           id?: string
           note?: string | null
+          note_shared?: boolean
           photo_url?: string | null
           user_id?: string | null
         }
@@ -745,7 +748,23 @@ export type Database = {
     }
     Views: { [_ in never]: never }
     Functions: {
+      archive_circle: { Args: { p_group_id: string }; Returns: undefined }
       build_daily_digests: { Args: { p_date?: string }; Returns: number }
+      circle_roster: {
+        Args: { p_group_id: string }
+        Returns: {
+          checked_count: number
+          checkin_date: string
+          display_name: string
+          goals: Json
+          is_self: boolean
+          role: string
+          streak_grace: boolean
+          total_count: number
+          user_id: string
+          username: string
+        }[]
+      }
       circle_preview: {
         Args: { p_token: string }
         Returns: {

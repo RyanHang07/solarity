@@ -47,9 +47,14 @@ export async function updateSession(request: NextRequest) {
     path.startsWith("/join") // invite links resolve before sign-in
 
   if (!user && !isPublic) {
+    // Path *and* query. `sw.js` deep-links to `/circles/<id>?tab=overview`, so
+    // sending only the path silently drops people on the wrong tab of the right
+    // page after signing in. `safeRedirect` already permits a query string; it
+    // rejects on the leading characters, which a search string cannot change.
     const url = request.nextUrl.clone()
     url.pathname = "/auth/sign-in"
-    url.searchParams.set("next", path)
+    url.search = ""
+    url.searchParams.set("next", path + request.nextUrl.search)
     return NextResponse.redirect(url)
   }
 

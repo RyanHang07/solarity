@@ -32,11 +32,26 @@ const eslintConfig = defineConfig([
   // ---------------------------------------------------------------------
   {
     files: ["**/*.{ts,tsx}"],
-    // `lib/supabase/checkin-date.ts` is the single exemption, and the file
-    // explains why: a read-only, argument-free function that both the read
-    // path and the write path need, with nothing to rate limit. Confining it
-    // to app/actions/ would only mean duplicating it back into the page.
-    ignores: ["app/actions/**", "lib/supabase/checkin-date.ts"],
+    // Two exemptions, each explained in the file itself.
+    //
+    // `checkin-date.ts`: read-only, argument-free, needed by both the read and
+    // the write path, with nothing to meter. Confining it would mean
+    // duplicating it back into the page.
+    //
+    // `circle-preview.ts`: read during render on a public route, so a server
+    // action would publish a POST endpoint for a value never submitted. This
+    // one DOES need metering, per IP, and step 7f adds it at the single call
+    // site rather than inside the helper.
+    //
+    // `e2e/` is exempt for a different reason: it is a test runner, not the
+    // app. Nothing there is bundled or served, and its Supabase client uses the
+    // service key deliberately, to reach states the UI cannot.
+    ignores: [
+      "app/actions/**",
+      "lib/supabase/checkin-date.ts",
+      "lib/supabase/circle-preview.ts",
+      "e2e/**",
+    ],
     rules: {
       "no-restricted-syntax": [
         "error",

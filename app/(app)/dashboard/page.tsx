@@ -1,9 +1,11 @@
+import Link from "next/link"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { getCheckinDate } from "@/lib/supabase/checkin-date"
 import { CreateCircleForm } from "./create-circle-form"
 import { GoalsPanel } from "./goals-panel"
 import { TodayPanel } from "./today-panel"
+import { Notice } from "@/components/notice"
 
 export const metadata = { title: "Solarity" }
 
@@ -11,7 +13,12 @@ export const metadata = { title: "Solarity" }
  * Placeholder shell. The v1 dashboard is the check-in panel, Circles list,
  * Overview and notifications — see product-and-design.md section 3.
  */
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ notice?: string }>
+}) {
+  const { notice } = await searchParams
   const supabase = await createClient()
 
   // The layout above has already established there is a session, so this is a
@@ -26,15 +33,27 @@ export default async function DashboardPage() {
 
   const [{ data: circles }, { data: goals }, { data: categories }] =
     await Promise.all([
-      // No `.eq("user_id", …)`: RLS already restricts this to the caller's
-      // Circles, and a second copy of the rule would only be a weaker one.
+      // `.eq("user_id", …)` is load-bearing, and leaving it out was a bug.
+      //
+      // The SELECT policy is `private.is_group_member(group_id)`: you can read
+      // every member row of every Circle you belong to, which is exactly what
+      // the roster on `/circles/[id]` needs. So RLS scopes this to the caller's
+      // **Circles**, not to the caller's **memberships**, and without the
+      // filter a Circle of three came back as three rows and rendered three
+      // times, each showing a different person's role.
+      //
+      // The general form: RLS is not a substitute for a WHERE clause. It bounds
+      // what you *may* read, never what you *meant* to read.
       supabase
         .from("group_members")
         .select("group_id, role, groups(name, group_status)")
+        .eq("user_id", user.id)
         .order("joined_at", { ascending: true }),
 
-      // Goals are user-owned. RLS widens reads to circle-mates' goals too, so
-      // this filter is what keeps the panel to your own.
+      // Goals are user-owned, and since migration 64 RLS agrees: `goals_select_own`
+      // is `user_id = auth.uid()`. The filter is kept anyway because the policy
+      // is a ceiling, not a statement of intent, and a reader should not have to
+      // check the policy to know this panel shows your goals.
       supabase
         .from("goals")
         .select("id, title, archived_at, achieved_at, goal_categories(name, color_hex)")
@@ -70,18 +89,6 @@ export default async function DashboardPage() {
         .maybeSingle(),
     ])
 
-  // Without a date, "nothing is checked in" and "we could not tell" are
-  // indistinguishable, and the streak would quietly under-report. Say so
-  // instead of rendering a confidently wrong number.
-  if (!today) {
-    return (
-      <p role="alert" className="text-sm text-red-600">
-        Couldn&apos;t work out today&apos;s date, so today&apos;s progress
-        isn&apos;t showing. Reload in a moment.
-      </p>
-    )
-  }
-
   const completedToday = completion?.all_completed ?? false
 
   /**
@@ -110,14 +117,40 @@ export default async function DashboardPage() {
   const active = circles?.filter((m) => m.groups?.group_status === "active") ?? []
   const inactive = circles?.filter((m) => m.groups?.group_status !== "active") ?? []
 
+  // The heading has to name what is actually in the list. `locked` lands here
+  // too, and a Circle awaiting a renewal decision filed under "Archived" reads
+  // as retired, which is the opposite of "needs your attention".
+  const hasLocked = inactive.some((m) => m.groups?.group_status === "locked")
+  const inactiveLabel = hasLocked ? "Locked and archived" : "Archived"
+
   return (
     <div className="flex flex-col gap-8">
-      <TodayPanel
-        goals={todayGoals}
-        completedToday={completedToday}
-        streak={displayStreak}
-        streakIncludesToday={completedToday}
-      />
+      <Notice notice={notice} />
+
+      {/*
+        Without a date, "nothing is checked in" and "we could not tell" are
+        indistinguishable, and the streak would quietly under-report. So the
+        panel is replaced rather than rendered with confidently wrong numbers.
+
+        Only the panel, though. Returning this in place of the whole page also
+        hid the goals list, the Circles list and the create form, none of which
+        depend on today's date, while the copy claimed only today's progress was
+        missing.
+      */}
+      {today ? (
+        <TodayPanel
+          goals={todayGoals}
+          completedToday={completedToday}
+          streak={displayStreak}
+          streakIncludesToday={completedToday}
+        />
+      ) : (
+        <p role="alert" className="text-sm text-red-600">
+          Couldn&apos;t work out today&apos;s date, so today&apos;s progress and
+          your streak aren&apos;t showing. Everything else below is fine. Reload
+          in a moment.
+        </p>
+      )}
 
       <GoalsPanel goals={goals ?? []} categories={categories ?? []} />
 
@@ -133,8 +166,14 @@ export default async function DashboardPage() {
         ) : (
           <ul className="flex flex-col gap-2">
             {active.map((m) => (
-              <li key={m.group_id} className="rounded border px-3 py-2 text-sm">
-                {m.groups?.name} · {m.role}
+              <li key={m.group_id} className="rounded border text-sm">
+                <Link
+                  href={`/circles/${m.group_id}`}
+                  className="flex justify-between px-3 py-2"
+                >
+                  <span>{m.groups?.name}</span>
+                  <span className="opacity-60">{m.role}</span>
+                </Link>
               </li>
             ))}
           </ul>
@@ -143,15 +182,18 @@ export default async function DashboardPage() {
         {inactive.length ? (
           <details>
             <summary className="cursor-pointer text-sm opacity-70">
-              Archived ({inactive.length})
+              {inactiveLabel} ({inactive.length})
             </summary>
             <ul className="mt-2 flex flex-col gap-2">
               {inactive.map((m) => (
-                <li
-                  key={m.group_id}
-                  className="rounded border px-3 py-2 text-sm opacity-60"
-                >
-                  {m.groups?.name} · {m.groups?.group_status} · {m.role}
+                <li key={m.group_id} className="rounded border text-sm opacity-60">
+                  <Link
+                    href={`/circles/${m.group_id}`}
+                    className="flex justify-between px-3 py-2"
+                  >
+                    <span>{m.groups?.name}</span>
+                    <span>{m.groups?.group_status}</span>
+                  </Link>
                 </li>
               ))}
             </ul>

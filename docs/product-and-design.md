@@ -56,7 +56,11 @@ Home dashboard, Circle page, Profile page, Notifications. Plain functional names
 
 **Onboarding needs an "add to home screen" step.** Not cosmetic: web push on iOS only works for an installed PWA, and iOS offers no native install prompt, so a user who skips it silently gets no notifications at all. Copy still to write.
 
-**Invite failure states need distinct copy.** The database returns machine codes (`INVITE_EXPIRED`, `CIRCLE_FULL`, `CIRCLE_LOCKED`, `CIRCLE_ARCHIVED`, `INVITE_REVOKED`, `INVITE_INVALID`); the UI should branch on those rather than on message text. See `architecture.md` section 10 for which cases are deliberately indistinguishable and why.
+**Invite failure states need distinct copy.** The database returns machine codes (`INVITE_EXPIRED`, `CIRCLE_FULL`, `CIRCLE_LOCKED`, `CIRCLE_ARCHIVED`, `INVITE_REVOKED`, `INVITE_INVALID`, `CIRCLE_ORPHANED`, `NOT_AUTHENTICATED`); the UI should branch on those rather than on message text. See `architecture.md` section 10 for which cases are deliberately indistinguishable and why.
+
+**The join screen is seen twice by a new person**, once signed out and once signed in, so it needs two states rather than one. Signed out it shows the Circle's name and size with "Sign in to join"; signed in, the same screen with "Join". Nobody should be asked to authenticate before they know what they are joining.
+
+**A joiner arriving into a live streak is not counted at first**, and both sides need copy for it. The owner is asked to keep the streak or reset it for everyone; the joiner and existing members see that the new person is settling in and isn't counted yet. Left unsaid, this reads as the Circle quietly ignoring someone.
 
 ---
 

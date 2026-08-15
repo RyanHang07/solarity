@@ -16,7 +16,7 @@ This doc does not track work. Next steps, open decisions, known bugs, gotchas an
 |---|---|
 | Schema: 21 tables, constraints, caps | built |
 | RLS: 41 table policies, 8 storage policies | built |
-| RPCs: 12 client-callable | built |
+| RPCs: 15 client-callable | built |
 | Derived data: triggers + rollover | built |
 | Digest: SQL builder + push sender | built |
 | Retention sweep, photo purge | built |
@@ -26,18 +26,21 @@ This doc does not track work. Next steps, open decisions, known bugs, gotchas an
 | Job scheduling: 5 pg_cron jobs | built, Vault secrets confirmed |
 | TypeScript types | generated → `lib/database.types.ts` |
 | Supabase clients, proxy, rate limiters, lint rules | in repo |
-| Migrations + Edge Functions in version control | 57 + 4, `db diff` clean |
+| Migrations + Edge Functions in version control | 67 + 4 |
 | PWA: manifest, service worker, registrar, icons | built |
 | Auth: sign-in, callback, sign-out, route guard | built |
 | Onboarding: username + timezone | built |
-| Application: Circles, goals, check-ins, dashboard panels | not built |
+| Application: Circles, goals, check-ins, invites, settings | built, e2e-covered |
+| Masking: `circle_roster`, goals and notes owner-only | built, migration 64 |
+| Application: Overview, notifications, profile, account settings | not built |
 
 ## Standing invariants
 
 Verified after the last audit. Any deviation is a real finding, not noise.
 
 - 0 tables without RLS enabled
-- 0 `anon`-callable functions; 0 functions with a mutable `search_path`
+- **Exactly 1** `anon`-callable function, `circle_preview`, deliberately, since migration 63. Anything else is a finding
+- 0 functions with a mutable `search_path`
 - 0 `anon` DML grants; 0 public storage buckets
 - Every `notification_type` and `audit_action_type` value has a writer
 - Expected linter output is listed in section 4: anything beyond it is real
@@ -46,8 +49,8 @@ The queries that check these live in `build-plan.md`.
 
 ## Caveats on what is built
 
-- **Auth, onboarding, the gate and the PWA are browser-verified** as of 12 August 2026, on desktop Chrome and on iOS installed to the home screen. Everything beyond them is not: Circles, goals, check-ins and invites exist only as tested SQL with no interface.
-- **Rate limiting is wired but has never been triggered.**
+- **Auth, onboarding, the gate and the PWA are browser-verified** as of 12 August 2026, on desktop Chrome and on iOS installed to the home screen. Circles, goals, check-ins, invites, joining and the streak decision are verified as of 14 August, by hand and by Playwright.
+- **Rate limiting has been triggered in anger**, both accidentally (Circle creation, during manual testing) and deliberately (`e2e/rate-limit.spec.ts`). The ephemeral-cache trap in section 2b was found that way.
 - **Turnstile is inert.** It is configured in Supabase Auth, but Supabase's CAPTCHA guards only endpoints that accept a `captchaToken`: signup, password sign-in, OTP, password reset. This app is Google-only and calls none of them, so `signInWithOAuth` has no token to attach. It becomes live the moment email/password auth is added, which is planned. The real bot defence today is Google OAuth plus Upstash rate limiting.
 - **Email deliverability is unproven.** Brevo SMTP is configured and verified, but only against the sender's own Gmail address, which is the easiest case there is. Sending from an unauthenticated free domain to a stranger on another provider is the case that matters and has not been tested. See section 14.
 - **The retention sweep and photo purge are scheduled but have never run against real volume.**
@@ -121,6 +124,8 @@ The `next=` parameter survives the whole OAuth round trip so an invite link reso
 
 Keyed by user id, enforced in server actions via `lib/ratelimit.ts`.
 
+**Except the two invite limits**, which key on client IP and on a hash of the token. `/join/[token]` serves signed-out visitors, so it needs identities that exist before sign-in; `lib/request-identity.ts` supplies both. It is also the only limit enforced during a page render rather than in an action, because the thing being metered is a read.
+
 | Action | Limit |
 |---|---|
 | Onboarding / rename | 15 / hour |
@@ -130,7 +135,16 @@ Keyed by user id, enforced in server actions via `lib/ratelimit.ts`.
 | Check in | 60 / hour |
 | Photo upload | 20 / hour |
 | Create invite link | 10 / hour |
+| **Revoke invite link** | **none, deliberately** |
 | Submit report | 10 / day |
+| Invite attempt | 20 / hour, keyed by **client IP**. Preview and join |
+| Single invite token | 60 / hour, keyed by a **hash of the token**. Preview only |
+
+**Never use a secret as a rate-limit key.** Invite tokens are bearer credentials, and a key name reaches Redis keyspace and every log line that touches it. Hash first: SHA-256, truncated to 32 hex characters.
+
+**Never let a limiter disable the resource it protects.** An attempt counter on `invite_links` that auto-disabled a link after N failures would let anyone who learns a token kill it by failing against it repeatedly. A limiter slows the attacker; it must never act on the victim's data.
+
+**Never meter a kill switch.** Revoking an invite link is the sole unmetered write in the app, and the reason is the same principle from the other side: a cap on revocation means a leaked bearer token can outlive the owner's ability to turn it off. It is cheap, idempotent and admin-only, so there is nothing worth bounding anyway.
 
 This is the app's primary abuse control, not Turnstile. A Google account is already a higher barrier than a CAPTCHA; what needs bounding is a signed-in user hammering the RPCs.
 
@@ -138,9 +152,23 @@ This is the app's primary abuse control, not Turnstile. A Google account is alre
 
 Limiters are constructed on first use rather than at module scope. `Redis.fromEnv()` throws when the Upstash variables are absent, and `lib/ratelimit.ts` sits in the import graph of every server action, so building them eagerly turned a missing runtime variable into a failed `next build`.
 
+**`ephemeralCache: false`, and it matters more than it looks.** Left undefined, `@upstash/ratelimit` builds an in-process `Map` and records `blockUntil(identifier, endOfWindow)` on every refusal; later calls then answer from memory **without consulting Redis**, for up to the full window.
+
+That gives the limiter two sources of truth, only one of which anything can clear. Deleting the Redis keys leaves the process still refusing, so `scripts/reset-ratelimit.mjs` looks broken and the only real fix is restarting the server. It is worse in development than the hour suggests: the invite limits key on client IP, localhost sends no `x-forwarded-for`, so every local request shares one bucket and a single test run locks the join page until the dev server restarts.
+
+The cost of turning it off is that a refused request spends a Redis command instead of being answered from memory, so sustained abuse from one identifier burns the free-tier command budget faster. Revisit alongside `analytics`, when there is traffic to measure.
+
 ### Error mapping
 
-`lib/errors.ts` maps SQLSTATE to a message: `23505` unique violation, `23514` check violation, `22023` the RPCs' own `invalid_parameter_value` raises, `42501` RLS or a missing grant. Anything unrecognised returns a generic message, since raw Postgres errors disclose table and column names. Mapping by code rather than message text means renaming a constraint does not silently change what users see.
+`lib/errors.ts` reads the **HINT first, then the SQLSTATE.**
+
+The HINT is the contract. A function may raise `check_violation` for something a person should read ("you already have 10 active goals") or for something they should not ("value too long for character varying(50)"), so the SQLSTATE alone cannot tell them apart. Every raise written to be read carries a hint; `BY_HINT` holds the copy for all fourteen codes.
+
+The SQLSTATE switch is the fallback for raises that predate the convention: `23505` unique violation, `23514` check violation, `22023` the RPCs' own `invalid_parameter_value`, `42501` RLS or a missing grant.
+
+Anything unrecognised returns a generic message, since raw Postgres errors disclose table and column names. Adding a hint in a migration and forgetting to add it here degrades to that generic message rather than leaking Postgres text, so the failure mode is dull rather than dangerous.
+
+**Never keyed on message text.** Renaming a constraint would then silently change what people read.
 
 Server actions return `{ ok: true } | { ok: false, error }` rather than throwing. A thrown error in a server action reaches production as an opaque "An error occurred", which is useless in a form.
 
@@ -204,6 +232,8 @@ Adding a category later is a data insert. **Avoid changing an existing `color_he
 - `created_at`, `updated_at`
 
 **No `owner_id`, no `deadline`.** Ownership lives only in `group_members` where `role = 'owner'`, guaranteed unique per group by a partial unique index. The active deadline lives on the open `group_cycles` row. Both columns existed and were removed as duplicated state with nothing keeping the copies in sync.
+
+**Archiving is a deliberate act, not only a terminal state.** `archive_circle` is the owner's way out. Before it existed, `'archived'` was written only by `handle_membership_removal` when the last member left, and since the `group_members` DELETE policy is `role <> 'owner'` an owner could never be that last member. A solo owner could not archive, leave, transfer or delete, so every Circle they created and did not fill was permanent.
 
 **Owner succession** (added because removing `owner_id` removed its `ON DELETE RESTRICT`, the only thing preventing an ownerless circle). When an `owner` row is removed, `handle_membership_removal` promotes the **longest-tenured remaining member**, or archives the circle if nobody remains. RLS blocks a normal owner departure, so this fires mainly on account deletion: written defensively because an ownerless circle is unrecoverable and there's no second chance to notice.
 
@@ -353,9 +383,13 @@ The Overview subtab and the push notification read the same row, so they can't d
 - `id`, `actor_user_id`, `group_id`, `target_user_id` (all nullable FKs), `action_type` (enum), `metadata` (jsonb), `created_at`
 - Index: `(group_id, created_at desc)`
 
-Actions: `member_joined`, `member_left`, `member_kicked`, `ownership_transferred`, `admin_promoted`, `admin_demoted`, `invite_link_toggled`, `invite_link_regenerated`, `group_deadline_changed`, `group_cycle_reset`, `group_cycle_extended`, `group_streak_continued`, `group_streak_reset`. **All thirteen have a writer.**
+Actions: `member_joined`, `member_left`, `member_kicked`, `ownership_transferred`, `admin_promoted`, `admin_demoted`, `invite_link_toggled`, `invite_link_regenerated`, `group_deadline_changed`, `group_cycle_reset`, `group_cycle_extended`, `group_streak_continued`, `group_streak_reset`, `group_archived`. **All fourteen have a writer**, `group_archived` by `archive_circle` since migration 62.
 
-**Role changes and invite toggles are audited by trigger, not by RPC**, because both happen through a direct `UPDATE` that no function mediates. Without those triggers, `admin_promoted`, `admin_demoted`, and `invite_link_toggled` had no writer at all: a promotion left no trace. The invite trigger fires only on a deliberate toggle: regeneration also disables the old row, but `create_invite_link` already logs that as `invite_link_regenerated`, and double-logging one action makes a trail misleading rather than complete.
+**Role changes and invite toggles are audited by trigger, not by RPC**, because both happen through a direct `UPDATE` that no function mediates. Without those triggers, `admin_promoted`, `admin_demoted`, and `invite_link_toggled` had no writer at all: a promotion left no trace. **The invite trigger does NOT fire only on a deliberate toggle**, despite what migration 51's comment claims. Its guard is `new.enabled is distinct from old.enabled`, which is also true of the `update ... set enabled = false` inside `create_invite_link`, so a regeneration writes both rows. Confirmed in the audit log on 14 August: two `invite_link_regenerated` rows each carry an `invite_link_toggled` sibling at a byte-identical `created_at`.
+
+**Left as is, because the rows are accurate.** Two things genuinely happened: one link was turned off and another was created. Suppressing the toggle would lose the record of a live credential being killed, which is the more valuable half. What was wrong was the comment.
+
+**So read the trail by timestamp**, not by row. An `invite_link_toggled` with a `invite_link_regenerated` at the same `created_at` is a rotation; one standing alone is a deliberate revoke. Archiving also produces a lone toggle, alongside `group_archived`, because `trg_disable_links_on_status_change` is what kills the link.
 
 `member_joined`/`member_left` were added after noticing only *kicks* were audited. `group_members.joined_at` answers "when did they join" only while they're still a member and vanishes when they leave, so membership history has to outlive membership.
 
@@ -413,24 +447,24 @@ This is the stronger posture: access is an allowlist, and a forgotten grant fail
 
 | Table | Read | Insert | Update (columns) | Delete |
 |---|---|---|---|---|
-| `users` | self + circle-mates |: | `display_name, avatar_url` |: |
-| `user_lifetime_stats` | self; circle-mate if opted-in and not blocking you |: | `visible_on_profile` |: |
-| `goal_categories` | all |: |: |: |
-| `goals` | self + circle-mates | own | `title, category_id, deadline, achieved_at, archived_at` |: |
+| `users` | self + circle-mates | none | `display_name, avatar_url` | none |
+| `user_lifetime_stats` | self; circle-mate if opted-in and not blocking you | none | `visible_on_profile` | none |
+| `goal_categories` | all | none | none | none |
+| `goals` | self + circle-mates | own | `title, category_id, deadline, achieved_at, archived_at` | none |
 | `progress_entries` | self + circle-mates | own, **active** goal, **today only** | `note, photo_url` | own |
-| `daily_completion` | self + circle-mates |: |: |: |
+| `daily_completion` | self + circle-mates | none | none | none |
 | `goal_group_visibility` | goal owner or circle member | own goal + member | `hidden` (member only) | own goal |
-| `groups` | members |: | `name` (admin); leaderboard settings (owner, via trigger) |: |
-| `group_members` | circle-mates |: | `role` (owner only, never targeting owner) | self or admin-kick, never the owner |
-| `group_cycles` | members |: |: |: |
-| `invite_links` | admins |: (RPC only) | `enabled` |: |
-| `group_cycle_stats` / `group_daily_completion` | cycle members |: |: |: |
-| `group_member_category_stats` / `digest_snapshots` | circle members |: |: |: |
-| `notifications` | self |: | `read_at` | own |
+| `groups` | members | none | `name` (admin); leaderboard settings (owner, via trigger) | none |
+| `group_members` | circle-mates | none | `role` (owner only, never targeting owner) | self or admin-kick, never the owner |
+| `group_cycles` | members | none | none | none |
+| `invite_links` | admins | none, RPC only | `enabled` | none |
+| `group_cycle_stats` / `group_daily_completion` | cycle members | none | none | none |
+| `group_member_category_stats` / `digest_snapshots` | circle members | none | none | none |
+| `notifications` | self | none | `read_at` | own |
 | `push_subscriptions` | self | own | `device_label` | own |
-| `user_blocks` | blocker only | own |: | own |
-| `content_reports` | own submissions | own, circle-mate target |: |: |
-| `audit_log`, `username_history` |: |: |: |: |
+| `user_blocks` | blocker only | own | none | own |
+| `content_reports` | own submissions | own, circle-mate target | none | none |
+| `audit_log`, `username_history` | none | none | none | none |
 
 ### Policy mechanics
 
@@ -460,12 +494,20 @@ They also solve a recursion problem: the natural policy on `group_members` ("you
 | `is_blocked_by(user_id)` | has that user blocked the caller: **directional** |
 | `is_goal_hidden_in_group(goal_id, group_id)` | encodes the sparse-table coalesce once |
 | `owns_goal(goal_id)` | caller owns it |
-| `owns_active_goal(goal_id)` | owns it **and** it's neither achieved nor archived |
+| `owns_active_goal(goal_id)` | owns it **and** it's neither achieved nor archived. Wired into `checkin_photos_insert` by migration 64, after two months unreferenced. The policy previously checked only that the folder was the uploader's, so any fabricated or archived goal id was a valid upload target |
+
+**These predicates are ceilings, not filters.** `group_members_select_circlemate` is `is_group_member(group_id)`, so a member can read *every* member row of *every* Circle they belong to. That is exactly what the roster on `/circles/[id]` needs and far more than the dashboard wanted: reading it without `.eq("user_id", …)` returned one row per member and listed a Circle of three three times, each showing a different person's role.
+
+Dropping a `WHERE` clause because "the policy covers it" is safe only when the policy's predicate is **identical** to the filter you would have written. `goals_update_own` and `progress_entries_delete_own` are both `user_id = auth.uid()` and do pass that test, which is why `archiveGoal` and `undoCheckIn` legitimately omit the filter.
+
+The failure is invisible until a Circle has two members, so it will not show up in solo testing.
 | `current_checkin_date()` | today under the caller's frozen timezone and 2 AM rule |
 
 Not client-granted (jobs and triggers only): `checkin_date_for`, `recompute_daily_completion`, `rollover_user_day`, `rollover_group_day`, `list_expired_photos`, `mark_photos_purged`, `scrub_and_list_user_media`.
 
-**`ALTER DEFAULT PRIVILEGES` is a convenience, not a guarantee.** A default revoking `EXECUTE` from `PUBLIC` in `private` was set early, yet five helpers created afterwards still came out `anon`-executable. The linter did not flag it because `anon` lacked schema `USAGE`, so one barrier stood where two were intended. Currently **41 functions, 0 anon-executable, 0 with a mutable `search_path`**. The query that verifies this is in `build-plan.md`; re-run it after any migration that adds a function.
+**An overload is a new object, and inherits nothing.** `private.current_checkin_date(uuid)` was added in migration 64 beside an existing no-argument version and came out `anon`-executable, because `create or replace` on a *different signature* creates a fresh function with Postgres's default grant to `PUBLIC`. The original's revoke did not apply to it. Revoke in the same migration that creates a function, every time. Found by the standing check, fixed in migration 67.
+
+**`ALTER DEFAULT PRIVILEGES` is a convenience, not a guarantee.** A default revoking `EXECUTE` from `PUBLIC` in `private` was set early, yet five helpers created afterwards still came out `anon`-executable. The linter did not flag it because `anon` lacked schema `USAGE`, so one barrier stood where two were intended. Currently **0 anon-executable, 0 with a mutable `search_path`**. The function count was 41 at migration 57 and rises with each migration that adds one, so `build-plan.md` carries the query rather than a number worth trusting. Re-run it after any migration that adds a function.
 
 ### Notable policy decisions
 
@@ -475,7 +517,17 @@ Not client-granted (jobs and triggers only): `checkin_date_for`, `recompute_dail
 
 **`daily_completion` has no client write access at all.** The entire streak system is built on it.
 
-**Hidden goals stay readable.** RLS returns the row because aggregate completion counts need it; the API masks `title`/`note`/`photo_url`. Circle-mates can also read the visibility flag, which is what lets the UI render the placeholder. Hiding is a display rule, never an access rule.
+**Hidden goals are masked by `circle_roster`, not by RLS.** Migration 64.
+
+`goals_select_own` and `progress_entries_select_own` are both `user_id = auth.uid()`: a circle-mate cannot read either table directly at all. `public.circle_roster(group_id)` is `SECURITY DEFINER`, checks membership itself, and returns each member's goals with `title` nulled where `goal_group_visibility` says hidden.
+
+**Why not RLS.** Policies are row-level. Returning a row to one viewer with a column blanked and to another intact is not something a `USING` clause can express. The previous design said "the API masks title/note/photo_url", but the client talks to PostgREST directly and that API never existed, so a circle-mate could read every title and note through `/rest/v1/goals`. Nothing leaked in practice only because nothing rendered them.
+
+**`checked` is returned for hidden goals; `title` is not.** Hiding means "do not show what it is", not "do not show whether it was done" — a hidden goal still counts toward the shared streak, so masking its state would opt out of the accountability while keeping the benefit. The denominator includes hidden goals, so the count reveals how many someone has. Unavoidable once the numbers have to add up.
+
+**The cost, stated once:** every future read of a circle-mate's goals goes through the RPC. That is the point. The old design failed precisely because masking lived in a layer that could be bypassed.
+
+`daily_completion` and `users` stay readable by circle-mates. Whether someone finished their day, and their name, are the product, and neither carries free text needing a mask.
 
 **Blocking doesn't hide the `users` row or a circle-mate's goals.** It hides `user_lifetime_stats`. Hiding identity would leave a member in a roster with no name to render, which advertises the block rather than concealing it; hiding goals would break the accountability the Circle exists for.
 
@@ -511,6 +563,7 @@ These are `SECURITY DEFINER` functions in `public`. A function body *is* a trans
 | `sync_checkin_timezone(timezone)` | void | **no-op unless the check-in day has elapsed** |
 | `resolve_streak_decision(group_id, continue)` | void | owner only; requires a pending decision |
 | `set_circle_deadline(group_id, deadline)` | void | owner or admin; Circle active; deadline ≥ next day or NULL |
+| `archive_circle(group_id)` | void | Owner only. Closes the open cycle, sets status `archived`, audits. Links are disabled by trigger, members are kept, nothing is notified. **Not reversible.** |
 | `export_user_data()` | jsonb | **`SECURITY INVOKER`**: RLS applies, so it can't return another user's rows |
 | `current_checkin_date()` | date | **`SECURITY INVOKER`**: a thin wrapper over the `private` function of the same name, which PostgREST cannot address. Grants nothing new: `authenticated` already executes the private one, because policies call it with the caller's privileges. Exists so the app can supply `progress_entries.check_in_date`, which the INSERT policy requires to match it exactly. |
 
@@ -518,7 +571,20 @@ These are `SECURITY DEFINER` functions in `public`. A function body *is* a trans
 
 **Invoked from Next.js server actions, not the browser.** A browser calling `supabase.rpc()` goes straight to Supabase and never touches the app, so Upstash rate limiting, Turnstile, and the profanity filter would have nowhere to run: circle creation and joins would be entirely unthrottled.
 
+**Deliberate errors carry a machine code in the HINT.** The rule: if a message is written to be read by a person, the raise sets a hint. `lib/errors.ts` checks the hint before the SQLSTATE and falls through to a generic message for anything it does not recognise.
+
+This exists because a SQLSTATE is a category, not an intent. `check_violation` covers both "you already have 10 goals", which belongs on screen, and "value too long for type character varying(50)", which does not. Without a hint the app could only tell them apart by matching message text, which means renaming a constraint silently changes what people read.
+
 **Enforced by lint, not by the database.** A stray `supabase.rpc()` in a component works fine and silently skips all three protections. The database cannot enforce the boundary: revoking `EXECUTE` from `authenticated` would force calls through the server, but the RPCs check `auth.uid()` internally and `service_role` has none, so every call would raise "Not authenticated". An ESLint rule therefore bans `.rpc(` outside `app/actions/`.
+
+**Two exemptions, both read-only and both justified in the file itself.**
+
+| File | Why |
+|---|---|
+| `lib/supabase/checkin-date.ts` | Argument-free, needed by both the read and the write path, nothing to meter. Confining it would mean duplicating it into the page. |
+| `lib/supabase/circle-preview.ts` | Read during render on a public route, so a server action would publish a POST endpoint for a value never submitted. **This one does need metering**, per IP, and the exemption is conditional on its single call site applying it. |
+
+The second is the weaker of the two and worth watching. `circle_preview` is granted to `anon` (migration 63), which makes it the app's only unauthenticated endpoint; step 7f adds the per-IP limit at `/join/[token]`.
 
 Trade-off accepted: PL/pgSQL is harder to unit-test under Vitest. These are tested with `DO` blocks in SQL instead.
 
@@ -530,7 +596,7 @@ Anything beyond this list is a real finding.
 - `authenticated_security_definer_function_executable` on the 12 client-callable `public` RPCs: deliberately callable; `anon` is excluded.
 - `unused_index` on everything, until there's real traffic.
 
-**A replay into a shadow database is its own category of test.** `supabase db diff` builds a fresh Postgres and runs all 57 migrations, which is the only way to catch a history that depends on state it never creates. The recurring bug patterns this schema has produced, and the checks that find them, are catalogued in `build-plan.md`.
+**A replay into a shadow database is its own category of test.** `supabase db diff` builds a fresh Postgres and runs all 67 migrations, which is the only way to catch a history that depends on state it never creates. The recurring bug patterns this schema has produced, and the checks that find them, are catalogued in `build-plan.md`.
 
 ---
 
@@ -700,21 +766,34 @@ Now: both entry points require `group_status = 'active'`; `join_circle` addition
 
 **Links expire after 7 days by default.** A link is a bearer credential, so a permanent one means a forwarded message or screenshot keeps a way in open indefinitely. Callers may set a longer window or opt out explicitly.
 
+**One active link per Circle, by convention rather than by constraint.** `create_invite_link` disables every enabled row for the Circle before inserting. Nothing in the schema enforces it: only `token` is unique, so several enabled rows are physically possible, and permitting them later is a one-line removal.
+
+Two consequences the UI has to carry:
+
+- **Regenerating silently kills everything already shared.** A "Generate link" button pressed twice invalidates links people are already holding, so the action needs a warning before it fires.
+- **Revoking and replacing must be separate actions.** Minting a new link is currently the only way to kill an old one, which forces you to create a successor you then have to avoid sharing. An explicit revoke sets `enabled = false` without issuing a token.
+
+**Preview is reachable signed out.** `circle_preview` is granted to `anon` so a link shows the Circle's name and size before anyone is asked to sign in. For a token the holder already has, that reveals whether it is still live and what the Circle is called; at 32 CSPRNG bytes it is not a guessing surface. Being asked to authenticate before learning what you are joining costs more than that.
+
 ### Failure states
 
 Each error carries a machine code in the **HINT**, so clients branch on the code rather than the prose.
 
 | Situation | `circle_preview.status` | `join_circle` HINT | Name shown |
 |---|---|---|---|
-| Valid | `ok` |: | yes |
+| Valid | `ok` | none | yes |
 | Token doesn't exist | `not_found` | `INVITE_INVALID` | **no** |
-| **Blocked** | previews normally | `INVITE_INVALID` |: |
+| **Blocked** | previews normally | `INVITE_INVALID` | n/a |
 | Revoked | `revoked` | `INVITE_REVOKED` | yes |
 | Expired | `expired` | `INVITE_EXPIRED` | yes |
 | Cycle ended | `circle_locked` | `CIRCLE_LOCKED` | yes |
 | Archived | `circle_archived` | `CIRCLE_ARCHIVED` | yes |
 | Full | `circle_full` | `CIRCLE_FULL` | yes |
-| Already a member | `ok` |: (idempotent) | yes |
+| Already a member | `ok` | none, idempotent | yes |
+| Circle has no owner | previews normally | `CIRCLE_ORPHANED` | yes |
+| Not signed in | n/a | `NOT_AUTHENTICATED` | n/a |
+
+**`CIRCLE_ORPHANED` should be unreachable.** Every Circle must have exactly one owner, and only an owner can invite, kick, set a deadline or resolve a streak decision, so a Circle with none is a room nobody can administer. Succession exists to prevent it. The check is here because it happened anyway: joining an archived, empty Circle recreated the ownerless state from the opposite direction. Treat a sighting as a bug elsewhere, not as a state users encounter.
 
 **Two stay generic on purpose.** A nonexistent token must be indistinguishable or the endpoint becomes an oracle for guessing tokens. A blocked user gets the *same* message: naming the block confirms it and points at whoever administers the Circle.
 
@@ -806,6 +885,10 @@ A brand-new member almost certainly has zero goals on day one, so joining an act
 - The Circle is flagged `streak_decision_pending`, with `pending_streak_joiners` accumulating everyone who joins meanwhile, so multiple joins produce one decision rather than one prompt each.
 - The **owner** (not an admin: it's a judgment call about the Circle's standards) calls `resolve_streak_decision(group_id, continue)`: **continue** clears grace and leaves the streak, **reset** zeroes the streak and clears grace so there's no punitive gap. Either way grace ends and the joiners count from then on. Logged as `group_streak_continued` or `group_streak_reset`.
 - If the owner never decides, grace persists with no penalty and the streak keeps accruing on everyone else.
+
+**Grace is the correct default and both alternatives are worse.** Defaulting to counted means a new member with no goals breaks everyone's streak on day one, so joining becomes a punishment. Defaulting to reset destroys a streak nobody agreed to destroy. There is deliberately no timer: grace persisting is harmless, whereas a job that silently reset a streak after N days would be a worse surprise than the decision never being made.
+
+**The state must be visible to everyone, not merely actionable by the owner.** The original bug was not the default, it was that nothing surfaced the state at all. The owner sees the decision and its two buttons; other members see that the joiner is not yet counted. A correct default nobody can see is the same failure wearing different clothes.
 
 **This flow had no implementation until an audit found it.** `join_circle` set both flags and nothing cleared either, so a member flagged on join was excluded from the group streak **permanently**: no error, no visible symptom. It is the clearest instance of the pattern this schema is most prone to: a state with a setter and no resolver.
 

@@ -22,6 +22,15 @@ const LIMITS = {
   photoUpload: [20, "1 h"],
   report: [10, "1 d"],
   inviteLink: [10, "1 h"],
+
+  // The two invite limits. Keyed by client IP and by a hash of the token
+  // respectively, NOT by user id, because `/join/[token]` serves signed-out
+  // visitors and is the app's only unauthenticated endpoint.
+  inviteAttempt: [20, "1 h"],
+
+  // 60, not the 10 the plan originally specified. See the note below: 10 would
+  // let a shared link lock out the people it was shared with.
+  inviteToken: [60, "1 h"],
 } as const satisfies Record<string, readonly [number, Window]>
 
 export type LimitName = keyof typeof LIMITS
@@ -50,6 +59,35 @@ function limiter(name: LimitName): Ratelimit {
     // budget, to populate an Upstash dashboard nobody is reading yet. Turn on
     // when there is traffic worth analysing.
     analytics: false,
+
+    /**
+     * **Off, and this one is not an optimisation you want.**
+     *
+     * Left undefined, `@upstash/ratelimit` builds an in-process `Map` and, on
+     * every refusal, records `blockUntil(identifier, endOfWindow)`. Subsequent
+     * calls then short-circuit **before touching Redis**, for up to the full
+     * window: an hour, here.
+     *
+     * That puts the limiter's state in two places, and only one of them can be
+     * cleared. Deleting the Redis keys leaves the process still refusing, so
+     * `scripts/reset-ratelimit.mjs` appears to do nothing and the only real fix
+     * is restarting the server. It cost an afternoon: an e2e run tripped the
+     * per-IP invite limit, cleared Redis, and every later test still got
+     * refused.
+     *
+     * Worse in development than the hour suggests, because the invite limits
+     * key on client IP and localhost has no `x-forwarded-for`, so every local
+     * request shares one bucket. One test run would lock the join page for
+     * everyone until the dev server restarted.
+     *
+     * What turning it off costs: a refused request now spends a Redis command
+     * rather than being answered from memory, so a sustained attack from one
+     * identifier burns the free-tier command budget faster. Worth revisiting
+     * alongside `analytics`, when there is traffic to measure. Not worth a
+     * limiter whose state cannot be inspected or reset.
+     */
+    ephemeralCache: false,
+
     prefix: `solarity:${name}`,
   })
   limiters.set(name, existing)

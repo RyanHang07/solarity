@@ -62,20 +62,10 @@ export async function createGoal(
     category_id: category.id,
   })
 
-  if (error) {
-    // `enforce_active_goal_cap` raises check_violation with a message written
-    // to be read by a person. `toMessage` cannot show 23514 in general, since
-    // most of them are Postgres-generated and leak column names, so the cap is
-    // recognised here where the context is known.
-    if (error.code === "23514" && error.message.includes("Active goal limit")) {
-      return {
-        ok: false,
-        error:
-          "You already have 10 active goals. Archive one before adding another.",
-      }
-    }
-    return { ok: false, error: toMessage(error) }
-  }
+  // The 10-goal cap arrives as `check_violation` carrying `hint = 'GOAL_LIMIT'`,
+  // which `toMessage` resolves. No special case here, and no matching on
+  // message text.
+  if (error) return { ok: false, error: toMessage(error) }
 
   revalidatePath("/dashboard")
   return { ok: true, data: undefined }

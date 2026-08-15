@@ -1,6 +1,7 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
+import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { enforce } from "@/lib/ratelimit"
 import { containsProfanity } from "@/lib/profanity"
@@ -62,4 +63,40 @@ export async function createCircle(
 
   revalidatePath("/dashboard")
   return { ok: true, data: { groupId: data as string } }
+}
+
+/**
+ * Retires a Circle. Owner only, and not reversible.
+ *
+ * The RPC does the three writes that have to happen together: closes the open
+ * cycle, sets the status, audits. See migration 62 for why a column grant was
+ * the wrong shape.
+ *
+ * **Not rate limited.** It can only be run once per Circle, since the second
+ * attempt raises `ALREADY_ARCHIVED`, and Circle creation is already capped at
+ * five a day. There is no volume here to bound.
+ *
+ * Redirects rather than returning, because the settings page it is called from
+ * stops being somewhere you can usefully stand: invites are dead and the only
+ * remaining control is the one just pressed.
+ */
+export async function archiveCircle(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  const groupId = formData.get("groupId")?.toString() ?? ""
+  if (!groupId) return { ok: false, error: "Missing Circle." }
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: "Please sign in again." }
+
+  const { error } = await supabase.rpc("archive_circle", { p_group_id: groupId })
+  if (error) return { ok: false, error: toMessage(error) }
+
+  revalidatePath("/dashboard")
+  revalidatePath(`/circles/${groupId}`)
+  redirect("/dashboard?notice=circle-archived")
 }

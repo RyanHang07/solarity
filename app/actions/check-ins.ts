@@ -48,11 +48,17 @@ export async function checkIn(
   const today = await getCheckinDate(supabase)
   if (!today) return { ok: false, error: "Couldn't work out today's date." }
 
+  // Opt-in, and absent means false. A checkbox that is not ticked sends no
+  // field at all, so the default has to be the private one for the form to be
+  // safe when someone ignores it. See migration 66.
+  const noteShared = formData.get("noteShared") === "on"
+
   const { error } = await supabase.from("progress_entries").insert({
     goal_id: goalId,
     user_id: user.id,
     check_in_date: today,
     note,
+    note_shared: note ? noteShared : false,
   })
 
   if (error) {
@@ -105,6 +111,52 @@ export async function undoCheckIn(
 
   if (error) return { ok: false, error: toMessage(error) }
   if (!data?.length) return { ok: false, error: "Nothing to undo for today." }
+
+  revalidatePath("/dashboard")
+  return { ok: true, data: undefined }
+}
+
+/**
+ * Shares or un-shares an existing note.
+ *
+ * **Separate from `checkIn` because the decision outlives the moment.** People
+ * misjudge what they want visible while writing it, and this is text about
+ * their own life, so it has to be retractable. The flag is read at query time
+ * by `circle_roster`, which makes un-sharing retroactive for free: no backfill,
+ * no cache, nothing to undo.
+ *
+ * No rate limit. It is a boolean on a row you already own, and metering it
+ * would mean a note you regret could not be pulled back.
+ *
+ * No `.eq("user_id", …)`: `progress_entries_update_own` is exactly
+ * `user_id = auth.uid()`, so the policy predicate and the filter would be the
+ * same expression. RLS filters silently, so the affected-row count is the only
+ * evidence the write landed.
+ */
+export async function setNoteSharing(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  const entryId = formData.get("entryId")?.toString() ?? ""
+  const shared = formData.get("shared") === "true"
+  if (!entryId) return { ok: false, error: "Missing check-in." }
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: "Please sign in again." }
+
+  const { data, error } = await supabase
+    .from("progress_entries")
+    .update({ note_shared: shared })
+    .eq("id", entryId)
+    .select("id")
+
+  if (error) return { ok: false, error: toMessage(error) }
+  if (!data?.length) {
+    return { ok: false, error: "That check-in isn't yours, or no longer exists." }
+  }
 
   revalidatePath("/dashboard")
   return { ok: true, data: undefined }

@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { signOut } from "@/app/actions/auth"
@@ -32,7 +33,9 @@ export default async function AppLayout({
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <header className="flex items-center justify-between border-b px-4 py-3">
-        <span className="text-sm font-semibold tracking-tight">Solarity</span>
+        <Link href="/dashboard" className="text-sm font-semibold tracking-tight">
+          Solarity
+        </Link>
         <div className="flex items-center gap-3 text-sm">
           <span className="opacity-70">{profile.username}</span>
           <form action={signOut}>
