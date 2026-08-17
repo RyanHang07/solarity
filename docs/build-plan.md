@@ -24,11 +24,1248 @@ Ordered so the app works **alone** before it works **together**: streaks can be 
 | 5 | **Milestone: streak reads 1** | ✅ 14 Aug |
 | 6 | `/circles/[id]` | ✅ 14 Aug |
 | 7 | Invites and joining | ✅ 14 Aug |
-| 8 | Real dashboard | |
-| 9 | Install nudge, then push permission | |
-| 10 | Security headers | |
+| 8 | Seeing each other | |
+| 9 | The daily check-in flow | |
+| 10 | Install nudge, then push permission | |
+| 11 | Security headers | |
 
-Steps 1 to 4 are in the change log. Steps 5 to 7 are kept below despite being done, because the reasoning behind the streak display rule, the Circle page and the invite decisions is still the reference for step 8. **The only open work in this section is 7g.**
+Steps 1 to 7 are done. Their detail lives in *History*, under "Completed steps, kept for their reasoning", because next steps are read daily and finished ones are not.
+
+**Everything below is open work.**
+### 8. Seeing each other
+
+The half the product is for. Everything underneath it is built: `circle_roster` returns each member's counts for their own check-in date, masked, in one call.
+
+**Six pieces.** 8a to 8d finish the Circle page; 8e closes the last of 7h; 8f is a separate surface and can slip.
+
+| | Piece | Migration |
+|---|---|---|
+| 8a | Archived Circles stop reporting live counts | ✅ done, 68 + 69 |
+| 8b | `Today` tab and the roster | ✅ done |
+| 8c | `Members` moves to `?tab=members` | ✅ done |
+| 8d | Notes on the roster, and un-sharing | ✅ done, migration 70 |
+| 8e | `+ note` and the share tick on check-in | ✅ done |
+| 8f | Dashboard Overview and notifications subtabs | no |
+
+#### The feature, as asked for
+
+> See which friends completed their goals. Per friend: a count, `# checked / # total`. Clicking a friend expands to their goals, with placeholder text where a goal is hidden.
+
+Straightforward as a screen. It ran into four things the schema decides, and **both blockers are now closed**: migration 64 masks hidden titles in the database, and the roster RPC returns each member's own check-in date. The two sections below are kept as the record of why that migration exists.
+
+#### Blocker 1 ✅ closed: hidden goal titles were not actually hidden
+
+`goals_select_own_or_groupmate` returns the whole row to any circle-mate and consults `goal_group_visibility` nowhere. `is_goal_hidden_in_group()` has one caller in the database and it gates **photos**.
+
+Nothing leaks today only because nothing renders a circle-mate's titles. This feature is precisely the thing that starts rendering them.
+
+RLS cannot fix it: masking a column for one viewer and not another is not row-level. See architecture section 4, "Hidden goals stay readable", for the options. **The shape is a `SECURITY DEFINER` RPC that returns the roster already masked**, with `SELECT` on `goals` narrowed to the owner.
+
+**Closed before 7g, as migration 64**, verified as a real circle-mate in a rolled-back transaction and again by the Playwright suite afterwards. It is a live exposure rather than a design gap. The practical risk is nil, since the only accounts that exist are the two test ones, which is exactly why it is cheap to fix now rather than under pressure later. 7g is specced and will keep.
+
+#### Blocker 2 ✅ closed: "today" is per-person
+
+Every member has a frozen timezone and a 2 AM boundary, so `3 of 5` for a friend means *their* day, not yours. `/circles/[id]` already refuses to guess this for streaks and says so on the page.
+
+`public.current_checkin_date()` takes no arguments and answers only for the caller. `private.current_checkin_date(user_id)` exists underneath. So the options are:
+
+| Option | Consequence |
+|---|---|
+| Expose a per-user variant, or fold the date into the roster RPC | Correct. The RPC already has to exist for blocker 1, so this is close to free |
+| Compute in TypeScript from `users.checkin_timezone` | Forbidden by the rule in `checkin-date.ts`, and it drifts across DST |
+| Show yesterday's settled digest instead of today | Sidesteps the problem and answers a different question. Nobody opens the app to see whether their friend checked in yesterday |
+
+#### Decided: per-Circle, on the Circle page
+
+**Goal hiding is scoped to a Circle**, and a friend can share several Circles with you. The same goal can be hidden in one and visible in another.
+
+So a flat "your friends" list on the dashboard has **no Circle context, and therefore no defined answer** to what should be masked. The photo policy solves its version of this with "visible if there is at least one shared Circle where it isn't hidden", which is right for a single object reached by URL and **wrong for a list**: it would surface a goal in the very Circle it was hidden in.
+
+**Decided: the roster lives on `/circles/[id]`.** The Circle is unambiguous there, the members are already on that page, and the dashboard links to it.
+
+Rejected: the dashboard grouping by Circle, which is the same data and the same masking rule but more screen for a view people reach one Circle at a time anyway. Also rejected, and not a real option: a flat friend list with no Circle attached, because there is no correct masking rule for one.
+
+#### Decided: what the roster shows
+
+| Question | Decision |
+|---|---|
+| Hidden goals | **A row each, name masked, tick shown.** "Hidden goal ✓" |
+| Member with no active goals | **"No goals yet"**, not "0 of 0" |
+| Expanded row, v1 | **Goal titles and tick state only.** No notes, no photos |
+| Masking enforcement | **`SECURITY DEFINER` RPC**, with circle-mate `SELECT` on `goals` revoked |
+| Roster order | **You first, then joined order** |
+| Blocking | **Unchanged.** A block hides the profile, not goals |
+| Whose "today" | **Each member's own**, returned by the roster RPC |
+
+**Hiding a goal means "don't show what it is", not "don't show anything about it".** The tick stays, so the rows reconcile with the `3 of 5` in the header and nothing looks broken. The cost, stated plainly: a circle-mate learns that a private goal was or wasn't done. That is the accountability the Circle exists for, and a hidden goal that also hid its state would quietly opt out of it while still counting toward the streak everyone shares.
+
+**"No goals yet" rather than "0 of 0".** The system still counts that day as incomplete, and `daily_completion` records it that way; the roster just declines to render a meaningless fraction. Worth remembering that the two are saying different things.
+
+**Check-in notes have the same hole as titles, and it closes at the same time.** `progress_entries.note` is readable by any circle-mate today. The masking migration narrows `SELECT` on that table to the owner as well; the roster RPC reads it as `SECURITY DEFINER` and supplies tick state without ever returning note text.
+
+That is a tightening only, so it forecloses nothing. See **7h** for the toggle that follows.
+
+**Notes and photos stay out of v1.** `progress_entries.note` is readable and would sit naturally beside the tick, but photo check-ins have their own visibility function and no UI anywhere, and pulling them in drags an unbuilt feature into step 8.
+
+**The RPC is the enforcement, not the app.** It returns the roster already masked, so a hidden title never leaves the database. `SELECT` on `goals` narrows to the owner, which means any *future* read of a circle-mate's goals has to go through the RPC as well. That is the point rather than a side effect: the current design failed precisely because it left masking to a layer that could be bypassed.
+
+**You first, then joined order.** Deliberately not "incomplete first": a roster that reshuffles as the day progresses cannot be looked at twice, and section 13 already reserves ranking for the leaderboard. Your own row leads because it is the one you act on, which does mean no two members see the same list.
+
+**Blocking stays as it is.** A block hides `user_lifetime_stats` and nothing else, so two people who share a Circle still see each other's goals after one blocks the other. The reasoning is in architecture section 4 and survives this feature: hiding goals would break the accountability the Circle exists for, and hiding identity leaves a nameless row that advertises the block louder than the block does. Worth revisiting if a Circle ever turns hostile in practice, because this feature makes the situation far more visible than it is today.
+
+**Each member's "today" comes from the RPC.** Computing it in TypeScript is forbidden by the rule in `checkin-date.ts` and drifts across DST; showing yesterday's settled digest answers a different question. Since the RPC has to exist anyway, it returns each member's check-in date with their counts.
+
+`private.owns_active_goal()` is resolved separately: **investigate first**, since "owns it and it is neither achieved nor archived" reads like an intended guard on the photo-upload path. Wire it or drop it once that is known. It does not belong in 7g, whose whole safety property is that only `using` clauses change.
+
+#### Smaller things, already decided by the schema
+
+**The denominator counts hidden goals.** `daily_completion` is "all active goals, visible and hidden", so a friend showing `3 of 5` with two hidden is the honest rendering, and the count only adds up if hidden goals are in it.
+
+This tells you *how many* hidden goals someone has. It stopped being a separate decision the moment hidden goals became rows: the count is visible either way. Stated here so it is a known consequence rather than a discovery.
+
+**Blocking does not hide goals**, confirmed rather than assumed. See the decision above.
+
+**This is a live read, not a digest read.** `digest_snapshots.summary` carries `{user_id, username, completed, streak}` per member: no goal counts, no titles. It answers "how did yesterday end", which is the Overview tab. Today's roster has to come from `goals` and `progress_entries`.
+
+**Read it in one query, not per member.** Expanding a row should reveal data already fetched, not fire a request. The roster RPC returns every member's goals and today's check-ins in one call; the expansion is presentation.
+
+#### Inherited from 7h: three things with no home yet
+
+7h built the whole note-sharing path and stopped at the glass, because there is nowhere to put a control. Step 8 owns all three.
+
+| Gap | Detail |
+|---|---|
+| **No note input, and there never was one** | `checkIn` has read `note` from the form since it was written; nothing has ever rendered a field for it. So `progress_entries.note` is writable only by hand |
+| **No share tick** | `checkIn` accepts `noteShared`, defaulting to private when the field is absent. The checkbox belongs beside the note box |
+| **`setNoteSharing` has no caller** | Changing your mind after posting. Wants an affordance on the note wherever it is displayed, not on the check-in form |
+
+That last one is the pattern this project keeps catching, a writer with nothing invoking it. It is written down with a named consumer one step away, which is the difference between a plan and a hole, but it is only that until step 8 ships.
+
+**The roster reads notes already.** `circle_roster` returns note text when the entry is shared and the goal is visible, so the expansion has the data the moment it wants to draw it. This is what reopens the earlier "titles and tick only" scope: the note is there, and showing it costs one line.
+
+#### Decided: shape of the screens
+
+| Question | Decision |
+|---|---|
+| Roster vs the existing Members tab | **Two tabs.** `Today` and `Members` |
+| Notes in the expansion | **Yes**, shared notes render in v1 |
+| Note input | **Behind a `+ note` link, before checking in** |
+| Un-sharing your own note | **On the roster, beside your own note** |
+| Scope | Roster, note input, **and** the dashboard Overview and notifications subtabs |
+
+**Three tabs on `/circles/[id]`, and `Today` becomes the default.** `Members` keeps the stored per-member streaks and roles; `Overview` keeps the digest history. Today's counts are a different number about the same people, and putting both on one row would mean explaining why one says `3 of 5` and the other says `14`.
+
+This moves what a bare `/circles/[id]` shows. `public/sw.js` deep-links to `?tab=overview`, which is unaffected, but the Members view now needs its own `?tab=members` rather than being the no-param default.
+
+**Notes render, because 7h already returns them.** `circle_roster` supplies note text when the entry is shared and the goal is visible here, so this is presentation rather than new plumbing. It also gives `setNoteSharing` its caller, closing the last of 7h's three gaps.
+
+**`+ note` keeps the fast path one tap.** The row stays `● Run 5k [+ note] [Check in]`; tapping `+ note` expands a textarea and a "Share with this Circle" tick, and `Check in` writes all three at once through the insert `checkIn` already performs. Rejected: attaching a note *after* checking in, which needs a second action to write note text to an existing entry and turns one round trip into two.
+
+**Un-sharing lives on the roster, beside your own note.** That is where you see your words the way circle-mates see them, which is the thing you would be second-guessing. Deliberately not in both places: two call sites for one action is two chances at the stale-`useActionState` bug this project has already hit twice.
+
+---
+
+#### 8a. Archived Circles stop reporting live counts ✅ done, migrations 68 + 69
+
+`circle_roster` never looks at `group_status`, so a retired Circle renders today's numbers as though it were still running. Nothing can change them, so they are meaningless at best and read as current at worst.
+
+##### Refuse, or freeze? They are not the same question
+
+**Refusing** means the RPC raises for a non-active Circle, as it already does for `NOT_A_MEMBER`. One line, one rule. But it answers a **state** question with an **access** answer: archived is not a permission problem, the member is still entitled to look, and the page would treat a normal situation as an error. It also makes the tab unreachable rather than empty, so it would have to be hidden on some Circles and not others.
+
+##### Decided: freeze. The roster shows the Circle as it ended
+
+Not today's numbers, and not no numbers. The final standing on the last day the Circle actually ran.
+
+**It is cheaper than it first looked, because the fix is to stop hard-coding "now".** Every part of the roster already computes against an instant; it just assumed that instant was the present. Passing the instant in makes the live case and the frozen case the same code:
+
+| Piece | Live | Frozen |
+|---|---|---|
+| Each member's check-in date | `now()` in their timezone | the closing instant, in their timezone |
+| Which goals count | active today | active *at that instant* |
+| Which check-ins count | that member's today | that member's date at that instant |
+
+**The closing instant** is the open cycle's `ended_at`, which `archive_circle` sets. Falling back to `groups.updated_at`, because the succession path in `handle_membership_removal` archives a Circle when its last member leaves **without closing the cycle**, so `ended_at` can legitimately be null.
+
+**Goals are filtered as of that instant too**, which is the difference between "as it ended" and "recomputed against today's goal list". Someone who archived three goals last week should not retroactively change what the Circle looked like when it closed.
+
+The predicate is the same in both cases: `created_at <= as_of AND (archived_at IS NULL OR archived_at > as_of)`. With `as_of = now()` that reduces to the live rule on its own, because a `CHECK` already forbids `archived_at` in the future. One expression, no branch.
+
+**The RPC returns `circle_status` and `as_of`**, so the tab can say *"Final standing, 12 August"* rather than presenting history as the present. `as_of` is null while the Circle is live, which is what the UI branches on.
+
+**Test plan**
+- SQL, rolled back: check a goal off, archive the Circle, then assert the roster still reports that day's counts with `circle_status = 'archived'` and `as_of` set to the closing instant.
+- **Archive, then check off another goal.** The frozen counts must not move. This is the test that proves the date is really a parameter and not just a label.
+- **Archive, then archive a goal.** The frozen `total_count` must not drop, because that goal was active when the Circle closed.
+- An active Circle is unchanged: `as_of` null, counts live. Guards against fixing this by freezing everything.
+- A Circle archived by its last member leaving, where `ended_at` is null, falls back rather than returning nothing.
+- e2e: the `Today` tab of an archived Circle says final standing and names the date.
+
+**Verified as `authenticated`, rolled back.** Live reads `as_of` null with counts; archiving freezes to `1 of 2`; checking off another goal, archiving a goal, and creating a new one all leave the frozen numbers untouched, and the new goal never appears; a null `ended_at` falls back rather than un-freezing.
+
+**Migration 69 exists because 68 froze to the closing *date*, not the closing *instant*.** Goals were filtered as of the instant but check-ins were matched on `check_in_date` alone, so a Circle archived at 09:00 kept counting check-ins made at 17:00 the same day. The frozen number moved after the Circle stopped, which is the one thing it was built to prevent.
+
+Only the awkward version of the test found it: archive, then check off another goal, and see whether the number holds. Asserting the frozen value once would have passed. **A freeze test has to mutate afterwards, or it is only testing a label.**
+
+Two traps worth recording, both hit while testing rather than while writing:
+
+- **`now()` is the transaction timestamp and does not advance.** A test that archives and then does something "later" in the same transaction is comparing a value to itself. Use explicit offsets.
+- **`group_cycles` has `ends_after_start`.** Backdating `ended_at` for a test means backdating `started_at` too.
+
+---
+
+#### 8b. `Today` tab and the roster ✅ done
+
+Three tabs on `/circles/[id]`: `Today` (default), `Members`, `Overview`.
+
+Each member row: display name, `# checked / # total` for **their** check-in date, and the 7e "settling in" marker where it applies. Expands to their goals. Hidden goals are a row with the name masked and the tick shown. A member with no active goals reads "No goals yet".
+
+**Watch for:** the roster is one RPC call, so expanding a row must reveal data already fetched rather than firing a request.
+
+**Test plan**
+- e2e, two accounts: both members appear, you first, counts match what was checked off.
+- Expansion shows goal titles and ticks; a hidden goal shows a placeholder with its real tick and no title.
+- A member with no goals reads "No goals yet" and not "0 of 0".
+- Extend `masking.spec.ts`: assert the rendered HTML never contains a hidden title. The API test already covers the response; this covers the page.
+- Unit: the count formatter, for `0 of 0`, `3 of 5`, and the singular `1 of 1`.
+
+**Built.** `lib/supabase/circle-roster.ts` reads the RPC, `today-roster.tsx` renders it. `e2e/roster.spec.ts` covers the three tabs, the counts, the expansion and the archived case.
+
+**The assertion that matters is `page.content()`, not `toBeVisible`.** A hidden title styled off-screen would pass a visibility check and still be sitting in the delivered HTML. The API test in `masking.spec.ts` proves the response is clean; this proves the page is.
+
+**`circle-roster.ts` is the third and final exemption** from the "RPCs only in `app/actions/`" lint rule. A fourth should be read as evidence the rule is wrong rather than as another exception.
+
+Two TypeScript traps, both cost time:
+
+- **An assertion function narrowing a loop-scoped `const` reports a circularity.** `assertOk` works fine at the top level of a function and fails inside `for`; a plain `if (result.error) throw` narrows the same union without joining the inference.
+- **A literal-union value flowing into `.insert()` does the same.** Annotating the loop's array explicitly, rather than `as const`, breaks the cycle.
+
+**Three specs failed on the first run, and one was a real trap worth keeping.**
+
+`admin.rpc("current_checkin_date")` **answers for nobody.** The service role has no `auth.uid()`, so the function falls back to UTC. A test that writes a check-in with that date and then asserts against a roster computed in the member's real timezone passes or fails depending on the hour. `e2e/db.ts` now exports `sessionFor(email)` with that reasoning attached, because three specs were each building the same client inline.
+
+The other two failed because the default tab moved: they looked for the `Members` wording of the "settling in" marker on what is now the `Today` tab. Loosened to match either. **That is twice a tab change has broken a spec that never mentions tabs.** A third should become a shared helper that navigates by tab name rather than by bare URL.
+
+---
+
+#### 8c. `Members` moves to `?tab=members` ✅ done
+
+Keeps stored per-member streaks, roles and the "settling in" marker. Purely a move plus a link change.
+
+**This changes what a bare `/circles/[id]` shows**, from Members to Today. `public/sw.js` deep-links to `?tab=overview` and is unaffected, but anything holding a bare link now lands somewhere new.
+
+**Test plan**
+- e2e: `/circles/[id]` renders Today; `?tab=members` renders the streak list; `?tab=overview` still renders digests.
+- The existing 7e streak-decision specs still pass, since the banner sits above the tabs.
+
+---
+
+#### 8d. Notes on the roster, and un-sharing ✅ done
+
+`circle_roster` already returns note text when the entry is shared and the goal is visible here, so this is presentation. Your own note carries a control to stop sharing it, which finally gives `setNoteSharing` a caller.
+
+**One call site only.** Two would be two chances at the stale-`useActionState` bug this project has hit twice.
+
+**Test plan**
+- e2e: a shared note appears to a circle-mate under its goal; a private one does not.
+- Un-sharing from the roster removes it from the other member's next read. Reuses the API assertions in `masking.spec.ts`, now through the UI.
+- The control appears **only** on your own rows.
+
+**Migration 70 was needed after all.** `setNoteSharing` takes an entry id and the roster returned goal ids, so there was nothing to wire the control to. The roster now carries `entry_id` and `note_shared` **for your own rows only**: null and false for everyone else, because a viewer who cannot act on a row has no use for its primary key, and knowing that someone's invisible note exists but is private tells you something they chose not to tell you.
+
+**Re-sharing is offered too**, not just un-sharing. The action already took a boolean, and a control that only goes one way makes an accidental tap permanent on the screen you tapped it from.
+
+**Frozen Circles offer no control at all.** Nothing on a closed Circle can change, and a button that silently does nothing is worse than no button. The note itself stays, because the frozen roster is history rather than a blank.
+
+**`setNoteSharing` now revalidates the Circle page**, which it could not do before because it had no way to know which one. The form passes `groupId`, used only for revalidation and never for authorisation: the update is scoped by RLS to your own rows whatever a form claims.
+
+`checkIn` and `undoCheckIn` deliberately do **not** revalidate any Circle. A check-in changes your counts on every Circle you belong to and the action does not know which; the roster picks it up on the next visit, which is 8g phase 1.
+
+---
+
+#### 8e. `+ note` and the share tick on check-in ✅ done
+
+The dashboard goal row becomes `● Run 5k  [+ note]  [Check in]`. Tapping `+ note` expands a textarea and a "Share with this Circle" tick; `Check in` writes all three in the single insert `checkIn` already performs.
+
+The fast path stays one tap. Rejected: attaching a note after checking in, which needs a second action to write note text to an existing entry and turns one round trip into two.
+
+**Test plan**
+- e2e: check in with no note, exactly as today, and confirm nothing regressed.
+- Check in with a note and the tick set; confirm it reaches a circle-mate's roster.
+- Check in with a note and the tick **unset**; confirm it does not.
+- An unticked box sends no field at all, so assert the stored `note_shared` is false rather than null.
+- A note over 500 characters is refused with the length message.
+
+**The form now wraps the whole row**, so the note and its tick submit with the check-in through the single insert `checkIn` already performed. Previously the form wrapped only the button.
+
+**Copy corrected while building it: "your Circles", not "this Circle".** Sharing is per *note*, so a shared note reaches every Circle where that goal is visible. The dashboard has no single Circle to name, and the roster's control was making the same false promise. Both now say "your Circles".
+
+This is the kind of thing that reads as a typo and is actually a model mismatch: the label described a per-Circle control that 7h deliberately decided not to build.
+
+---
+
+#### Found while proving 8b–8e: the roster named people by a field that is not unique
+
+`display_name` is nullable, cosmetic and explicitly **not unique**; `username` is case-insensitively unique precisely so nobody can impersonate anyone. Both docs said "render `coalesce(display_name, username)` everywhere", and every Circle surface did.
+
+The consequence only appears with two members: two people who both set `display_name` to the same value render as two identical rows, in the one screen whose entire job is telling friends apart. Worse, setting yours to match a friend's is a cheaper impersonation than the unicode lookalikes the username index already blocks. The uniqueness guarantee was on the field nothing displayed.
+
+**Now `coalesce(username, display_name)` wherever one person is named to another**: the `Today` roster, the `Members` list, and the grace names in the streak-decision banner. `display_name` leads only where you are being addressed yourself, which today is the onboarding welcome.
+
+Found because an e2e assertion could not distinguish the two test accounts, both of which belong to the same person. **A test that cannot tell two rows apart is usually reporting that a user cannot either.** Guarded now by an assertion that both usernames appear in the roster's list items, scoped to the list rather than the page, because the header already prints your own.
+
+---
+
+#### 8f. Dashboard Overview and notifications subtabs
+
+The original step 8 wording. Notifications have no UI anywhere, so this is the largest unknown in the step and the reason it sits last.
+
+**Test plan** to be written with the piece; nothing else depends on it.
+
+---
+
+#### 8h. Hiding a goal — **the feature nothing can turn on**
+
+`goal_group_visibility` has a table, a primary key, four RLS policies, insert/update/delete grants, and two consumers: `circle_roster` masks titles on it and `can_view_checkin_photo` gates photos on it. Migration 64's entire masking argument rests on it.
+
+**Nothing in the app writes it. The table has zero rows.** Every hidden goal in the test suite was created with the service key.
+
+This is bug pattern 2 at its largest scale so far: not a column with no writer, but a whole feature that everything else already enforces and no person can invoke.
+
+##### Decided
+
+| Question | Decision |
+|---|---|
+| Control | **On the goal**, listing your Circles with a toggle each |
+| Joining a Circle | **Existing goals stay visible**, and the join step says so |
+| Private everywhere | **Yes**, one switch |
+
+##### The consequence those three answers have together
+
+**"Private everywhere" cannot be a set of `goal_group_visibility` rows.**
+
+The table is sparse: a missing row means visible. So a goal marked private by writing a hidden row per Circle is private only in the Circles that existed when you marked it. Join a new one and, by the second decision above, it becomes visible there — silently, because no row says otherwise. The shortcut would quietly expire.
+
+So privacy has to live on the **goal**, not on the pairing: a `goals.private` flag, with masking becoming `goals.private OR coalesce(ggv.hidden, false)`. One migration, and it changes `circle_roster` and `can_view_checkin_photo` together.
+
+That also makes the join warning honest: a private goal is never counted in "N goals will be visible here", because it was never going to be.
+
+##### Pieces
+
+| | Piece | Migration |
+|---|---|---|
+| 8h-1 | `goals.private`, and both consumers reading it | yes |
+| 8h-2 | Per-Circle toggles on the goal, on the dashboard | no |
+| 8h-3 | The "private everywhere" switch | no |
+| 8h-4 | The count and the line on the join preview | no |
+
+##### Test plan
+
+- SQL, rolled back: a private goal is masked in **every** Circle, including one joined after it was marked private. That last clause is the whole reason `goals.private` exists rather than rows.
+- Per-Circle hiding still works independently, and a goal hidden in one Circle stays visible in another.
+- The two together: private wins, whatever the rows say.
+- e2e: toggling from the dashboard changes what the other account sees on the roster, and the hidden title never reaches the HTML. Reuses `roster.spec.ts`'s existing assertion, now driven through the UI rather than seeded.
+- The join preview names the right number, and a private goal is not in it.
+
+##### Note the ordering
+
+**8h-1 before 8h-2.** The masking has to be right before a control can offer it, and the current masking is provably right only for a flag nobody can set. Building the toggle first would mean shipping a switch whose guarantee has never been exercised by a real user.
+
+#### 8g. Live roster updates
+
+**Not in the first pass, and the reason matters.** The roster is a server render, so if someone checks in on their phone your view is stale until you reload.
+
+**The trap.** The obvious fix is Supabase Realtime on `progress_entries` or `goals`. Both are now `user_id = auth.uid()` after migration 64, and Realtime respects RLS, so a circle-mate would receive **nothing**. Loosening those policies to make Realtime work would re-open the exact leak migration 64 closed. Anyone reaching for Realtime here needs to read this paragraph first.
+
+**Decided: phase 1 only, for now.** Revalidate on window focus. Coming back to the tab re-runs the server component, which is when people actually look. No new surface, no new policy, nothing to get wrong.
+
+**Phase 2 is written down but not scheduled:** a broadcast channel per Circle, sent from a trigger with `realtime.broadcast_changes()`, carrying **counts only** and never titles or notes. Broadcast bypasses table RLS, which is precisely why the payload has to be built deliberately rather than derived from the row. Its own migration, its own test plan, and only worth it if focus-revalidation proves too slow in practice.
+
+**Rejected: polling.** A roster is not a chat, and a timer that refetches for everyone in every open tab spends the Supabase free tier on a number that changes a few times a day.
+
+---
+
+### 9. The daily check-in flow
+
+**The problem.** The dashboard is a control panel. Someone opening the app in the morning wants one thing: to check off yesterday's intentions and see where they stand. Today they land on goals, Circles, a create form, and have to find the check-in panel among it.
+
+**The shape.** If you have not finished today, `/today` greets you with your streak, the goals still open, and nothing else. Finish, and it hands you to the dashboard.
+
+#### The four decisions it needs
+
+**1. What counts as "hasn't checked in".** Not the same as "has no entries". Someone who did 2 of 5 this morning has started but not finished. Options: any incomplete day, or only a completely untouched one. Bearing on how often people see the screen.
+
+**2. Whether it can be dismissed, and what happens then.** A wall is a bad first screen. A skip link that returns tomorrow is probably right, but "tomorrow" needs defining against the 2 AM boundary rather than midnight.
+
+**3. How a broken streak is told.** `user_lifetime_stats.current_streak` is already 0 by the time you see it: the rollover reset it, and nothing records *when* it broke. Saying "your streak ended" needs the last completed date, which means reading `daily_completion` history rather than the counter.
+
+**4. Photos.** Asked for, and the largest piece. The buckets, policies and `can_view_checkin_photo` exist; there is no upload UI anywhere, `browser-image-compression` is a dependency that has never been used, and migration 64 tightened `checkin_photos_insert` to require `owns_active_goal`. This is a subsystem, not a field.
+
+#### Proposed pieces
+
+| | Piece | Notes |
+|---|---|---|
+| 9a | `/today` route and the "not finished" gate | Where the redirect lives matters: the `(app)` layout already gates onboarding |
+| 9b | Streak header, including a broken streak | Needs the last-completed-day read |
+| 9c | Check off goals, with note and share tick | Reuses 8e's component |
+| 9d | Photo capture and upload | Own step. Compression, storage path, the tightened insert policy |
+| 9e | Hand-off to the dashboard | And the skip path |
+
+#### Conflicts to resolve before starting
+
+**Step 10 also wants to be the first thing you see.** The install nudge and push prompt are appended to onboarding, and this flow sits between sign-in and the dashboard. Two things competing for the same moment; one has to yield.
+
+**A redirect gate is easy to get wrong.** The `(app)` layout already redirects to `/onboarding` when there is no username. Adding a second condition risks a loop: `/today` is inside `(app)`, so it must be exempt from its own gate. Same shape as the bug the onboarding gate has already avoided once.
+
+**Test plan, per piece**
+- 9a: signed in with an unfinished day lands on `/today`; a finished day goes straight to the dashboard; `/today` itself never redirects to `/today`.
+- 9b: a live streak reads N; a broken one says so and does not read 0 silently. Seeded by writing `daily_completion` history directly.
+- 9c: checking off from `/today` writes the same rows as the dashboard path. Assert against the database, not the screen.
+- 9d: an upload lands under `<uid>/<goal_id>`, and an upload against someone else's goal id is refused by `owns_active_goal`.
+- 9e: finishing hands off to the dashboard; skipping does too, and does not reappear until the next check-in date.
+
+### 10. Install nudge, then push permission
+
+Appended to onboarding, in that order.
+
+Last of the loop work, deliberately: it reshapes the end of onboarding, which is the reason signup was deferred at all.
+
+### 11. Security headers
+
+CSP with a nonce-based `script-src`, HSTS, `nosniff`, `Referrer-Policy`.
+
+---
+
+## Running in parallel
+
+Independent of everything above, cheap, and it unblocks the Google consent screen.
+
+- `/privacy` and `/terms` as static pages
+- `app/robots.ts` and `app/sitemap.ts`
+
+`sitemap.ts` **must exclude `/join/*`**: invite tokens are bearer credentials and have no business in a crawler log.
+
+Copy gets drafted from the architecture, so it describes what the system actually does: 90-day photo retention, check-ins anonymized rather than deleted, what `export_user_data` returns. Not legal advice; review before real users.
+
+---
+
+## Deferred inside the loop
+
+Two things left out of steps 3 and 4 on purpose.
+
+### Achieving a goal → after step 5
+
+Achieving moves the check-in denominator exactly as archiving does. Adding it before the first streak exists means debugging two denominator-movers at once, against a baseline that has never produced a correct number.
+
+It is also unverifiable before then: `goals_count_achievement` feeds `total_goals_achieved`, which nothing reads until `/profile/[username]` exists.
+
+The follow-up prompt (archive, edit into a new goal, or keep it active) lands with the same work.
+
+### Goal deadlines → after a type change
+
+Buildable now. `<input type="date">` is native everywhere and needs no library, so the earlier "that's design work" objection was wrong.
+
+**The column is the obstacle.** `goals.deadline` is `timestamptz` and a date input submits `YYYY-MM-DD`, which stores as midnight **UTC**. Someone in `America/Los_Angeles` picks 1 September and sees 31 August when it renders back, and it looks like a bug in the picker rather than in the schema.
+
+A goal deadline is a **calendar date, not an instant**. Postgres `date` has no timezone semantics, so the error class stops existing rather than being handled.
+
+Cheap: zero rows today, and `export_user_data` is the only reader. Should land before anything writes to the column.
+
+**Two design notes when it is built:**
+
+- **Do not default to today.** The column is nullable on purpose; most daily goals have no end date. Defaulting turns an opt-in field into an opt-out one and produces goals that look overdue tomorrow.
+- **No `min` attribute.** Architecture section 3 keeps this deliberately unconstrained, since recording a missed or historical deadline is legitimate.
+
+---
+
+## Route map
+
+Every route the app will have, and where each stands. **Orphaned** means the backend implements it and nothing in the app links to it.
+
+### Public
+
+| Route | Status | Notes |
+|---|---|---|
+| `/` | built, placeholder | Landing. Redirects signed-in visitors to `/dashboard`. Also renders `Notice`, since a signed-out visitor with a dead invite link lands here. Needs real content; see Deferred. |
+| `/auth/sign-in` | built | Google only so far. Gains a password form. |
+| `/auth/callback` | built | OAuth code exchange. |
+| `/auth/error` | built | Gains cases for expired and reused confirmation links. |
+| `/auth/sign-up` | deferred | Email, password, username, name, terms, Turnstile. |
+| `/auth/check-email` | deferred | Post-signup holding screen. Resend, spam-folder line, and a route back to sign-in. |
+| `/auth/confirm` | deferred | Route handler calling `verifyOtp`. |
+| `/auth/forgot-password` | deferred | Always reports success. |
+| `/auth/reset-password` | deferred | Reached only with a recovery session. |
+| `/privacy` | in parallel | **Required** for the Google OAuth consent screen. |
+| `/terms` | in parallel | Versioned. |
+| `/support` | deferred | FAQ plus contact form. |
+| `/join/[token]` | built | Preview works **signed out**; join requires sign-in. A dead link redirects to `/dashboard` or `/` with a notice rather than 404ing. `robots: noindex`. Still to exclude from `sitemap.xml`. |
+| `robots.txt`, `sitemap.xml` | in parallel | `app/robots.ts`, `app/sitemap.ts`. |
+
+### Signed in
+
+| Route | Status | Backed by |
+|---|---|---|
+| `/onboarding` | built | `complete_onboarding`. Gains the terms checkbox, then the install nudge and push prompt. |
+| `/dashboard` | built | Check-in panel, goals, Circles with archived beneath. Still to gain: Overview and notifications subtabs (step 8). |
+| `/circles/[id]` | built | Header, deadline, group streak, Members and Overview tabs, owner streak-decision banner. Closes the `sw.js` deep link. |
+| `/circles/[id]/settings` | built | Invite link, revoke, regenerate, archive. Still to gain: deadline, roles, and the kick flow's "also block?" step. |
+| `/notifications` | orphaned | `notifications`. The durable channel; push is best-effort. |
+| `/profile/[username]` | orphaned | `user_lifetime_stats.visible_on_profile`. Where blocking lives. |
+| `/settings/profile` | orphaned | Rename path. Must surface *when* the next rename is allowed, not just refuse. |
+| `/settings/notifications` | orphaned | `push_subscriptions`. Per-device list; natural home for the push opt-in. |
+| `/settings/account` | orphaned | `export-data` and `delete-account` Edge Functions. Both deployed and verified, neither has UI. Self-serve deletion is an Apple requirement for any future store submission. |
+
+### Protection
+
+`lib/supabase/proxy.ts` currently treats `/auth`, `/_next`, `/`, and `/join` as public. Three more public prefixes are coming, so extract a `PUBLIC_PREFIXES` constant rather than growing the inline boolean.
+
+Keep the posture deny-by-default: enumerate what is *public*, so a forgotten route fails closed as a redirect to sign-in. Enumerating what is protected means a forgotten route fails open, silently.
+
+---
+
+---
+
+## Open items
+
+### Blocking
+
+- **Migration workflow, undecided.** Schema changes currently go straight to the project, which drifts from the repo. Either continue and re-run `npx supabase migration fetch` afterwards, or write files into `supabase/migrations/` and `npx supabase db push`. The second gives review over schema changes, and the deferred signup work adds two migrations, so this wants deciding before then.
+
+### Resolved, kept for the reasoning
+
+- ~~**A Circle cannot be archived, and a solo owner cannot escape one.**~~ **Closed by 7b**, migrations 61 and 62. Found while testing step 6.
+
+  | Route out | Blocked by |
+  |---|---|
+  | Archive it | `authenticated` has UPDATE on `name`, `default_stats_view`, `leaderboard_persists_across_cycles` only. **Not `group_status`.** |
+  | Leave it | The `group_members` DELETE policy is `role <> 'owner'`, so an owner can never remove their own membership. |
+  | Transfer, then leave | `transfer_ownership` needs a target member. A solo Circle has none. |
+  | Delete it | `authenticated` holds no DELETE on `groups` at all. |
+
+  The only thing that writes `'archived'` is `handle_membership_removal`, on the succession path when the last member leaves. Since the owner can never be the one to leave, that path is unreachable for a Circle of one.
+
+  So every Circle a person creates and does not fill is permanent, and the dashboard's Archived section can only ever be populated by abandonment. That is a product hole, not just a missing button: the first thing anyone does is make a test Circle.
+
+  **The fix is an `archive_circle(group_id)` RPC**, owner-only, matching the existing RPC pattern because it spans tables: set `group_status = 'archived'`, close the open cycle, disable outstanding invite links, and write an audit row. Belongs with `/circles/[id]/settings`, so **step 7**, alongside the error-signalling migration.
+
+  Note that **archive and delete are different things**, and the product wants archive. Deleting erases the Circle and every trace it existed; archiving retires it while keeping the history members earned in it. Deleting is a development convenience only, and it lives in Reference under "Clearing test data".
+
+- ~~**Error signalling is inconsistent.**~~ **Closed by 7a**, migration 60. Three patterns existed for the same job:
+
+  | Pattern | Used by |
+  |---|---|
+  | HINT carrying a machine code | `join_circle`, 9 codes. **This is the right one.** |
+  | `invalid_parameter_value` (22023), message shown verbatim | `complete_onboarding`, `cycle_continue`, `cycle_reset`, `set_circle_deadline`, `transfer_ownership`, `sync_checkin_timezone`, `resolve_streak_decision` |
+  | `check_violation` (23514), readable message, no hint | `enforce_active_goal_cap`, `enforce_group_member_cap`, `create_invite_link`, `validate_progress_entry_owner` |
+
+  The third pattern is the problem: 23514 cannot be shown in general because most of them are Postgres-generated and leak column names, so `createGoal` matches on message text. That is precisely what `toMessage` exists to avoid.
+
+  **Fix at the start of step 7**, not before and not later.
+
+  Step 7 builds invites and joining, which is where `enforce_group_member_cap` and `create_invite_link` both fire. The message-text hack would go from one instance to three inside a single step, and that is the point where a contained ugliness becomes the house style.
+
+  The fix was small: one migration adding HINT codes to those four functions, copying what `join_circle` already does, `toMessage` learning to prefer `error.hint` over the SQLSTATE, and `createGoal` dropping its string match.
+
+  **It left two loose ends, both found in the audit after 7c.** Migration 60 named a condition `CIRCLE_INACTIVE` that migration 53 had already named `CIRCLE_NOT_ACTIVE`, with identical message text, so the codebase now has two hints for one condition. And `set_circle_deadline`'s three hints had no reader at all, because it has no UI caller yet. Both are handled in `lib/errors.ts` rather than by a migration: renaming a hint is a behaviour change for anything already branching on it. Converge the names the next time `set_circle_deadline` is rewritten.
+
+### Before launch
+
+- Security headers.
+- Wire rate limits into each new action as it is written.
+- `pushsubscriptionchange` handler, a TODO in `components/service-worker-registrar.tsx`. Without it a device silently stops receiving push.
+- A custom domain, if email deliverability from a personal sender proves to be a problem.
+
+### Deferred to v2
+
+- Replace the placeholder icons.
+- All visual design. See `product-and-design.md`.
+
+### Undecided copy
+
+- Digest wording per Circle size.
+- "Digest" versus "Daily Recap", the Group Streak label, the leaderboard label. Better decided against real screens.
+
+### Carry into the UI
+
+- Show the current deadline on the Circle page. `deadline_changed` covers the moment of change; a persistent display is what stops "when is this due again?" being a question.
+- Invite failures return machine codes (`INVITE_EXPIRED`, `CIRCLE_FULL`, and so on). Branch on those, not message text. `architecture.md` section 10.
+- Streaks lag a day by design. Display `current_streak + (1 if today complete)`.
+
+---
+
+---
+
+## Gotchas
+
+**A client-generated timestamp can be in the future as far as Postgres is concerned.** `goals` carries `CHECK (archived_at <= now())` and `CHECK (achieved_at <= now())`, evaluated against the **database** clock. `archiveGoal` sends `new Date().toISOString()` from the Next.js server, so any clock skew larger than the network latency is refused with a bare `23514` and no hint, which `toMessage` renders as "That value isn't allowed."
+
+Found by the e2e suite, whose helper hit it with roughly 200ms of skew. The production risk is small, because the write travels *after* the timestamp is taken and latency pushes `now()` forward, so the client has to be ahead by more than the round trip. Small is not zero, and the failure would be baffling in a support conversation.
+
+**The real fix is for the database to set it**, via a trigger on the transition to non-null, so no caller can get it wrong. Deliberately not patched by subtracting a second in the app: that hides the class of bug rather than removing it, and the same mistake is available to every future column with a `<= now()` check.
+
+`archive_circle` is unaffected: it uses `now()` in SQL.
+
+
+- `.rpc()` is lint-banned outside `app/actions/`. A direct call skips rate limiting and the profanity filter.
+- Never hand-trim `lib/database.types.ts`. Dropping the `Relationships` arrays makes every embedded join a type error.
+- Rollover runs hourly and takes **no argument**. An explicit date bypasses the idempotency guards and double-counts streaks.
+- A new notification type needs three things: the enum value in its own migration, a writer, and a teaser case in `send-digest-push`.
+- A new table needs an explicit `enable row level security` in the same migration. The dashboard setting does it live; no migration does.
+- A new enum value and its first use must be separate migrations.
+- Adding a parameter to a Postgres function creates an overload rather than replacing it. Drop first.
+- Never order by or compare an enum. Postgres uses declaration order, an accident of how the type was written.
+- Reference `goal_categories` by `slug`, never by hardcoded id. The UUIDs are per-environment.
+- Regenerate types after any schema change.
+- The root file is `proxy.ts` exporting `proxy`. Next.js 16 deprecated the `middleware` name; do not recreate it.
+- Never request notification permission on page load. Browsers allow one ask and a denial is permanent.
+- Brevo's SMTP login is `xxxxxx@smtp-brevo.com`, not your account email, and the SMTP key is not an API key.
+
+---
+
+# Deferred
+
+## Public surface and email signup
+
+Deferred until the core loop works end to end. All of the design thinking is settled; what follows is the sequence and the traps.
+
+### Sequence
+
+1. **Terms columns migration**, then the `complete_onboarding` migration. Regenerate types.
+2. **`/support`** with the contact form, once you know what the FAQ needs to answer.
+3. **Landing page** sections.
+4. **Signup flow**: `/auth/sign-up`, `/auth/check-email`, `/auth/confirm`. Supabase email settings and templates first, since the flow cannot be tested without them.
+5. **Password reset**: `/auth/forgot-password`, `/auth/reset-password`.
+6. **IP-keyed rate limits**, and correct the `lib/ratelimit.ts` doc comment.
+7. **Turnstile wiring**, then enable it in the dashboard.
+8. **Gate update** and `PUBLIC_PREFIXES` extraction.
+
+### Decisions already taken
+
+| Decision | Rationale |
+|---|---|
+| Signup collects email, password, **username** | Username is the only field the product cannot run without: it appears in every roster and digest. Google users still set theirs in `/onboarding`, so both paths need the same validation. Factor it once. |
+| Plus an optional **display name** | `signUp({ options: { data: { display_name } } })` writes to `raw_user_meta_data`, which `handle_new_user` already reads first. No migration, no trigger change. Optional, because `coalesce(display_name, username)` always renders something. Needs the same profanity screening as username. |
+| Plus **terms acceptance**, versioned | Two new columns. "They agreed" is worth little once terms change; storing *which version* lets a future change target only who needs to re-accept. |
+| **Email confirmation required** | Blocks throwaway addresses and guarantees password reset works. Costs three screens. |
+| **Enumeration protection stays on** | Signup never reveals whether an address is already registered. See below. |
+| Public pages: **privacy, terms, support** | No separate "How it works" page, so the landing page carries that job. |
+| Contact via **form that emails you** | Needs Turnstile and its own IP rate limit. No new schema: the message goes to email and nowhere else, so it cannot become a queue nobody reads. |
+| Declined: **date of birth** | Photos plus free text plus private groups normally wants an age floor, and Google will never supply one. Not a v1 blocker, but it gets more expensive with every signup. |
+
+### How the two paths converge
+
+Google and email signup do not run in parallel. Both create the same `auth.users` row, both fire `handle_new_user`, and both hit the same gate in `app/(app)/layout.tsx`, which checks four things in order:
+
+```
+!user                      → /auth/sign-in
+!user.email_confirmed_at   → /auth/check-email
+!profile.username          → /onboarding
+!profile.terms_accepted_at → /onboarding
+```
+
+Google users pass the confirmation check on arrival and fail the last two. Email users do the reverse.
+
+**Why a gate rather than the flow.** Any signup can be abandoned midway: close the tab after `signUp` succeeds and you have a real account, a real profile row, a username, and an unconfirmed address. Only something evaluated on every protected navigation catches that. `email_confirmed_at` comes off the object `getUser()` already returns, so it costs no extra query.
+
+### Schema changes
+
+```sql
+alter table public.users
+  add column terms_accepted_at timestamptz,
+  add column terms_version     text;
+```
+
+Both nullable: existing rows predate the requirement. Pin the current version as a constant in `lib/legal.ts` so the value written and the document rendered cannot disagree.
+
+**The trap.** Terms acceptance has to be recorded for Google users too, and their only touchpoint is `complete_onboarding`. That means a new parameter, and **adding a parameter to a Postgres function does not modify it, it creates an overload**. `create or replace` only matches an identical signature, so the two-argument version would survive and PostgREST would see two candidates for `/rpc/complete_onboarding` and fail with an ambiguity error. The migration must `drop function public.complete_onboarding(text, text)` first, in the same migration as the create.
+
+Inside the function, record acceptance idempotently:
+
+```sql
+terms_accepted_at = coalesce(terms_accepted_at, now()),
+terms_version     = coalesce(terms_version, p_terms_version)
+```
+
+`complete_onboarding` doubles as the username rename path. Without the `coalesce`, renaming your username two months from now silently restamps your acceptance date to today, destroying the only record of when you actually agreed.
+
+Land it as two migrations: columns, then function. A failure in the function body then does not roll back the columns.
+
+### Turnstile stops being decorative
+
+`architecture.md` records Turnstile as configured but inert, because Supabase's CAPTCHA guards only endpoints that take a `captchaToken`: signup, password sign-in, OTP, password reset. A Google-only app calls none of them.
+
+Password auth adds all four. The keys are already in the environment, so this is wiring:
+
+1. Render the widget on sign-up, sign-in and forgot-password using `NEXT_PUBLIC_TURNSTILE_SITE_KEY`.
+2. Pass `options: { captchaToken }` to `signUp`, `signInWithPassword`, `resetPasswordForEmail`.
+3. **Then** enable CAPTCHA in Supabase. Enabling before the forms send tokens breaks every password endpoint at once.
+
+### Rate limiting has an assumption that breaks
+
+`lib/ratelimit.ts` documents its limits as keyed by user id, which is coherent because every current action requires a session. **Signup and password reset have no session**, so both key on client IP from the forwarded header. That is a weaker key, since it groups a household together, so the limits should be generous:
+
+| Action | Limit | Key |
+|---|---|---|
+| `signUp` | 10/hour | IP |
+| `signInWithPassword` | 20/hour | IP |
+| `resetPasswordForEmail` | 5/hour | IP, **and** 3/hour per email address |
+| Contact form | 3/hour | IP |
+
+The per-email limit on password reset is not abuse control. Without it, anyone can use your product to repeatedly email a stranger, which is how a sending domain gets flagged.
+
+### Enumeration, and the copy that covers for it
+
+If signup said "that email is already registered", anyone could type addresses in and learn who uses Solarity. For a private goal app used with friends, that is real information about real people.
+
+So it never says it. Whatever you type, you get "check your email".
+
+The cost: someone who already signed up with Google, then tries a password account with the same address, gets that message and no email ever arrives. Two things carry the weight:
+
+- **The check-email page must show "Already have an account? Sign in", with the Google button.** It is the only thing that rescues them, because the form is not allowed to explain.
+- **`/auth/forgot-password` must behave identically for real and unknown addresses**, including roughly the same response time. A timing difference reintroduces the leak the setting exists to prevent.
+
+### Landing page contents
+
+Declining a "How it works" page moves the burden here. A visitor needs to understand Circles, check-ins, the streak rule and the digest before "sign up" means anything.
+
+1. **Hero.** The one sentence, plus Create an account / Sign in.
+2. **The premise.** Why a small private group beats a solo habit tracker.
+3. **How it works, in three steps.** Start a Circle and invite up to nine people, everyone sets their own daily goals, check in once a day.
+4. **What a day looks like.** A rendered example digest. The daily-batched model is the least obvious thing about the product and much weaker in prose than shown.
+5. **Streaks, honestly.** The group streak holds only if everyone completes everything. Better stated up front than discovered on day three.
+6. **Install prompt.** It is a PWA, and on iOS that is the only route to notifications.
+7. **Footer.** Privacy, Terms, Support, contact.
+
+### Support page contents
+
+Not decoration. The backend implements all of this and nothing links to any of it:
+
+- How to delete your account, and what survives (check-ins anonymized and retained; `architecture.md` section 11).
+- How to export your data. `export_user_data` exists and nothing calls it.
+- What happens to check-in photos (90-day retention).
+- How to report content, and what follows.
+- How blocking differs from kicking.
+- Why an iPhone needs the app installed to receive notifications.
+
+### Supabase dashboard steps
+
+None of these live in `config.toml`, which configures the local stack only.
+
+| Setting | Value | Why |
+|---|---|---|
+| Email provider | enabled | Off by default on a Google-only project. |
+| Confirm email | on | The decision above. |
+| Minimum password length | 8 or more | Supabase defaults to 6, below current guidance. |
+| Password requirements | letters and digits minimum | |
+| Leaked password protection | on **if available** | HaveIBeenPwned check. **Pro plan and above**, so a launch-time item, not a prerequisite. |
+| CAPTCHA | Turnstile, enabled **last** | See above. |
+| Email templates | point at `/auth/confirm?token_hash={{ .TokenHash }}&type=email` | The default template uses an implicit-flow link that does not work with the SSR client. Confirmation appears broken until changed, and the failure looks like a code bug. **Most likely to cost an afternoon.** |
+
+### Tests that actually catch things
+
+- Abandon signup after submitting. The account must be stuck at `/auth/check-email` and unable to reach `/dashboard` by typing the URL.
+- Click a confirmation link twice. The second reaches `/auth/error` with a comprehensible message.
+- Let a link expire, then use resend.
+- Sign up with an address that already has a Google account. Verify the copy makes sense given enumeration protection is on.
+- Rename a username two months after signup, then check `terms_accepted_at` has not moved. This is the `coalesce`, and it fails silently.
+- Password reset for an address that does not exist. Identical response and timing.
+- Force `email_confirmed_at` to null in SQL and try to reach `/dashboard`.
+- `db diff` after the migrations. A drop-and-recreate replays differently than it applied.
+
+The invite, join, archive and streak-decision flows are now covered by Playwright rather than by hand. See "End-to-end tests" in Reference.
+
+---
+
+---
+
+# Reference
+
+Consulted while working, not read start to finish.
+
+## End-to-end tests
+
+Playwright, in `e2e/`, run with `npm run test:e2e`. Vitest keeps `npm test` and is told to ignore `e2e/`, because both runners default to collecting `*.spec.ts` and the split is by directory rather than by name.
+
+**First run, on your machine and not in the sandbox:**
+
+```
+npm install
+npx playwright install chromium
+```
+
+Then set `E2E_OWNER_EMAIL` and `E2E_JOINER_EMAIL` in `.env.local`. Both must be real accounts that already exist and have finished onboarding.
+
+**`e2e/env.ts` loads `.env.local` itself.** Next.js does that for the app, which makes it easy to assume everything does; Playwright's runner is a plain Node process and loads nothing, so without this every spec fails with `NEXT_PUBLIC_SUPABASE_URL is not set` while the dev server three terminals over reads it fine.
+
+It is called from `playwright.config.ts`, which workers re-import, and again from `e2e/db.ts`, because `npm run test:e2e:clean` runs under tsx and never loads the Playwright config. Existing environment variables win over the file, so `E2E_BASE_URL=… npm run test:e2e` still overrides, and a missing file is not an error, because CI has none.
+
+It deliberately does not support multi-line values, `export` prefixes, or `${VAR}` interpolation. If `.env.local` grows one of those, swap in `dotenv` rather than extending the parser.
+
+### Supabase auth requests are their own budget
+
+**This is the one that cost the most, because every symptom pointed somewhere else.**
+
+`verifyOtp` and `generateLink` spend from Supabase's hourly **auth** rate limit, which is entirely separate from `lib/ratelimit.ts` and cannot be cleared by `clearRateLimits`. A suite that mints a session per context, per test, or per API client burns through it partway and then fails in two different ways at once:
+
+- the mint itself returns `Request rate limit reached`, which at least names the cause
+- **token refreshes start getting 429s**, and `@supabase/ssr` responds by dropping the session, so pages quietly render signed-out several tests downstream with no error anywhere
+
+The second is what sent this suite through four wrong diagnoses. A page showing the landing screen looks like a broken redirect, a dead session, or a rate limit in the app; it is none of those.
+
+**So sessions are minted once per account per worker and cached**, in `e2e/session.ts` and `sessionFor` in `e2e/db.ts`. Roughly four auth requests a run instead of thirty. The cache holds the *promise*, so concurrent callers wait on one mint rather than racing into several.
+
+**Reuse is safe here for a specific reason**, not by luck: an access token outlives a three-minute suite, so nothing triggers a refresh and nothing rotates the refresh token. A much longer run would need a different answer.
+
+### A session per context, not a shared file
+
+**Supabase rotates refresh tokens**, so a stored storage state is single-use in practice. The first context to refresh consumes the token and gets a replacement in memory; the next context starts from the file, presents the spent token, and is signed out.
+
+The symptom is brutal to diagnose: a page renders the landing screen partway through a run, with no error anywhere and nothing wrong with the app. It cost two rounds of guessing before the page snapshot in `test-results/*/error-context.md` showed a sign-in button where the dashboard should have been.
+
+`e2e/session.ts` mints a fresh session per context. `auth.setup.ts` still writes the files, which remain fine for anything holding exactly one context for its whole life.
+
+**This also rules out `test.use({ storageState })`**, which takes a fixed value and therefore hands every test in the block the same token. Those tests build their own context instead.
+
+**Reuse does not merely fail, it revokes.** Presented with an already-consumed refresh token, Supabase treats it as a compromise and revokes the **whole session family**, not just that token. So one stale reuse anywhere signs the account out everywhere, and the page that shows it may be several tests downstream from the cause.
+
+The evidence was a session count: 3 for one account against 45 for the other, with the survivor's oldest 28 minutes old and the victim's 14 seconds. Sessions accumulate; they do not expire that fast. Something was deleting them.
+
+**So sessions are minted as late as possible and held as briefly as possible.** A context opened at the top of a long test and used at the bottom has spent the whole test being revocable for reasons that have nothing to do with it.
+
+**Superseded in part.** Minting per context traded this problem for a worse one, the auth rate limit above. Sessions are now cached per account; the "hold it briefly" instinct was right, the "mint another" conclusion was not.
+
+**The lesson is general:** anything a test reuses across contexts has to be idempotent, and an auth token is not.
+
+### Two locator rules, both learned expensively
+
+**`getByRole("button")` is not a list of your buttons in development.** Next injects an "Open Next.js Dev Tools" control, so a broad role query plus `.first()` can click something the app never rendered. The click succeeds, nothing expands, and the failure reports as a missing element several assertions later. Anchor on something the app owns: a member's name, a count, a test id.
+
+**A locator used after an interaction must not describe the state that interaction changes.** `getByRole("button", { expanded: false })` stops matching the instant the click succeeds, so any follow-up assertion on the same locator resolves to nothing and reports as a different failure entirely.
+
+**And assert the interaction landed, not just its consequence.** A click that silently misses looks exactly like a feature that silently broke. One `toHaveAttribute("aria-expanded", "true")` separates them, and its absence is what let a mis-aimed click masquerade as four different bugs across four runs.
+
+### Authenticating without Google
+
+Solarity is Google OAuth only. Playwright cannot drive Google's consent screen, and automating it would be testing Google.
+
+So `e2e/auth.setup.ts` asks the admin API for a magic-link token, redeems it with an ordinary anon client, and writes the resulting cookies as a Playwright storage state. No user is modified, no password is set, and nothing in the flow exists in production.
+
+**The cookies are built by `createServerClient`, not by hand.** The session cookie is base64-prefixed, URI-encoded and chunked at 3180 characters, all three of which are `@supabase/ssr` internals that have changed before. Handing the library a cookie adapter that records instead of writing means it produces exactly what the app will later read, and an upgrade changes both sides at once.
+
+### What the specs cover
+
+| Spec | Flow |
+|---|---|
+| `invite.spec.ts` | generate, regenerate behind its warning, revoke, and that a superseded link reads as dead rather than 404ing |
+| | archive a Circle, then confirm its pre-archive link takes the dead-link path |
+| | signed-out preview, and that `next=` survives to the sign-in page |
+| | a made-up token lands on `/`, not `/dashboard`, and reveals nothing |
+| | a second account joins, and joining twice is harmless |
+| `streak-decision.spec.ts` | the "settling in" marker is visible to the joiner as well as the owner |
+| | owner keeps the streak; banner clears, grace ends |
+| | reset asks first, cancelling leaves the decision pending, confirming resolves it |
+| `rate-limit.spec.ts` | the per-IP invite limit trips, says why, and clearing it restores access |
+| `masking.spec.ts` | **no browser.** A circle-mate reads nothing of another member's goals or notes through the API; the roster returns them masked |
+| `boundaries.spec.ts` | **no browser.** Rules the database enforces that no screen exposes |
+
+**`boundaries.spec.ts` was written by walking the bug list rather than the feature list**, and every test in it is an instance of pattern five, *guarded on one path, not its inverse*:
+
+| Covered | The inverse nobody had checked |
+|---|---|
+| Check-ins are dated by the database | Backdating **and** postdating are both refused, and nothing is written |
+| A goal belongs to its owner | You cannot check in against someone else's goal, nor impersonate them writing it. Migration 64 changed what the trigger sees here, so it needed re-proving |
+| Joining grants visibility | **Leaving revokes it.** The roster refuses a former member |
+| Members can leave | **The owner cannot**, which is what made the solo-owner trap real and why `archive_circle` exists |
+| A revoked link is refused | An **expired** one is a different branch, reached only by time passing, and had never run |
+| The goal cap holds on INSERT | It also holds on **UPDATE**: un-archiving cannot take you to eleven |
+
+That last one guards the test suite as much as the product, since `restoreGoalSlots` depends on it.
+
+### Rules these tests follow
+
+**Seed with the service key, assert through the UI.** `e2e/db.ts` fabricates exactly one thing, a 14-day group streak, because there is no way to earn one inside a test. Everything else goes through the browser. A test that seeds *and* asserts via the admin client proves the database works, which SQL already proved, rather than proving a person could get there.
+
+**They run against the real project.** There is no local Supabase stack, so every spec cleans up after itself and names its Circles `E2E …`. A crashed run leaves rows: `npm run test:e2e:clean` removes them, matching on that prefix only.
+
+**Cleanup deletes in a specific order, and the order is load-bearing.** Memberships first, then the notifications that deleting them produces, then the Circles.
+
+Deleting `groups` first cascades into `group_members`, which fires `handle_membership_removal`, which inserts an `audit_log` row referencing `old.group_id`. Postgres removes the parent before cascading to children, so that row no longer exists and the insert fails on `audit_log_group_id_fkey` with `23503`. The whole delete rolls back, and every subsequent run inherits the mess: one failed run left 7 Circles and 11 memberships behind.
+
+`audit_log.group_id` is `ON DELETE SET NULL` rather than `CASCADE`, which is why the FK cannot absorb this. It tolerates a group disappearing *later*, not a row written for a group that has already gone.
+
+The notification step is not optional either. Because the service role has no `auth.uid()`, the trigger classifies the removal as a **kick** and writes a `kicked` notification per member. Those hang off `users`, not `groups`, so deleting the Circle leaves them in a real account's feed permanently. Three per Circle, measured.
+
+**Dev-server flakiness has its own escape hatch.** `E2E_PROD=1 npm run test:e2e` runs against `next build && next start` instead of `next dev`. Worth reaching for when a failure looks like infrastructure: `dev` streams responses and compiles routes on first visit, so a server action can be interrupted and show up as "The destination stream closed early" in the log with a button stuck on its pending label. A test that fails under `dev` and passes under `E2E_PROD=1` found a dev-server artefact; one that fails under both found a bug.
+
+**`e2e/diagnose.ts` exists because server actions fail invisibly.** When one does, the button keeps its pending label, the URL never changes, and Playwright reports only the timed-out assertion. Attaching it before an interaction records console errors, uncaught exceptions, failed requests and any non-200 on the action's POST, and folds them into the failure message.
+
+**Serial, one worker.** The specs share two real accounts and Circle creation is capped at 5 a day per user, so parallel workers would race into a rate limit rather than into a bug.
+
+**One Circle per run comes from the form. The rest come from the API.** `enforce("createCircle")` lives in the server action, not in the `create_circle` RPC, so `createCircleViaApi` spends nothing from the 5-a-day budget. Every spec that merely *needs* a Circle in order to assert something else uses it; only `invite.spec.ts`, whose subject is the form, pays. The suite used to create nine through the form against a cap of five, and clearing the budget mid-file was papering over that.
+
+**The general form:** a test that needs state should not re-test the flow that produces it, and should not pay a production quota to do so. Ask which flow the test is actually about.
+
+**`clearRateLimits()` still runs where a limit is genuinely in play** — `invite.spec.ts` for the form, `rate-limit.spec.ts` for the per-IP invite bound it deliberately exhausts. It scopes the reset to the two test accounts by user id, unlike `scripts/reset-ratelimit.mjs`, which clears everyone and is a development convenience.
+
+**Sessions are minted once per account per run, not per context.** `auth.setup.ts` writes both to `e2e/.auth`, and `storageStateFor` reads them, minting only if a file is missing or older than 30 minutes. Every `verifyOtp` spends from Supabase's *auth* rate limit, which is hourly and shared across runs; a context each meant ~30 a run and the failure was not a clean error but 429s on refresh, which `@supabase/ssr` handles by silently dropping the session. Mysterious mid-run sign-outs were that, and nothing else. The age check matters because the files outlive an access token and `--project=chromium` skips the setup project.
+
+**A fixture that asserts a count has to own the whole list.** `parkActiveGoals` archives every other active goal of the account under test for the duration, because "1 of 2" is a claim about the account and not about the seed. It is journalled to `e2e/.auth/parked-goals.json` *before* the write, and restored in three places: the test's `finally`, the file's `afterAll`, and `npm run test:e2e:clean`. Three, because a Playwright timeout kills a test without running its `finally`, and leaving a real person's goals archived is the worst thing this suite can do.
+
+**Raising the limit was the wrong fix.** 5 a day is a product decision in `lib/ratelimit.ts`. A suite that quietly widens a production control to suit itself stops testing the product; clearing a budget is visible and scoped, changing the number is neither.
+
+**The two accounts are interchangeable.** Nothing hardcodes a user id, email or username. `roster.spec.ts` reads a member's rendered name from the database rather than hardcoding it, and reads it with the same `coalesce(username, display_name)` the page uses. Swapping `E2E_OWNER_EMAIL` and `E2E_JOINER_EMAIL` only moves which account bears the Circle-creation load, which the reset above already handles.
+
+### Playwright MCP
+
+`.mcp.json` configures `@playwright/mcp` for driving a browser interactively, which is a different job from the suite above: one-off "what does this actually look like" checks rather than anything repeatable. It needs no install of its own; `npx` fetches it.
+
+## Daily workflow
+
+```bash
+npm run dev
+```
+
+The app talks to the **hosted** Supabase project through `.env.local`. `npx supabase start` is not needed; that runs a full local Postgres, Auth and Storage stack in Docker, worth doing once real users exist. Docker is required only for `db diff`, `db reset` and `supabase start`.
+
+| Command | When |
+|---|---|
+| `npm run dev` | always |
+| `npx supabase db diff` | after schema changes, to prove migrations rebuild |
+| `npx supabase gen types typescript --project-id wyuadcnrxisqmzygzhzd > lib/database.types.ts` | after schema changes |
+| `npx supabase functions deploy <name>` | after editing an Edge Function |
+
+---
+
+---
+
+## Clearing test data
+
+**Development only.** Nothing in the app does this, and nothing should: it is `postgres` bypassing RLS to erase rows the product deliberately gives no way to erase.
+
+Deleting a Circle is **not** archiving. Archiving retires a Circle and keeps its history; deleting removes every trace it existed. Real users get archive, once it is built. Deleting exists here purely so a pile of Circles named "test" does not follow you around.
+
+```sql
+-- Look first.
+select id, name, group_status, created_at from public.groups order by created_at;
+
+-- Then remove by name, or by id if the names collide.
+delete from public.groups where name in ('test', 'Morning crew');
+```
+
+What goes with it, all automatically:
+
+| Table | What happens |
+|---|---|
+| `group_members` | deleted |
+| `group_cycles` | deleted |
+| `group_member_category_stats` | deleted |
+| `digest_snapshots` | deleted |
+| `invite_links` | deleted |
+| `goal_group_visibility` | deleted |
+| `audit_log` | **kept**, with `group_id` set to null |
+
+`group_cycle_stats` and `group_daily_completion` hang off `group_cycles`, so they go when the cycle does.
+
+`audit_log` is the deliberate exception. An audit trail that erases itself when the thing it describes is deleted is not an audit trail, so the rows survive with the reference cleared. Architecture section 3.
+
+**Your own goals, check-ins and streaks are untouched.** They belong to you, not to any Circle.
+
+---
+
+## Forcing a rollover in development
+
+**The hourly job finalizes *yesterday*, not today.** It selects users where
+
+```
+last_rollover_date < private.checkin_date_for(user) - 1
+```
+
+so a check-in made today only becomes eligible once the user's 2 AM boundary passes and today becomes yesterday. Waiting for the next `:05` after checking in does nothing, which is a slow and confusing way to learn that. Check first:
+
+```sql
+select left(u.username,8) as who,
+       private.checkin_date_for(u.id)      as their_today,
+       u.last_rollover_date,
+       (u.last_rollover_date < private.checkin_date_for(u.id) - 1) as would_process_now
+from public.users u;
+```
+
+`would_process_now = false` on every row means the scheduler has nothing to do and waiting is pointless.
+
+### Forcing it
+
+`run_daily_rollover(p_date)` bypasses the guard, which is the documented testing path. **It also advances `last_rollover_date` to the date passed**, so the later automatic run correctly skips that day. The scheduler will not double-count behind you.
+
+What *will* double-count is running it twice by hand. The block below refuses to do that:
+
+```sql
+do $$
+declare
+  v_target date := '2026-08-12';   -- the day you checked in, in YOUR timezone
+  v_already int;
+  r record;
+begin
+  select count(*) into v_already
+  from public.users where last_rollover_date >= v_target;
+
+  if v_already > 0 then
+    raise exception 'Refusing: % user(s) already rolled over through %. '
+                    'Running again would double-count streaks.', v_already, v_target;
+  end if;
+
+  for r in select * from public.run_daily_rollover(v_target) loop
+    raise notice 'users=% cycles=% locked=%',
+      r.users_processed, r.cycles_processed, r.circles_locked;
+  end loop;
+end $$;
+```
+
+Then read the result:
+
+```sql
+select left(u.username,8) as who, s.current_streak,
+       s.longest_streak_ever, s.total_days_completed
+from public.user_lifetime_stats s
+join public.users u on u.id = s.user_id;
+```
+
+An account that completed every active goal reads `1`. An account that did not reads `0`, which is the correct answer rather than a failure.
+
+### Why not just wait
+
+Waiting is the honest test and worth doing once, since it exercises the scheduler rather than a manual call. It is only unhelpful as a development loop: the wait is up to 24 hours, and nothing distinguishes "not yet eligible" from "broken".
+
+---
+
+## Regression checklist
+
+Passed in full on 12 August 2026. Retained because these are the checks worth repeating after any change to auth, the proxy, the gate, or the PWA layer. Work through them in order; each fails distinctively, so an early failure tells you where to look.
+
+### 1. Sign-in round trip
+
+`npm run dev`, then visit `/`.
+
+| Check | Expected |
+|---|---|
+| `/` while signed out | landing page with a Sign in link |
+| Sign in with Google | returns to `/onboarding`, not an error page |
+| `/dashboard` while signed out | redirects to `/auth/sign-in?next=/dashboard` |
+| Sign in from that redirect | lands on `/dashboard`, not `/` |
+| `/auth/sign-in` while signed in | redirects straight through |
+
+If the callback fails, read the message on `/auth/error`; it carries the actual reason. A redirect-URL mismatch is by far the most likely cause.
+
+### 2. Open-redirect guard
+
+Visit `/auth/sign-in?next=https://example.com`, then `?next=//example.com`, then `?next=/\example.com`. Each must sign in and land on `/dashboard`, never on an external host. This is the one security-relevant piece of new code, and it is worth confirming by hand rather than by reading.
+
+### 3. Onboarding
+
+| Input | Expected |
+|---|---|
+| `ab` | rejected, 3 to 30 characters |
+| `has space` or `has-dash` | rejected by the pattern |
+| A profane word | rejected with a neutral message |
+| A name already taken | "That username is taken." |
+| A valid name | redirects to `/dashboard` |
+
+Then confirm the row, timezone in particular, since the entire rollover keys off it:
+
+```sql
+select username, checkin_timezone, checkin_day_started_at
+from public.users where id = '<your-uid>';
+```
+
+`checkin_timezone` must be your real IANA zone, not `UTC`. `UTC` means the hidden field submitted empty and client-side detection is not running.
+
+Then visit `/onboarding` again directly. It should redirect to `/dashboard` rather than offering the form.
+
+### 4. Gate behaviour
+
+Every path under `(app)` must redirect to `/onboarding` when the username is null. Force the state:
+
+```sql
+update public.users set username = null where id = '<your-uid>';
+```
+
+Visit `/dashboard`, then restore the username.
+
+### 5. PWA install
+
+Deploy to Vercel first. Service workers require HTTPS, so this cannot be tested on `localhost` in a way that reflects production.
+
+- Chrome DevTools, Application, Manifest: no icon errors, `display: standalone`.
+- Application, Service Workers: `sw.js` activated, not redirected.
+- On an iPhone: Share, Add to Home Screen, then open from the home screen. It must open without browser chrome. If Safari chrome appears, `appleWebApp` metadata is not reaching the page, and push will never work on iOS.
+
+### 6. Regressions
+
+```bash
+npx tsc --noEmit
+npx eslint .
+npm run build
+npx supabase db diff        # should print nothing
+```
+
+### Still unverified after this pass
+
+- **Rate limiting.** Wired but never triggered; it takes 15 onboarding attempts in an hour.
+- **Every RPC except `complete_onboarding`.** Circles, goals, check-ins and invites have all been tested in SQL and none of them through the app.
+- **Email deliverability to a stranger.** Brevo delivers to the sender's own Gmail, which proves nothing about another provider.
+- **Push notifications end to end.** The service worker registers, but nothing has ever sent a push to a real device.
+- The profanity filter has false positives on innocent substrings. Intended, but worth knowing before someone reports it as a bug.
+
+---
+
+---
+
+## Bug patterns in this codebase
+
+Every real bug found so far fell into one of fifteen shapes. Probe for these specifically after any change.
+
+The first six are schema-shaped and were all found in SQL. The next five appeared once the UI existed. The last four came out of the e2e suite, which is a different lens again: it exercises paths no screen offers, and its own failures turn out to be a reliable source of product bugs.
+
+| Pattern | Example found |
+|---|---|
+| **Setter with no resolver** | `streak_grace` set on join, never cleared, so the group streak ignored that member forever |
+| **Declared with no writer** | `admin_promoted`, `invite_link_toggled`, `kicked`, `group_locked_renewal` all existed but nothing produced them |
+| **Raised with no reader** | the inverse, and it needs its own check. `set_circle_deadline` raises `CIRCLE_NOT_ACTIVE`, `NO_ACTIVE_CYCLE` and `DEADLINE_TOO_SOON`; `lib/errors.ts` knew none of them, so all three fell through to the branch that prints the raw Postgres message |
+| **Two names for one condition** | migration 60 named a refusal `CIRCLE_INACTIVE` that migration 53 had already named `CIRCLE_NOT_ACTIVE`, with identical message text. Grep the existing hints before inventing one. |
+| **Guarded on one path, not its inverse** | owner succession guarded departures; joining an empty archived Circle recreated the ownerless state |
+| **Unreachable code** | `service_role` had no grants; `private` is not addressable by PostgREST |
+| **Locked column, no writer** | `username` and `checkin_timezone` blocked with nothing able to set them, making onboarding impossible |
+| **Relying on the environment, not the migrations** | no migration enabled RLS, the dashboard's event trigger did. A rebuild produced an open database. **Second instance:** `private.current_checkin_date(uuid)` came out `anon`-executable, because an *overload* is a new object and inherits none of the original's grants. Revoke in the migration that creates the function. |
+| **Stale `useActionState` outliving what produced it** | found twice in one session. A returned invite token kept displaying after the link was revoked; a failed check-in's error stayed on screen after a successful undo. **An action result is a fact about one past submission, not the current state.** Render from the server prop, or track which action ran last. |
+| **RLS mistaken for a WHERE clause** | the dashboard read `group_members` with no `.eq("user_id", …)`, reasoning that RLS already scoped it. It did, to the caller's *Circles*. The policy is `is_group_member(group_id)`, so a Circle of three returned three rows and rendered three times, each showing a different person's role. |
+| **State in two places, one of them unreachable** | `@upstash/ratelimit` caches refusals in-process by default, so clearing Redis left the server still refusing and `reset-ratelimit.mjs` looked broken. Whenever a library offers a cache "for free", ask what clears it. |
+| **A client's clock is not the database's** | `goals` has `CHECK (archived_at <= now())`, evaluated in Postgres. `archiveGoal` sends `new Date()` from Node, so enough skew is refused with a bare `23514` reading "That value isn't allowed". The fix is a trigger; the tempting fix is subtracting a second, which hides the class instead of removing it. See Gotchas. |
+| **A test that borrows state it did not create** | three consecutive failures from one habit: assuming an account had a spare goal slot, then that it had any goals at all, then that a clock matched. Real accounts get used by hand, so their contents are not a fixture. Create what the test needs, and undo it in `finally`. |
+| **A test that asserts on state it does not own** | the sibling of the row above, and the harder one to see. `roster.spec` asserted a member's row reads "1 of 2", which is a claim about the *account*, not the fixture: the day the joiner had two goals of their own it read "2 of 4" and four tests failed on a locator matching nothing. Freeing two slots was not enough; the fixture had to own the whole list. `parkActiveGoals` archives everything else for the duration. |
+| **Cleanup that only runs on the happy path** | the same suite leaked one goal per failed run for weeks. The seed helper threw between its two inserts, before `return`, so no test body ran and no `finally` did either. Eight strays later every roster test failed on the goal cap, naming the cap and never the leak. Anything that creates before it returns needs its own `try`. Anything that archives a real user's data needs a journal too, because a Playwright timeout kills the test without running `finally` at all. |
+
+**The last one deserves the extra words**, because it looks like a feature every time. Preferring the value an action just returned feels responsive and skips a round trip. But `revalidatePath` already re-renders the page in the same pass the result arrives, so the optimism buys nothing and the stale copy survives the next action that should have invalidated it.
+
+**Two related React traps, both hit while fixing the above.** Clearing state in a form's `onSubmit` unmounts a form that is mid-submission and can abort the action, so close confirmation panels on the *result* instead. And doing that in a `useEffect` trips `react-hooks/set-state-in-effect`; adjust during render with the previous-value pattern instead.
+
+### The RLS rule, stated once
+
+**RLS bounds what you *may* read. It never expresses what you *meant* to read.**
+
+Dropping a filter because "the policy covers it" is safe only when the policy's predicate is **identical** to the filter you would have written. Two of the three places this codebase relies on RLS pass that test and one did not:
+
+| Query | Policy | Verdict |
+|---|---|---|
+| `archiveGoal` updating `goals` by id | `goals_update_own`: `user_id = auth.uid()` | safe, predicate matches intent exactly |
+| `undoCheckIn` deleting `progress_entries` | `progress_entries_delete_own`: `user_id = auth.uid()` | safe, same reason |
+| dashboard reading `group_members` | `group_members_select_circlemate`: `is_group_member(group_id)` | **wrong**, broader than intent |
+
+The third is broader on purpose, because `/circles/[id]` needs every member row to draw the roster. Same policy, two callers, only one of which wanted that breadth.
+
+**It is invisible with one member**, which is why it survived every manual test and eight passing e2e tests. Measured: a solo Circle returns 1 row either way; add a member and the unfiltered query returns one row more. Only a React duplicate-key warning gave it away.
+
+**A replay into a shadow database is its own category of test.** `supabase db diff` builds a fresh Postgres and runs all 67 migrations, which is the only thing that catches a history depending on state it never creates. Run it after any batch of schema work, not only before a rebuild.
+
+---
+
+---
+
+## Standing checks
+
+Re-run both after any migration. Architecture records the expected result; these produce it.
+
+**Function posture.** Exactly one `anon`-executable function, `circle_preview` (migration 63); anything else is a finding. None with a mutable path. The count grows with each migration that adds a function: **the 41 recorded at migration 57 does not reconcile with the 51 counted on 14 August**, and migrations 58–63 added only two functions. Re-derive the number before treating a difference as a regression; the posture columns are what matter.
+
+```sql
+select n.nspname, p.proname,
+       case when p.prosecdef then 'DEFINER' else 'invoker' end as mode,
+       case when p.proconfig:text like '%search_path%' then 'pinned' else 'MUTABLE' end as sp,
+       has_function_privilege('anon', p.oid, 'EXECUTE') as anon,
+       has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth
+from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname in ('public','private') order by 1, 2;
+```
+
+**Every enum value has a producer.** Should return nothing.
+
+```sql
+with agg as (
+  select string_agg(pg_get_functiondef(p.oid), E'\n') as s
+  from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+  where n.nspname in ('public','private')
+)
+select t.typname, e.enumlabel
+from pg_type t join pg_enum e on e.enumtypid=t.oid, agg
+where t.typname in ('notification_type','audit_action_type')
+  and agg.s not like '%''' || e.enumlabel || '''%';
+```
+
+Also run both Supabase advisors until clean. Fixing one finding can create another. Expected permanent output is listed in `architecture.md` section 4; anything beyond it is real.
+
+---
+
+---
+
+## Schema change routine
+
+Six stages, in order. Each catches a class of problem the previous one cannot.
+
+1. **Apply** one logical group of objects, not the whole schema. Small steps mean a failure points at a specific cause.
+2. **Verify structurally**: query `information_schema`, `pg_indexes`, `pg_constraint`. A migration succeeding only proves the SQL parsed.
+3. **Test behaviourally** in a `DO` block: insert real rows, attempt what should fail, assert each rejection, then `RAISE` a sentinel to roll back. For RLS, `SET LOCAL ROLE authenticated` plus `set_config('request.jwt.claims', …)`; testing as the owner bypasses RLS and proves nothing.
+   - **Know which error each defence raises.** An RLS violation and a missing column grant both raise `insufficient_privilege` (42501); a CHECK or trigger raises `check_violation` (23514). BEFORE triggers fire *before* `WITH CHECK`, so where both guard a rule, the trigger's error wins.
+4. **Probe for gaps.** Steps 1 to 3 verify what you intended; they cannot tell you what you failed to think of. Write a block that attempts plausible abuses and *reports* which succeeded instead of asserting. This caught check-ins being accepted on archived and achieved goals: every assertion passed, because none asked that question.
+5. **Run the standing checks and both advisors** until clean.
+6. **Update the docs**, including deviations and why. Record confirmed-correct behaviour too. Behaviour emerging from a language subtlety, such as anonymized rows being invisible because `NULL = auth.uid()` is NULL rather than true, is exactly what a later refactor breaks by accident.
+
+---
+
+---
+
+## config.toml
+
+`supabase/config.toml` exists with `project_id = "wyuadcnrxisqmzygzhzd"`. It is committed for one reason above all: it is the only version-controlled record of which Supabase project this checkout points at. The link state lives in `supabase/.temp/`, which is gitignored.
+
+**What it does and does not govern.** It configures the *local* stack that `supabase start` would run. The hosted project is configured through the dashboard, and nothing in this file has been reconciled against it.
+
+**Do not run `supabase config push`.** It applies the *resolved* configuration, so every value still at a CLI default would overwrite the corresponding dashboard setting rather than being left alone. The generated `[auth]` block is entirely stock, with a `127.0.0.1` site URL and no Google provider section. Pushing it would disable Google sign-in. The file carries this warning at the top and above `[auth]`.
+
+**What `link` actually checks.** It compares the local `[db] major_version` against the remote server. A quiet "Finished supabase link" means it matched. It is not a full config diff, so silence is not evidence that the rest of the file agrees with the dashboard.
+
+---
+
+---
+
+## Brevo & email ✅ configured 12 August
+
+The walkthrough is gone; it was a one-time task. What survives is where things live and what will bite.
+
+| Setting | Value |
+|---|---|
+| Host, port | `smtp-relay.brevo.com`, 587 |
+| Username | the generated `…@smtp-brevo.com` login: a generated login, **not** the account email |
+| Password | an SMTP key, **not** an API key |
+| Sender | the project address, verified by 6-digit code |
+| Configured in | Supabase → Project Settings → Authentication → SMTP Settings |
+
+**Two caps, independent.** Brevo allows 300/day. Supabase separately caps 30 new users/hour under Auth → Rate Limits, and that one binds first.
+
+**Minimum interval per user is 60 seconds.** A resend button pressed twice inside a minute is silently refused, so `/auth/check-email` needs a visible cooldown.
+
+**Inactive SMTP keys expire after 90 days.** `.github/workflows/email-heartbeat.yml` sends monthly to prevent that and fails loudly if the credential dies. Needs four repository secrets: `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY`, `BREVO_SENDER`, `BREVO_ALERT_TO`.
+
+**Deliverability is unproven.** Delivered to the sender's own Gmail, which is the easiest case there is. Without a custom domain, SPF and DKIM cannot align, so mail to a stranger on another provider may be filtered: silently. `/auth/check-email` carries spam-folder copy as required text, not a nicety.
+
+```bash
+node --env-file=.env.local scripts/test-email.mjs you@example.com
+```
+
+---
+
+# History
+
+## Completed steps, kept for their reasoning
+
+Steps 5 to 7 in full. Moved out of *Do* once they shipped, because next steps are read daily and finished ones are not, but kept verbatim: the streak display rule, the invite decisions and the masking argument are all still binding on step 8.
 
 ### 5. Milestone ✅
 
@@ -475,897 +1712,7 @@ So either 7h carries the rendering with it, or it waits for the roster to want n
 
 Whatever the answers: a rolled-back SQL block proving a private note is absent from `circle_roster` for a circle-mate and present for its author, and that a shared note on a goal hidden in this Circle stays absent. That last one is the case a naive implementation gets wrong.
 
-### 8. Real dashboard, and seeing each other
-
-Check-in panel and Circles list are built. What remains is the half the product is actually for: **seeing whether your friends did their goals today.**
-
-#### The feature, as asked for
-
-> See which friends completed their goals. Per friend: a count, `# checked / # total`. Clicking a friend expands to their goals, with placeholder text where a goal is hidden.
-
-Straightforward as a screen. It runs into four things the schema decides for us, and **two of them have no answer yet.**
-
-#### Blocker 1: hidden goal titles are not actually hidden
-
-`goals_select_own_or_groupmate` returns the whole row to any circle-mate and consults `goal_group_visibility` nowhere. `is_goal_hidden_in_group()` has one caller in the database and it gates **photos**.
-
-Nothing leaks today only because nothing renders a circle-mate's titles. This feature is precisely the thing that starts rendering them.
-
-RLS cannot fix it: masking a column for one viewer and not another is not row-level. See architecture section 4, "Hidden goals stay readable", for the options. **The shape is a `SECURITY DEFINER` RPC that returns the roster already masked**, with `SELECT` on `goals` narrowed to the owner.
-
-**Closed before 7g, as migration 64**, verified as a real circle-mate in a rolled-back transaction and again by the Playwright suite afterwards. It is a live exposure rather than a design gap. The practical risk is nil, since the only accounts that exist are the two test ones, which is exactly why it is cheap to fix now rather than under pressure later. 7g is specced and will keep.
-
-#### Blocker 2: "today" is per-person, and we can only compute our own
-
-Every member has a frozen timezone and a 2 AM boundary, so `3 of 5` for a friend means *their* day, not yours. `/circles/[id]` already refuses to guess this for streaks and says so on the page.
-
-`public.current_checkin_date()` takes no arguments and answers only for the caller. `private.current_checkin_date(user_id)` exists underneath. So the options are:
-
-| Option | Consequence |
-|---|---|
-| Expose a per-user variant, or fold the date into the roster RPC | Correct. The RPC already has to exist for blocker 1, so this is close to free |
-| Compute in TypeScript from `users.checkin_timezone` | Forbidden by the rule in `checkin-date.ts`, and it drifts across DST |
-| Show yesterday's settled digest instead of today | Sidesteps the problem and answers a different question. Nobody opens the app to see whether their friend checked in yesterday |
-
-#### Decided: per-Circle, on the Circle page
-
-**Goal hiding is scoped to a Circle**, and a friend can share several Circles with you. The same goal can be hidden in one and visible in another.
-
-So a flat "your friends" list on the dashboard has **no Circle context, and therefore no defined answer** to what should be masked. The photo policy solves its version of this with "visible if there is at least one shared Circle where it isn't hidden", which is right for a single object reached by URL and **wrong for a list**: it would surface a goal in the very Circle it was hidden in.
-
-**Decided: the roster lives on `/circles/[id]`.** The Circle is unambiguous there, the members are already on that page, and the dashboard links to it.
-
-Rejected: the dashboard grouping by Circle, which is the same data and the same masking rule but more screen for a view people reach one Circle at a time anyway. Also rejected, and not a real option: a flat friend list with no Circle attached, because there is no correct masking rule for one.
-
-#### Decided: what the roster shows
-
-| Question | Decision |
-|---|---|
-| Hidden goals | **A row each, name masked, tick shown.** "Hidden goal ✓" |
-| Member with no active goals | **"No goals yet"**, not "0 of 0" |
-| Expanded row, v1 | **Goal titles and tick state only.** No notes, no photos |
-| Masking enforcement | **`SECURITY DEFINER` RPC**, with circle-mate `SELECT` on `goals` revoked |
-| Roster order | **You first, then joined order** |
-| Blocking | **Unchanged.** A block hides the profile, not goals |
-| Whose "today" | **Each member's own**, returned by the roster RPC |
-
-**Hiding a goal means "don't show what it is", not "don't show anything about it".** The tick stays, so the rows reconcile with the `3 of 5` in the header and nothing looks broken. The cost, stated plainly: a circle-mate learns that a private goal was or wasn't done. That is the accountability the Circle exists for, and a hidden goal that also hid its state would quietly opt out of it while still counting toward the streak everyone shares.
-
-**"No goals yet" rather than "0 of 0".** The system still counts that day as incomplete, and `daily_completion` records it that way; the roster just declines to render a meaningless fraction. Worth remembering that the two are saying different things.
-
-**Check-in notes have the same hole as titles, and it closes at the same time.** `progress_entries.note` is readable by any circle-mate today. The masking migration narrows `SELECT` on that table to the owner as well; the roster RPC reads it as `SECURITY DEFINER` and supplies tick state without ever returning note text.
-
-That is a tightening only, so it forecloses nothing. See **7h** for the toggle that follows.
-
-**Notes and photos stay out of v1.** `progress_entries.note` is readable and would sit naturally beside the tick, but photo check-ins have their own visibility function and no UI anywhere, and pulling them in drags an unbuilt feature into step 8.
-
-**The RPC is the enforcement, not the app.** It returns the roster already masked, so a hidden title never leaves the database. `SELECT` on `goals` narrows to the owner, which means any *future* read of a circle-mate's goals has to go through the RPC as well. That is the point rather than a side effect: the current design failed precisely because it left masking to a layer that could be bypassed.
-
-**You first, then joined order.** Deliberately not "incomplete first": a roster that reshuffles as the day progresses cannot be looked at twice, and section 13 already reserves ranking for the leaderboard. Your own row leads because it is the one you act on, which does mean no two members see the same list.
-
-**Blocking stays as it is.** A block hides `user_lifetime_stats` and nothing else, so two people who share a Circle still see each other's goals after one blocks the other. The reasoning is in architecture section 4 and survives this feature: hiding goals would break the accountability the Circle exists for, and hiding identity leaves a nameless row that advertises the block louder than the block does. Worth revisiting if a Circle ever turns hostile in practice, because this feature makes the situation far more visible than it is today.
-
-**Each member's "today" comes from the RPC.** Computing it in TypeScript is forbidden by the rule in `checkin-date.ts` and drifts across DST; showing yesterday's settled digest answers a different question. Since the RPC has to exist anyway, it returns each member's check-in date with their counts.
-
-`private.owns_active_goal()` is resolved separately: **investigate first**, since "owns it and it is neither achieved nor archived" reads like an intended guard on the photo-upload path. Wire it or drop it once that is known. It does not belong in 7g, whose whole safety property is that only `using` clauses change.
-
-#### Smaller things, already decided by the schema
-
-**The denominator counts hidden goals.** `daily_completion` is "all active goals, visible and hidden", so a friend showing `3 of 5` with two hidden is the honest rendering, and the count only adds up if hidden goals are in it.
-
-This tells you *how many* hidden goals someone has. It stopped being a separate decision the moment hidden goals became rows: the count is visible either way. Stated here so it is a known consequence rather than a discovery.
-
-**Blocking does not hide goals**, confirmed rather than assumed. See the decision above.
-
-**This is a live read, not a digest read.** `digest_snapshots.summary` carries `{user_id, username, completed, streak}` per member: no goal counts, no titles. It answers "how did yesterday end", which is the Overview tab. Today's roster has to come from `goals` and `progress_entries`.
-
-**Read it in one query, not per member.** Expanding a row should reveal data already fetched, not fire a request. The roster RPC returns every member's goals and today's check-ins in one call; the expansion is presentation.
-
-#### Inherited from 7h: three things with no home yet
-
-7h built the whole note-sharing path and stopped at the glass, because there is nowhere to put a control. Step 8 owns all three.
-
-| Gap | Detail |
-|---|---|
-| **No note input, and there never was one** | `checkIn` has read `note` from the form since it was written; nothing has ever rendered a field for it. So `progress_entries.note` is writable only by hand |
-| **No share tick** | `checkIn` accepts `noteShared`, defaulting to private when the field is absent. The checkbox belongs beside the note box |
-| **`setNoteSharing` has no caller** | Changing your mind after posting. Wants an affordance on the note wherever it is displayed, not on the check-in form |
-
-That last one is the pattern this project keeps catching, a writer with nothing invoking it. It is written down with a named consumer one step away, which is the difference between a plan and a hole, but it is only that until step 8 ships.
-
-**The roster reads notes already.** `circle_roster` returns note text when the entry is shared and the goal is visible, so the expansion has the data the moment it wants to draw it. This is what reopens the earlier "titles and tick only" scope: the note is there, and showing it costs one line.
-
-#### Still to place
-
-Overview subtab, notifications subtab, and where `/profile/[username]` fits. All orphaned routes today.
-
-*Done when:* opening a Circle shows every member, their `# checked / # total` computed in their own timezone, expandable to their goals with hidden ones shown as placeholders, and a Playwright test proves a hidden goal's title is absent from the response body rather than merely absent from the screen.
-
-### 9. Install nudge, then push permission
-
-Appended to onboarding, in that order.
-
-Last of the loop work, deliberately: it reshapes the end of onboarding, which is the reason signup was deferred at all.
-
-### 10. Security headers
-
-CSP with a nonce-based `script-src`, HSTS, `nosniff`, `Referrer-Policy`.
-
 ---
-
-## Running in parallel
-
-Independent of everything above, cheap, and it unblocks the Google consent screen.
-
-- `/privacy` and `/terms` as static pages
-- `app/robots.ts` and `app/sitemap.ts`
-
-`sitemap.ts` **must exclude `/join/*`**: invite tokens are bearer credentials and have no business in a crawler log.
-
-Copy gets drafted from the architecture, so it describes what the system actually does: 90-day photo retention, check-ins anonymized rather than deleted, what `export_user_data` returns. Not legal advice; review before real users.
-
----
-
-## Deferred inside the loop
-
-Two things left out of steps 3 and 4 on purpose.
-
-### Achieving a goal → after step 5
-
-Achieving moves the check-in denominator exactly as archiving does. Adding it before the first streak exists means debugging two denominator-movers at once, against a baseline that has never produced a correct number.
-
-It is also unverifiable before then: `goals_count_achievement` feeds `total_goals_achieved`, which nothing reads until `/profile/[username]` exists.
-
-The follow-up prompt (archive, edit into a new goal, or keep it active) lands with the same work.
-
-### Goal deadlines → after a type change
-
-Buildable now. `<input type="date">` is native everywhere and needs no library, so the earlier "that's design work" objection was wrong.
-
-**The column is the obstacle.** `goals.deadline` is `timestamptz` and a date input submits `YYYY-MM-DD`, which stores as midnight **UTC**. Someone in `America/Los_Angeles` picks 1 September and sees 31 August when it renders back, and it looks like a bug in the picker rather than in the schema.
-
-A goal deadline is a **calendar date, not an instant**. Postgres `date` has no timezone semantics, so the error class stops existing rather than being handled.
-
-Cheap: zero rows today, and `export_user_data` is the only reader. Should land before anything writes to the column.
-
-**Two design notes when it is built:**
-
-- **Do not default to today.** The column is nullable on purpose; most daily goals have no end date. Defaulting turns an opt-in field into an opt-out one and produces goals that look overdue tomorrow.
-- **No `min` attribute.** Architecture section 3 keeps this deliberately unconstrained, since recording a missed or historical deadline is legitimate.
-
----
-
-## Route map
-
-Every route the app will have, and where each stands. **Orphaned** means the backend implements it and nothing in the app links to it.
-
-### Public
-
-| Route | Status | Notes |
-|---|---|---|
-| `/` | built, placeholder | Landing. Redirects signed-in visitors to `/dashboard`. Also renders `Notice`, since a signed-out visitor with a dead invite link lands here. Needs real content; see Deferred. |
-| `/auth/sign-in` | built | Google only so far. Gains a password form. |
-| `/auth/callback` | built | OAuth code exchange. |
-| `/auth/error` | built | Gains cases for expired and reused confirmation links. |
-| `/auth/sign-up` | deferred | Email, password, username, name, terms, Turnstile. |
-| `/auth/check-email` | deferred | Post-signup holding screen. Resend, spam-folder line, and a route back to sign-in. |
-| `/auth/confirm` | deferred | Route handler calling `verifyOtp`. |
-| `/auth/forgot-password` | deferred | Always reports success. |
-| `/auth/reset-password` | deferred | Reached only with a recovery session. |
-| `/privacy` | in parallel | **Required** for the Google OAuth consent screen. |
-| `/terms` | in parallel | Versioned. |
-| `/support` | deferred | FAQ plus contact form. |
-| `/join/[token]` | built | Preview works **signed out**; join requires sign-in. A dead link redirects to `/dashboard` or `/` with a notice rather than 404ing. `robots: noindex`. Still to exclude from `sitemap.xml`. |
-| `robots.txt`, `sitemap.xml` | in parallel | `app/robots.ts`, `app/sitemap.ts`. |
-
-### Signed in
-
-| Route | Status | Backed by |
-|---|---|---|
-| `/onboarding` | built | `complete_onboarding`. Gains the terms checkbox, then the install nudge and push prompt. |
-| `/dashboard` | built | Check-in panel, goals, Circles with archived beneath. Still to gain: Overview and notifications subtabs (step 8). |
-| `/circles/[id]` | built | Header, deadline, group streak, Members and Overview tabs, owner streak-decision banner. Closes the `sw.js` deep link. |
-| `/circles/[id]/settings` | built | Invite link, revoke, regenerate, archive. Still to gain: deadline, roles, and the kick flow's "also block?" step. |
-| `/notifications` | orphaned | `notifications`. The durable channel; push is best-effort. |
-| `/profile/[username]` | orphaned | `user_lifetime_stats.visible_on_profile`. Where blocking lives. |
-| `/settings/profile` | orphaned | Rename path. Must surface *when* the next rename is allowed, not just refuse. |
-| `/settings/notifications` | orphaned | `push_subscriptions`. Per-device list; natural home for the push opt-in. |
-| `/settings/account` | orphaned | `export-data` and `delete-account` Edge Functions. Both deployed and verified, neither has UI. Self-serve deletion is an Apple requirement for any future store submission. |
-
-### Protection
-
-`lib/supabase/proxy.ts` currently treats `/auth`, `/_next`, `/`, and `/join` as public. Three more public prefixes are coming, so extract a `PUBLIC_PREFIXES` constant rather than growing the inline boolean.
-
-Keep the posture deny-by-default: enumerate what is *public*, so a forgotten route fails closed as a redirect to sign-in. Enumerating what is protected means a forgotten route fails open, silently.
-
----
-
----
-
-## Open items
-
-### Blocking
-
-- **Migration workflow, undecided.** Schema changes currently go straight to the project, which drifts from the repo. Either continue and re-run `npx supabase migration fetch` afterwards, or write files into `supabase/migrations/` and `npx supabase db push`. The second gives review over schema changes, and the deferred signup work adds two migrations, so this wants deciding before then.
-
-### Resolved, kept for the reasoning
-
-- ~~**A Circle cannot be archived, and a solo owner cannot escape one.**~~ **Closed by 7b**, migrations 61 and 62. Found while testing step 6.
-
-  | Route out | Blocked by |
-  |---|---|
-  | Archive it | `authenticated` has UPDATE on `name`, `default_stats_view`, `leaderboard_persists_across_cycles` only. **Not `group_status`.** |
-  | Leave it | The `group_members` DELETE policy is `role <> 'owner'`, so an owner can never remove their own membership. |
-  | Transfer, then leave | `transfer_ownership` needs a target member. A solo Circle has none. |
-  | Delete it | `authenticated` holds no DELETE on `groups` at all. |
-
-  The only thing that writes `'archived'` is `handle_membership_removal`, on the succession path when the last member leaves. Since the owner can never be the one to leave, that path is unreachable for a Circle of one.
-
-  So every Circle a person creates and does not fill is permanent, and the dashboard's Archived section can only ever be populated by abandonment. That is a product hole, not just a missing button: the first thing anyone does is make a test Circle.
-
-  **The fix is an `archive_circle(group_id)` RPC**, owner-only, matching the existing RPC pattern because it spans tables: set `group_status = 'archived'`, close the open cycle, disable outstanding invite links, and write an audit row. Belongs with `/circles/[id]/settings`, so **step 7**, alongside the error-signalling migration.
-
-  Note that **archive and delete are different things**, and the product wants archive. Deleting erases the Circle and every trace it existed; archiving retires it while keeping the history members earned in it. Deleting is a development convenience only, and it lives in Reference under "Clearing test data".
-
-- ~~**Error signalling is inconsistent.**~~ **Closed by 7a**, migration 60. Three patterns existed for the same job:
-
-  | Pattern | Used by |
-  |---|---|
-  | HINT carrying a machine code | `join_circle`, 9 codes. **This is the right one.** |
-  | `invalid_parameter_value` (22023), message shown verbatim | `complete_onboarding`, `cycle_continue`, `cycle_reset`, `set_circle_deadline`, `transfer_ownership`, `sync_checkin_timezone`, `resolve_streak_decision` |
-  | `check_violation` (23514), readable message, no hint | `enforce_active_goal_cap`, `enforce_group_member_cap`, `create_invite_link`, `validate_progress_entry_owner` |
-
-  The third pattern is the problem: 23514 cannot be shown in general because most of them are Postgres-generated and leak column names, so `createGoal` matches on message text. That is precisely what `toMessage` exists to avoid.
-
-  **Fix at the start of step 7**, not before and not later.
-
-  Step 7 builds invites and joining, which is where `enforce_group_member_cap` and `create_invite_link` both fire. The message-text hack would go from one instance to three inside a single step, and that is the point where a contained ugliness becomes the house style.
-
-  The fix was small: one migration adding HINT codes to those four functions, copying what `join_circle` already does, `toMessage` learning to prefer `error.hint` over the SQLSTATE, and `createGoal` dropping its string match.
-
-  **It left two loose ends, both found in the audit after 7c.** Migration 60 named a condition `CIRCLE_INACTIVE` that migration 53 had already named `CIRCLE_NOT_ACTIVE`, with identical message text, so the codebase now has two hints for one condition. And `set_circle_deadline`'s three hints had no reader at all, because it has no UI caller yet. Both are handled in `lib/errors.ts` rather than by a migration: renaming a hint is a behaviour change for anything already branching on it. Converge the names the next time `set_circle_deadline` is rewritten.
-
-### Before launch
-
-- Security headers.
-- Wire rate limits into each new action as it is written.
-- `pushsubscriptionchange` handler, a TODO in `components/service-worker-registrar.tsx`. Without it a device silently stops receiving push.
-- A custom domain, if email deliverability from a personal sender proves to be a problem.
-
-### Deferred to v2
-
-- Replace the placeholder icons.
-- All visual design. See `product-and-design.md`.
-
-### Undecided copy
-
-- Digest wording per Circle size.
-- "Digest" versus "Daily Recap", the Group Streak label, the leaderboard label. Better decided against real screens.
-
-### Carry into the UI
-
-- Show the current deadline on the Circle page. `deadline_changed` covers the moment of change; a persistent display is what stops "when is this due again?" being a question.
-- Invite failures return machine codes (`INVITE_EXPIRED`, `CIRCLE_FULL`, and so on). Branch on those, not message text. `architecture.md` section 10.
-- Streaks lag a day by design. Display `current_streak + (1 if today complete)`.
-
----
-
----
-
-## Gotchas
-
-**A client-generated timestamp can be in the future as far as Postgres is concerned.** `goals` carries `CHECK (archived_at <= now())` and `CHECK (achieved_at <= now())`, evaluated against the **database** clock. `archiveGoal` sends `new Date().toISOString()` from the Next.js server, so any clock skew larger than the network latency is refused with a bare `23514` and no hint, which `toMessage` renders as "That value isn't allowed."
-
-Found by the e2e suite, whose helper hit it with roughly 200ms of skew. The production risk is small, because the write travels *after* the timestamp is taken and latency pushes `now()` forward, so the client has to be ahead by more than the round trip. Small is not zero, and the failure would be baffling in a support conversation.
-
-**The real fix is for the database to set it**, via a trigger on the transition to non-null, so no caller can get it wrong. Deliberately not patched by subtracting a second in the app: that hides the class of bug rather than removing it, and the same mistake is available to every future column with a `<= now()` check.
-
-`archive_circle` is unaffected: it uses `now()` in SQL.
-
-
-- `.rpc()` is lint-banned outside `app/actions/`. A direct call skips rate limiting and the profanity filter.
-- Never hand-trim `lib/database.types.ts`. Dropping the `Relationships` arrays makes every embedded join a type error.
-- Rollover runs hourly and takes **no argument**. An explicit date bypasses the idempotency guards and double-counts streaks.
-- A new notification type needs three things: the enum value in its own migration, a writer, and a teaser case in `send-digest-push`.
-- A new table needs an explicit `enable row level security` in the same migration. The dashboard setting does it live; no migration does.
-- A new enum value and its first use must be separate migrations.
-- Adding a parameter to a Postgres function creates an overload rather than replacing it. Drop first.
-- Never order by or compare an enum. Postgres uses declaration order, an accident of how the type was written.
-- Reference `goal_categories` by `slug`, never by hardcoded id. The UUIDs are per-environment.
-- Regenerate types after any schema change.
-- The root file is `proxy.ts` exporting `proxy`. Next.js 16 deprecated the `middleware` name; do not recreate it.
-- Never request notification permission on page load. Browsers allow one ask and a denial is permanent.
-- Brevo's SMTP login is `xxxxxx@smtp-brevo.com`, not your account email, and the SMTP key is not an API key.
-
----
-
-# Deferred
-
-## Public surface and email signup
-
-Deferred until the core loop works end to end. All of the design thinking is settled; what follows is the sequence and the traps.
-
-### Sequence
-
-1. **Terms columns migration**, then the `complete_onboarding` migration. Regenerate types.
-2. **`/support`** with the contact form, once you know what the FAQ needs to answer.
-3. **Landing page** sections.
-4. **Signup flow**: `/auth/sign-up`, `/auth/check-email`, `/auth/confirm`. Supabase email settings and templates first, since the flow cannot be tested without them.
-5. **Password reset**: `/auth/forgot-password`, `/auth/reset-password`.
-6. **IP-keyed rate limits**, and correct the `lib/ratelimit.ts` doc comment.
-7. **Turnstile wiring**, then enable it in the dashboard.
-8. **Gate update** and `PUBLIC_PREFIXES` extraction.
-
-### Decisions already taken
-
-| Decision | Rationale |
-|---|---|
-| Signup collects email, password, **username** | Username is the only field the product cannot run without: it appears in every roster and digest. Google users still set theirs in `/onboarding`, so both paths need the same validation. Factor it once. |
-| Plus an optional **display name** | `signUp({ options: { data: { display_name } } })` writes to `raw_user_meta_data`, which `handle_new_user` already reads first. No migration, no trigger change. Optional, because `coalesce(display_name, username)` always renders something. Needs the same profanity screening as username. |
-| Plus **terms acceptance**, versioned | Two new columns. "They agreed" is worth little once terms change; storing *which version* lets a future change target only who needs to re-accept. |
-| **Email confirmation required** | Blocks throwaway addresses and guarantees password reset works. Costs three screens. |
-| **Enumeration protection stays on** | Signup never reveals whether an address is already registered. See below. |
-| Public pages: **privacy, terms, support** | No separate "How it works" page, so the landing page carries that job. |
-| Contact via **form that emails you** | Needs Turnstile and its own IP rate limit. No new schema: the message goes to email and nowhere else, so it cannot become a queue nobody reads. |
-| Declined: **date of birth** | Photos plus free text plus private groups normally wants an age floor, and Google will never supply one. Not a v1 blocker, but it gets more expensive with every signup. |
-
-### How the two paths converge
-
-Google and email signup do not run in parallel. Both create the same `auth.users` row, both fire `handle_new_user`, and both hit the same gate in `app/(app)/layout.tsx`, which checks four things in order:
-
-```
-!user                      → /auth/sign-in
-!user.email_confirmed_at   → /auth/check-email
-!profile.username          → /onboarding
-!profile.terms_accepted_at → /onboarding
-```
-
-Google users pass the confirmation check on arrival and fail the last two. Email users do the reverse.
-
-**Why a gate rather than the flow.** Any signup can be abandoned midway: close the tab after `signUp` succeeds and you have a real account, a real profile row, a username, and an unconfirmed address. Only something evaluated on every protected navigation catches that. `email_confirmed_at` comes off the object `getUser()` already returns, so it costs no extra query.
-
-### Schema changes
-
-```sql
-alter table public.users
-  add column terms_accepted_at timestamptz,
-  add column terms_version     text;
-```
-
-Both nullable: existing rows predate the requirement. Pin the current version as a constant in `lib/legal.ts` so the value written and the document rendered cannot disagree.
-
-**The trap.** Terms acceptance has to be recorded for Google users too, and their only touchpoint is `complete_onboarding`. That means a new parameter, and **adding a parameter to a Postgres function does not modify it, it creates an overload**. `create or replace` only matches an identical signature, so the two-argument version would survive and PostgREST would see two candidates for `/rpc/complete_onboarding` and fail with an ambiguity error. The migration must `drop function public.complete_onboarding(text, text)` first, in the same migration as the create.
-
-Inside the function, record acceptance idempotently:
-
-```sql
-terms_accepted_at = coalesce(terms_accepted_at, now()),
-terms_version     = coalesce(terms_version, p_terms_version)
-```
-
-`complete_onboarding` doubles as the username rename path. Without the `coalesce`, renaming your username two months from now silently restamps your acceptance date to today, destroying the only record of when you actually agreed.
-
-Land it as two migrations: columns, then function. A failure in the function body then does not roll back the columns.
-
-### Turnstile stops being decorative
-
-`architecture.md` records Turnstile as configured but inert, because Supabase's CAPTCHA guards only endpoints that take a `captchaToken`: signup, password sign-in, OTP, password reset. A Google-only app calls none of them.
-
-Password auth adds all four. The keys are already in the environment, so this is wiring:
-
-1. Render the widget on sign-up, sign-in and forgot-password using `NEXT_PUBLIC_TURNSTILE_SITE_KEY`.
-2. Pass `options: { captchaToken }` to `signUp`, `signInWithPassword`, `resetPasswordForEmail`.
-3. **Then** enable CAPTCHA in Supabase. Enabling before the forms send tokens breaks every password endpoint at once.
-
-### Rate limiting has an assumption that breaks
-
-`lib/ratelimit.ts` documents its limits as keyed by user id, which is coherent because every current action requires a session. **Signup and password reset have no session**, so both key on client IP from the forwarded header. That is a weaker key, since it groups a household together, so the limits should be generous:
-
-| Action | Limit | Key |
-|---|---|---|
-| `signUp` | 10/hour | IP |
-| `signInWithPassword` | 20/hour | IP |
-| `resetPasswordForEmail` | 5/hour | IP, **and** 3/hour per email address |
-| Contact form | 3/hour | IP |
-
-The per-email limit on password reset is not abuse control. Without it, anyone can use your product to repeatedly email a stranger, which is how a sending domain gets flagged.
-
-### Enumeration, and the copy that covers for it
-
-If signup said "that email is already registered", anyone could type addresses in and learn who uses Solarity. For a private goal app used with friends, that is real information about real people.
-
-So it never says it. Whatever you type, you get "check your email".
-
-The cost: someone who already signed up with Google, then tries a password account with the same address, gets that message and no email ever arrives. Two things carry the weight:
-
-- **The check-email page must show "Already have an account? Sign in", with the Google button.** It is the only thing that rescues them, because the form is not allowed to explain.
-- **`/auth/forgot-password` must behave identically for real and unknown addresses**, including roughly the same response time. A timing difference reintroduces the leak the setting exists to prevent.
-
-### Landing page contents
-
-Declining a "How it works" page moves the burden here. A visitor needs to understand Circles, check-ins, the streak rule and the digest before "sign up" means anything.
-
-1. **Hero.** The one sentence, plus Create an account / Sign in.
-2. **The premise.** Why a small private group beats a solo habit tracker.
-3. **How it works, in three steps.** Start a Circle and invite up to nine people, everyone sets their own daily goals, check in once a day.
-4. **What a day looks like.** A rendered example digest. The daily-batched model is the least obvious thing about the product and much weaker in prose than shown.
-5. **Streaks, honestly.** The group streak holds only if everyone completes everything. Better stated up front than discovered on day three.
-6. **Install prompt.** It is a PWA, and on iOS that is the only route to notifications.
-7. **Footer.** Privacy, Terms, Support, contact.
-
-### Support page contents
-
-Not decoration. The backend implements all of this and nothing links to any of it:
-
-- How to delete your account, and what survives (check-ins anonymized and retained; `architecture.md` section 11).
-- How to export your data. `export_user_data` exists and nothing calls it.
-- What happens to check-in photos (90-day retention).
-- How to report content, and what follows.
-- How blocking differs from kicking.
-- Why an iPhone needs the app installed to receive notifications.
-
-### Supabase dashboard steps
-
-None of these live in `config.toml`, which configures the local stack only.
-
-| Setting | Value | Why |
-|---|---|---|
-| Email provider | enabled | Off by default on a Google-only project. |
-| Confirm email | on | The decision above. |
-| Minimum password length | 8 or more | Supabase defaults to 6, below current guidance. |
-| Password requirements | letters and digits minimum | |
-| Leaked password protection | on **if available** | HaveIBeenPwned check. **Pro plan and above**, so a launch-time item, not a prerequisite. |
-| CAPTCHA | Turnstile, enabled **last** | See above. |
-| Email templates | point at `/auth/confirm?token_hash={{ .TokenHash }}&type=email` | The default template uses an implicit-flow link that does not work with the SSR client. Confirmation appears broken until changed, and the failure looks like a code bug. **Most likely to cost an afternoon.** |
-
-### Tests that actually catch things
-
-- Abandon signup after submitting. The account must be stuck at `/auth/check-email` and unable to reach `/dashboard` by typing the URL.
-- Click a confirmation link twice. The second reaches `/auth/error` with a comprehensible message.
-- Let a link expire, then use resend.
-- Sign up with an address that already has a Google account. Verify the copy makes sense given enumeration protection is on.
-- Rename a username two months after signup, then check `terms_accepted_at` has not moved. This is the `coalesce`, and it fails silently.
-- Password reset for an address that does not exist. Identical response and timing.
-- Force `email_confirmed_at` to null in SQL and try to reach `/dashboard`.
-- `db diff` after the migrations. A drop-and-recreate replays differently than it applied.
-
-The invite, join, archive and streak-decision flows are now covered by Playwright rather than by hand. See "End-to-end tests" in Reference.
-
----
-
----
-
-# Reference
-
-Consulted while working, not read start to finish.
-
-## End-to-end tests
-
-Playwright, in `e2e/`, run with `npm run test:e2e`. Vitest keeps `npm test` and is told to ignore `e2e/`, because both runners default to collecting `*.spec.ts` and the split is by directory rather than by name.
-
-**First run, on your machine and not in the sandbox:**
-
-```
-npm install
-npx playwright install chromium
-```
-
-Then set `E2E_OWNER_EMAIL` and `E2E_JOINER_EMAIL` in `.env.local`. Both must be real accounts that already exist and have finished onboarding.
-
-**`e2e/env.ts` loads `.env.local` itself.** Next.js does that for the app, which makes it easy to assume everything does; Playwright's runner is a plain Node process and loads nothing, so without this every spec fails with `NEXT_PUBLIC_SUPABASE_URL is not set` while the dev server three terminals over reads it fine.
-
-It is called from `playwright.config.ts`, which workers re-import, and again from `e2e/db.ts`, because `npm run test:e2e:clean` runs under tsx and never loads the Playwright config. Existing environment variables win over the file, so `E2E_BASE_URL=… npm run test:e2e` still overrides, and a missing file is not an error, because CI has none.
-
-It deliberately does not support multi-line values, `export` prefixes, or `${VAR}` interpolation. If `.env.local` grows one of those, swap in `dotenv` rather than extending the parser.
-
-### Authenticating without Google
-
-Solarity is Google OAuth only. Playwright cannot drive Google's consent screen, and automating it would be testing Google.
-
-So `e2e/auth.setup.ts` asks the admin API for a magic-link token, redeems it with an ordinary anon client, and writes the resulting cookies as a Playwright storage state. No user is modified, no password is set, and nothing in the flow exists in production.
-
-**The cookies are built by `createServerClient`, not by hand.** The session cookie is base64-prefixed, URI-encoded and chunked at 3180 characters, all three of which are `@supabase/ssr` internals that have changed before. Handing the library a cookie adapter that records instead of writing means it produces exactly what the app will later read, and an upgrade changes both sides at once.
-
-### What the specs cover
-
-| Spec | Flow |
-|---|---|
-| `invite.spec.ts` | generate, regenerate behind its warning, revoke, and that a superseded link reads as dead rather than 404ing |
-| | archive a Circle, then confirm its pre-archive link takes the dead-link path |
-| | signed-out preview, and that `next=` survives to the sign-in page |
-| | a made-up token lands on `/`, not `/dashboard`, and reveals nothing |
-| | a second account joins, and joining twice is harmless |
-| `streak-decision.spec.ts` | the "settling in" marker is visible to the joiner as well as the owner |
-| | owner keeps the streak; banner clears, grace ends |
-| | reset asks first, cancelling leaves the decision pending, confirming resolves it |
-| `rate-limit.spec.ts` | the per-IP invite limit trips, says why, and clearing it restores access |
-| `masking.spec.ts` | **no browser.** A circle-mate reads nothing of another member's goals or notes through the API; the roster returns them masked |
-| `boundaries.spec.ts` | **no browser.** Rules the database enforces that no screen exposes |
-
-**`boundaries.spec.ts` was written by walking the bug list rather than the feature list**, and every test in it is an instance of pattern five, *guarded on one path, not its inverse*:
-
-| Covered | The inverse nobody had checked |
-|---|---|
-| Check-ins are dated by the database | Backdating **and** postdating are both refused, and nothing is written |
-| A goal belongs to its owner | You cannot check in against someone else's goal, nor impersonate them writing it. Migration 64 changed what the trigger sees here, so it needed re-proving |
-| Joining grants visibility | **Leaving revokes it.** The roster refuses a former member |
-| Members can leave | **The owner cannot**, which is what made the solo-owner trap real and why `archive_circle` exists |
-| A revoked link is refused | An **expired** one is a different branch, reached only by time passing, and had never run |
-| The goal cap holds on INSERT | It also holds on **UPDATE**: un-archiving cannot take you to eleven |
-
-That last one guards the test suite as much as the product, since `restoreGoalSlot` depends on it.
-
-### Rules these tests follow
-
-**Seed with the service key, assert through the UI.** `e2e/db.ts` fabricates exactly one thing, a 14-day group streak, because there is no way to earn one inside a test. Everything else goes through the browser. A test that seeds *and* asserts via the admin client proves the database works, which SQL already proved, rather than proving a person could get there.
-
-**They run against the real project.** There is no local Supabase stack, so every spec cleans up after itself and names its Circles `E2E …`. A crashed run leaves rows: `npm run test:e2e:clean` removes them, matching on that prefix only.
-
-**Cleanup deletes in a specific order, and the order is load-bearing.** Memberships first, then the notifications that deleting them produces, then the Circles.
-
-Deleting `groups` first cascades into `group_members`, which fires `handle_membership_removal`, which inserts an `audit_log` row referencing `old.group_id`. Postgres removes the parent before cascading to children, so that row no longer exists and the insert fails on `audit_log_group_id_fkey` with `23503`. The whole delete rolls back, and every subsequent run inherits the mess: one failed run left 7 Circles and 11 memberships behind.
-
-`audit_log.group_id` is `ON DELETE SET NULL` rather than `CASCADE`, which is why the FK cannot absorb this. It tolerates a group disappearing *later*, not a row written for a group that has already gone.
-
-The notification step is not optional either. Because the service role has no `auth.uid()`, the trigger classifies the removal as a **kick** and writes a `kicked` notification per member. Those hang off `users`, not `groups`, so deleting the Circle leaves them in a real account's feed permanently. Three per Circle, measured.
-
-**Dev-server flakiness has its own escape hatch.** `E2E_PROD=1 npm run test:e2e` runs against `next build && next start` instead of `next dev`. Worth reaching for when a failure looks like infrastructure: `dev` streams responses and compiles routes on first visit, so a server action can be interrupted and show up as "The destination stream closed early" in the log with a button stuck on its pending label. A test that fails under `dev` and passes under `E2E_PROD=1` found a dev-server artefact; one that fails under both found a bug.
-
-**`e2e/diagnose.ts` exists because server actions fail invisibly.** When one does, the button keeps its pending label, the URL never changes, and Playwright reports only the timed-out assertion. Attaching it before an interaction records console errors, uncaught exceptions, failed requests and any non-200 on the action's POST, and folds them into the failure message.
-
-**Serial, one worker.** The specs share two real accounts and Circle creation is capped at 5 a day per user, so parallel workers would race into a rate limit rather than into a bug.
-
-**Each spec file clears its own rate-limit budget first.** `invite.spec.ts` needs 4 Circles and `streak-decision.spec.ts` needs 3, against a cap of 5 a day for the owner account. Back to back that is 7, so a full run would fail on abuse control rather than on a bug, and it would fail *differently* depending on how much manual testing happened that day. `clearRateLimits()` in a `beforeAll` scopes the reset to the two test accounts by user id, unlike `scripts/reset-ratelimit.mjs`, which clears everyone and is a development convenience.
-
-**Raising the limit was the wrong fix.** 5 a day is a product decision in `lib/ratelimit.ts`. A suite that quietly widens a production control to suit itself stops testing the product; clearing a budget is visible and scoped, changing the number is neither.
-
-**The two accounts are interchangeable.** Nothing hardcodes a user id, email or username, and no spec asserts on a display name. Swapping `E2E_OWNER_EMAIL` and `E2E_JOINER_EMAIL` only moves which account bears the Circle-creation load, which the reset above already handles.
-
-### Playwright MCP
-
-`.mcp.json` configures `@playwright/mcp` for driving a browser interactively, which is a different job from the suite above: one-off "what does this actually look like" checks rather than anything repeatable. It needs no install of its own; `npx` fetches it.
-
-## Daily workflow
-
-```bash
-npm run dev
-```
-
-The app talks to the **hosted** Supabase project through `.env.local`. `npx supabase start` is not needed; that runs a full local Postgres, Auth and Storage stack in Docker, worth doing once real users exist. Docker is required only for `db diff`, `db reset` and `supabase start`.
-
-| Command | When |
-|---|---|
-| `npm run dev` | always |
-| `npx supabase db diff` | after schema changes, to prove migrations rebuild |
-| `npx supabase gen types typescript --project-id wyuadcnrxisqmzygzhzd > lib/database.types.ts` | after schema changes |
-| `npx supabase functions deploy <name>` | after editing an Edge Function |
-
----
-
----
-
-## Clearing test data
-
-**Development only.** Nothing in the app does this, and nothing should: it is `postgres` bypassing RLS to erase rows the product deliberately gives no way to erase.
-
-Deleting a Circle is **not** archiving. Archiving retires a Circle and keeps its history; deleting removes every trace it existed. Real users get archive, once it is built. Deleting exists here purely so a pile of Circles named "test" does not follow you around.
-
-```sql
--- Look first.
-select id, name, group_status, created_at from public.groups order by created_at;
-
--- Then remove by name, or by id if the names collide.
-delete from public.groups where name in ('test', 'Morning crew');
-```
-
-What goes with it, all automatically:
-
-| Table | What happens |
-|---|---|
-| `group_members` | deleted |
-| `group_cycles` | deleted |
-| `group_member_category_stats` | deleted |
-| `digest_snapshots` | deleted |
-| `invite_links` | deleted |
-| `goal_group_visibility` | deleted |
-| `audit_log` | **kept**, with `group_id` set to null |
-
-`group_cycle_stats` and `group_daily_completion` hang off `group_cycles`, so they go when the cycle does.
-
-`audit_log` is the deliberate exception. An audit trail that erases itself when the thing it describes is deleted is not an audit trail, so the rows survive with the reference cleared. Architecture section 3.
-
-**Your own goals, check-ins and streaks are untouched.** They belong to you, not to any Circle.
-
----
-
-## Forcing a rollover in development
-
-**The hourly job finalizes *yesterday*, not today.** It selects users where
-
-```
-last_rollover_date < private.checkin_date_for(user) - 1
-```
-
-so a check-in made today only becomes eligible once the user's 2 AM boundary passes and today becomes yesterday. Waiting for the next `:05` after checking in does nothing, which is a slow and confusing way to learn that. Check first:
-
-```sql
-select left(u.username,8) as who,
-       private.checkin_date_for(u.id)      as their_today,
-       u.last_rollover_date,
-       (u.last_rollover_date < private.checkin_date_for(u.id) - 1) as would_process_now
-from public.users u;
-```
-
-`would_process_now = false` on every row means the scheduler has nothing to do and waiting is pointless.
-
-### Forcing it
-
-`run_daily_rollover(p_date)` bypasses the guard, which is the documented testing path. **It also advances `last_rollover_date` to the date passed**, so the later automatic run correctly skips that day. The scheduler will not double-count behind you.
-
-What *will* double-count is running it twice by hand. The block below refuses to do that:
-
-```sql
-do $$
-declare
-  v_target date := '2026-08-12';   -- the day you checked in, in YOUR timezone
-  v_already int;
-  r record;
-begin
-  select count(*) into v_already
-  from public.users where last_rollover_date >= v_target;
-
-  if v_already > 0 then
-    raise exception 'Refusing: % user(s) already rolled over through %. '
-                    'Running again would double-count streaks.', v_already, v_target;
-  end if;
-
-  for r in select * from public.run_daily_rollover(v_target) loop
-    raise notice 'users=% cycles=% locked=%',
-      r.users_processed, r.cycles_processed, r.circles_locked;
-  end loop;
-end $$;
-```
-
-Then read the result:
-
-```sql
-select left(u.username,8) as who, s.current_streak,
-       s.longest_streak_ever, s.total_days_completed
-from public.user_lifetime_stats s
-join public.users u on u.id = s.user_id;
-```
-
-An account that completed every active goal reads `1`. An account that did not reads `0`, which is the correct answer rather than a failure.
-
-### Why not just wait
-
-Waiting is the honest test and worth doing once, since it exercises the scheduler rather than a manual call. It is only unhelpful as a development loop: the wait is up to 24 hours, and nothing distinguishes "not yet eligible" from "broken".
-
----
-
-## Regression checklist
-
-Passed in full on 12 August 2026. Retained because these are the checks worth repeating after any change to auth, the proxy, the gate, or the PWA layer. Work through them in order; each fails distinctively, so an early failure tells you where to look.
-
-### 1. Sign-in round trip
-
-`npm run dev`, then visit `/`.
-
-| Check | Expected |
-|---|---|
-| `/` while signed out | landing page with a Sign in link |
-| Sign in with Google | returns to `/onboarding`, not an error page |
-| `/dashboard` while signed out | redirects to `/auth/sign-in?next=/dashboard` |
-| Sign in from that redirect | lands on `/dashboard`, not `/` |
-| `/auth/sign-in` while signed in | redirects straight through |
-
-If the callback fails, read the message on `/auth/error`; it carries the actual reason. A redirect-URL mismatch is by far the most likely cause.
-
-### 2. Open-redirect guard
-
-Visit `/auth/sign-in?next=https://example.com`, then `?next=//example.com`, then `?next=/\example.com`. Each must sign in and land on `/dashboard`, never on an external host. This is the one security-relevant piece of new code, and it is worth confirming by hand rather than by reading.
-
-### 3. Onboarding
-
-| Input | Expected |
-|---|---|
-| `ab` | rejected, 3 to 30 characters |
-| `has space` or `has-dash` | rejected by the pattern |
-| A profane word | rejected with a neutral message |
-| A name already taken | "That username is taken." |
-| A valid name | redirects to `/dashboard` |
-
-Then confirm the row, timezone in particular, since the entire rollover keys off it:
-
-```sql
-select username, checkin_timezone, checkin_day_started_at
-from public.users where id = '<your-uid>';
-```
-
-`checkin_timezone` must be your real IANA zone, not `UTC`. `UTC` means the hidden field submitted empty and client-side detection is not running.
-
-Then visit `/onboarding` again directly. It should redirect to `/dashboard` rather than offering the form.
-
-### 4. Gate behaviour
-
-Every path under `(app)` must redirect to `/onboarding` when the username is null. Force the state:
-
-```sql
-update public.users set username = null where id = '<your-uid>';
-```
-
-Visit `/dashboard`, then restore the username.
-
-### 5. PWA install
-
-Deploy to Vercel first. Service workers require HTTPS, so this cannot be tested on `localhost` in a way that reflects production.
-
-- Chrome DevTools, Application, Manifest: no icon errors, `display: standalone`.
-- Application, Service Workers: `sw.js` activated, not redirected.
-- On an iPhone: Share, Add to Home Screen, then open from the home screen. It must open without browser chrome. If Safari chrome appears, `appleWebApp` metadata is not reaching the page, and push will never work on iOS.
-
-### 6. Regressions
-
-```bash
-npx tsc --noEmit
-npx eslint .
-npm run build
-npx supabase db diff        # should print nothing
-```
-
-### Still unverified after this pass
-
-- **Rate limiting.** Wired but never triggered; it takes 15 onboarding attempts in an hour.
-- **Every RPC except `complete_onboarding`.** Circles, goals, check-ins and invites have all been tested in SQL and none of them through the app.
-- **Email deliverability to a stranger.** Brevo delivers to the sender's own Gmail, which proves nothing about another provider.
-- **Push notifications end to end.** The service worker registers, but nothing has ever sent a push to a real device.
-- The profanity filter has false positives on innocent substrings. Intended, but worth knowing before someone reports it as a bug.
-
----
-
----
-
-## Bug patterns in this codebase
-
-Every real bug found so far fell into one of thirteen shapes. Probe for these specifically after any change.
-
-The first six are schema-shaped and were all found in SQL. The next five appeared once the UI existed. The last two came out of the e2e suite, which is a different lens again: it exercises paths no screen offers.
-
-| Pattern | Example found |
-|---|---|
-| **Setter with no resolver** | `streak_grace` set on join, never cleared, so the group streak ignored that member forever |
-| **Declared with no writer** | `admin_promoted`, `invite_link_toggled`, `kicked`, `group_locked_renewal` all existed but nothing produced them |
-| **Raised with no reader** | the inverse, and it needs its own check. `set_circle_deadline` raises `CIRCLE_NOT_ACTIVE`, `NO_ACTIVE_CYCLE` and `DEADLINE_TOO_SOON`; `lib/errors.ts` knew none of them, so all three fell through to the branch that prints the raw Postgres message |
-| **Two names for one condition** | migration 60 named a refusal `CIRCLE_INACTIVE` that migration 53 had already named `CIRCLE_NOT_ACTIVE`, with identical message text. Grep the existing hints before inventing one. |
-| **Guarded on one path, not its inverse** | owner succession guarded departures; joining an empty archived Circle recreated the ownerless state |
-| **Unreachable code** | `service_role` had no grants; `private` is not addressable by PostgREST |
-| **Locked column, no writer** | `username` and `checkin_timezone` blocked with nothing able to set them, making onboarding impossible |
-| **Relying on the environment, not the migrations** | no migration enabled RLS, the dashboard's event trigger did. A rebuild produced an open database. **Second instance:** `private.current_checkin_date(uuid)` came out `anon`-executable, because an *overload* is a new object and inherits none of the original's grants. Revoke in the migration that creates the function. |
-| **Stale `useActionState` outliving what produced it** | found twice in one session. A returned invite token kept displaying after the link was revoked; a failed check-in's error stayed on screen after a successful undo. **An action result is a fact about one past submission, not the current state.** Render from the server prop, or track which action ran last. |
-| **RLS mistaken for a WHERE clause** | the dashboard read `group_members` with no `.eq("user_id", …)`, reasoning that RLS already scoped it. It did, to the caller's *Circles*. The policy is `is_group_member(group_id)`, so a Circle of three returned three rows and rendered three times, each showing a different person's role. |
-| **State in two places, one of them unreachable** | `@upstash/ratelimit` caches refusals in-process by default, so clearing Redis left the server still refusing and `reset-ratelimit.mjs` looked broken. Whenever a library offers a cache "for free", ask what clears it. |
-| **A client's clock is not the database's** | `goals` has `CHECK (archived_at <= now())`, evaluated in Postgres. `archiveGoal` sends `new Date()` from Node, so enough skew is refused with a bare `23514` reading "That value isn't allowed". The fix is a trigger; the tempting fix is subtracting a second, which hides the class instead of removing it. See Gotchas. |
-| **A test that borrows state it did not create** | three consecutive failures from one habit: assuming an account had a spare goal slot, then that it had any goals at all, then that a clock matched. Real accounts get used by hand, so their contents are not a fixture. Create what the test needs, and undo it in `finally`. |
-
-**The last one deserves the extra words**, because it looks like a feature every time. Preferring the value an action just returned feels responsive and skips a round trip. But `revalidatePath` already re-renders the page in the same pass the result arrives, so the optimism buys nothing and the stale copy survives the next action that should have invalidated it.
-
-**Two related React traps, both hit while fixing the above.** Clearing state in a form's `onSubmit` unmounts a form that is mid-submission and can abort the action, so close confirmation panels on the *result* instead. And doing that in a `useEffect` trips `react-hooks/set-state-in-effect`; adjust during render with the previous-value pattern instead.
-
-### The RLS rule, stated once
-
-**RLS bounds what you *may* read. It never expresses what you *meant* to read.**
-
-Dropping a filter because "the policy covers it" is safe only when the policy's predicate is **identical** to the filter you would have written. Two of the three places this codebase relies on RLS pass that test and one did not:
-
-| Query | Policy | Verdict |
-|---|---|---|
-| `archiveGoal` updating `goals` by id | `goals_update_own`: `user_id = auth.uid()` | safe, predicate matches intent exactly |
-| `undoCheckIn` deleting `progress_entries` | `progress_entries_delete_own`: `user_id = auth.uid()` | safe, same reason |
-| dashboard reading `group_members` | `group_members_select_circlemate`: `is_group_member(group_id)` | **wrong**, broader than intent |
-
-The third is broader on purpose, because `/circles/[id]` needs every member row to draw the roster. Same policy, two callers, only one of which wanted that breadth.
-
-**It is invisible with one member**, which is why it survived every manual test and eight passing e2e tests. Measured: a solo Circle returns 1 row either way; add a member and the unfiltered query returns one row more. Only a React duplicate-key warning gave it away.
-
-**A replay into a shadow database is its own category of test.** `supabase db diff` builds a fresh Postgres and runs all 67 migrations, which is the only thing that catches a history depending on state it never creates. Run it after any batch of schema work, not only before a rebuild.
-
----
-
----
-
-## Standing checks
-
-Re-run both after any migration. Architecture records the expected result; these produce it.
-
-**Function posture.** Exactly one `anon`-executable function, `circle_preview` (migration 63); anything else is a finding. None with a mutable path. The count grows with each migration that adds a function: **the 41 recorded at migration 57 does not reconcile with the 51 counted on 14 August**, and migrations 58–63 added only two functions. Re-derive the number before treating a difference as a regression; the posture columns are what matter.
-
-```sql
-select n.nspname, p.proname,
-       case when p.prosecdef then 'DEFINER' else 'invoker' end as mode,
-       case when p.proconfig:text like '%search_path%' then 'pinned' else 'MUTABLE' end as sp,
-       has_function_privilege('anon', p.oid, 'EXECUTE') as anon,
-       has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth
-from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-where n.nspname in ('public','private') order by 1, 2;
-```
-
-**Every enum value has a producer.** Should return nothing.
-
-```sql
-with agg as (
-  select string_agg(pg_get_functiondef(p.oid), E'\n') as s
-  from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-  where n.nspname in ('public','private')
-)
-select t.typname, e.enumlabel
-from pg_type t join pg_enum e on e.enumtypid=t.oid, agg
-where t.typname in ('notification_type','audit_action_type')
-  and agg.s not like '%''' || e.enumlabel || '''%';
-```
-
-Also run both Supabase advisors until clean. Fixing one finding can create another. Expected permanent output is listed in `architecture.md` section 4; anything beyond it is real.
-
----
-
----
-
-## Schema change routine
-
-Six stages, in order. Each catches a class of problem the previous one cannot.
-
-1. **Apply** one logical group of objects, not the whole schema. Small steps mean a failure points at a specific cause.
-2. **Verify structurally**: query `information_schema`, `pg_indexes`, `pg_constraint`. A migration succeeding only proves the SQL parsed.
-3. **Test behaviourally** in a `DO` block: insert real rows, attempt what should fail, assert each rejection, then `RAISE` a sentinel to roll back. For RLS, `SET LOCAL ROLE authenticated` plus `set_config('request.jwt.claims', …)`; testing as the owner bypasses RLS and proves nothing.
-   - **Know which error each defence raises.** An RLS violation and a missing column grant both raise `insufficient_privilege` (42501); a CHECK or trigger raises `check_violation` (23514). BEFORE triggers fire *before* `WITH CHECK`, so where both guard a rule, the trigger's error wins.
-4. **Probe for gaps.** Steps 1 to 3 verify what you intended; they cannot tell you what you failed to think of. Write a block that attempts plausible abuses and *reports* which succeeded instead of asserting. This caught check-ins being accepted on archived and achieved goals: every assertion passed, because none asked that question.
-5. **Run the standing checks and both advisors** until clean.
-6. **Update the docs**, including deviations and why. Record confirmed-correct behaviour too. Behaviour emerging from a language subtlety, such as anonymized rows being invisible because `NULL = auth.uid()` is NULL rather than true, is exactly what a later refactor breaks by accident.
-
----
-
----
-
-## config.toml
-
-`supabase/config.toml` exists with `project_id = "wyuadcnrxisqmzygzhzd"`. It is committed for one reason above all: it is the only version-controlled record of which Supabase project this checkout points at. The link state lives in `supabase/.temp/`, which is gitignored.
-
-**What it does and does not govern.** It configures the *local* stack that `supabase start` would run. The hosted project is configured through the dashboard, and nothing in this file has been reconciled against it.
-
-**Do not run `supabase config push`.** It applies the *resolved* configuration, so every value still at a CLI default would overwrite the corresponding dashboard setting rather than being left alone. The generated `[auth]` block is entirely stock, with a `127.0.0.1` site URL and no Google provider section. Pushing it would disable Google sign-in. The file carries this warning at the top and above `[auth]`.
-
-**What `link` actually checks.** It compares the local `[db] major_version` against the remote server. A quiet "Finished supabase link" means it matched. It is not a full config diff, so silence is not evidence that the rest of the file agrees with the dashboard.
-
----
-
----
-
-## Brevo & email ✅ configured 12 August
-
-The walkthrough is gone; it was a one-time task. What survives is where things live and what will bite.
-
-| Setting | Value |
-|---|---|
-| Host, port | `smtp-relay.brevo.com`, 587 |
-| Username | the generated `…@smtp-brevo.com` login: a generated login, **not** the account email |
-| Password | an SMTP key, **not** an API key |
-| Sender | the project address, verified by 6-digit code |
-| Configured in | Supabase → Project Settings → Authentication → SMTP Settings |
-
-**Two caps, independent.** Brevo allows 300/day. Supabase separately caps 30 new users/hour under Auth → Rate Limits, and that one binds first.
-
-**Minimum interval per user is 60 seconds.** A resend button pressed twice inside a minute is silently refused, so `/auth/check-email` needs a visible cooldown.
-
-**Inactive SMTP keys expire after 90 days.** `.github/workflows/email-heartbeat.yml` sends monthly to prevent that and fails loudly if the credential dies. Needs four repository secrets: `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY`, `BREVO_SENDER`, `BREVO_ALERT_TO`.
-
-**Deliverability is unproven.** Delivered to the sender's own Gmail, which is the easiest case there is. Without a custom domain, SPF and DKIM cannot align, so mail to a stranger on another provider may be filtered: silently. `/auth/check-email` carries spam-folder copy as required text, not a nicety.
-
-```bash
-node --env-file=.env.local scripts/test-email.mjs you@example.com
-```
-
----
-
-# History
 
 ## Change log
 
@@ -1529,7 +1876,7 @@ The last two are the denominator moving in both directions, which is the behavio
 | Concept | Role |
 |---|---|
 | `username` | unique, ASCII, the identity. Rosters, digests, leaderboards. |
-| `display_name` | optional, non-unique, cosmetic. Render `coalesce(display_name, username)`. |
+| `display_name` | optional, non-unique, cosmetic. Render `coalesce(username, display_name)` wherever one person is named to another; see architecture.md. |
 
 `first_name` and `last_name` dropped, `display_name` added (1 to 50 characters after trimming, whitespace-only rejected). `handle_new_user` now reads `display_name`, then `full_name`, then `name`, truncating to 50 so an over-long value cannot abort signup over a decorative field. `export_user_data` updated, since it is a data-subject obligation and must describe columns that exist. Existing rows backfilled from Google's `full_name`.
 

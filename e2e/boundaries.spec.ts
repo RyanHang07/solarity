@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test"
-import { createClient, type SupabaseClient } from "@supabase/supabase-js"
+import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database } from "@/lib/database.types"
 import {
   admin,
@@ -7,9 +7,10 @@ import {
   circleName,
   clearRateLimits,
   deleteE2ECircles,
-  freeGoalSlot,
+  freeGoalSlots,
   requireEnv,
-  restoreGoalSlot,
+  restoreGoalSlots,
+  sessionFor,
   userIdByEmail,
 } from "./db"
 
@@ -27,24 +28,15 @@ import {
  * UI never offers the action is not a rule.
  */
 
-async function clientFor(email: string): Promise<SupabaseClient<Database>> {
-  const { data, error } = await admin.auth.admin.generateLink({
-    type: "magiclink",
-    email,
-  })
-  if (error) throw new Error(`generateLink failed for ${email}: ${error.message}`)
-
-  const client = createClient<Database>(
-    requireEnv("NEXT_PUBLIC_SUPABASE_URL"),
-    requireEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"),
-    { auth: { autoRefreshToken: false, persistSession: false } },
-  )
-  const { error: verifyError } = await client.auth.verifyOtp({
-    token_hash: data.properties!.hashed_token,
-    type: "email",
-  })
-  if (verifyError) throw new Error(`verifyOtp failed: ${verifyError.message}`)
-  return client
+/**
+ * Signed in as a real user. Delegates to the cached `sessionFor`, because every
+ * `verifyOtp` spends from Supabase's hourly auth budget and a spec that mints
+ * one per test exhausts it partway through a run. The symptom is not a clean
+ * error either: refreshes start failing too, and pages quietly become
+ * signed-out several tests downstream.
+ */
+function clientFor(email: string): Promise<SupabaseClient<Database>> {
+  return sessionFor(email)
 }
 
 /** A Circle owned by the first account, with an invite token. */
@@ -67,9 +59,9 @@ async function circleWithLink(owner: SupabaseClient<Database>, label: string) {
  * lookup rather than at the assumption. These are real accounts that get used
  * by hand, so their contents are not a fixture.
  *
- * `freeGoalSlot` first because the cap is 10 and the account may be at it;
- * `restoreGoalSlot` last, after the temporary goal is gone and the slot is free
- * again.
+ * `freeGoalSlots` first because the cap is 10 and the account may be at it;
+ * `restoreGoalSlots` last, after the temporary goal is gone and the slot is free
+ * again. One goal, so one slot.
  */
 async function withTempGoal(
   userId: string,
@@ -79,7 +71,7 @@ async function withTempGoal(
   const category = await admin.from("goal_categories").select("id").limit(1).single()
   assertOk(category, "read a goal category")
 
-  const freed = await freeGoalSlot(userId)
+  const freed = await freeGoalSlots(userId, 1)
   let goalId: string | null = null
   try {
     const created = await admin
@@ -96,7 +88,7 @@ async function withTempGoal(
       await admin.from("progress_entries").delete().eq("goal_id", goalId)
       await admin.from("goals").delete().eq("id", goalId)
     }
-    await restoreGoalSlot(freed)
+    await restoreGoalSlots(freed)
   }
 }
 
@@ -310,7 +302,7 @@ test.describe("the goal cap, on the path nobody checks", () => {
     // then restore the old one. If only INSERT were guarded this is how you
     // would end up with eleven.
     //
-    // It also happens to be the assumption `restoreGoalSlot` in `e2e/db.ts`
+    // It also happens to be the assumption `restoreGoalSlots` in `e2e/db.ts`
     // rests on, so this test guards the test suite as well as the product.
     // The owner account, not the joiner: this test only means anything at the
     // cap, and the joiner may legitimately have no goals at all.

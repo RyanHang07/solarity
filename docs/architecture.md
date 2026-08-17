@@ -180,7 +180,9 @@ Server actions return `{ ok: true } | { ok: false, error }` rather than throwing
 Populated by the `on_auth_user_created` trigger off `auth.users`.
 
 - `id` (uuid PK, matches `auth.users.id`)
-- `display_name` (nullable, **not unique**): cosmetic only. **Render `coalesce(display_name, username)` everywhere**; username is guaranteed present after onboarding, so there is never nothing to show.
+- `display_name` (nullable, **not unique**): cosmetic only. **Render `coalesce(username, display_name)` anywhere one person is named to another**: rosters, member lists, digests, notifications. `display_name` leads only where you are being addressed yourself, which today is the onboarding welcome.
+
+  **The order is deliberate and it used to be the other way round.** `display_name` is not unique, so two members who both set theirs to the same value render as two identical rows in a Circle whose entire job is telling friends apart, and setting yours to match a friend's is a cheaper impersonation than the unicode lookalikes the case-insensitive `username` index already blocks. Recognition has to run on the field with the uniqueness guarantee. Found by an e2e test that could not distinguish two accounts belonging to the same person.
 
   Replaced a `first_name` / `last_name` pair that had a reader and no writer. `handle_new_user` read `given_name` and `family_name`; Supabase's Google provider supplies neither. Its keys are `avatar_url, email, email_verified, full_name, iss, name, phone_verified, picture, provider_id, sub`. Both columns were null on every account and always would have been.
 

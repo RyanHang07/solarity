@@ -1,15 +1,13 @@
 import { test, expect, type Browser } from "@playwright/test"
 import {
-  circleName,
-  clearRateLimits,
+  createCircleViaApi,
   deleteE2ECircles,
   findCircleByName,
+  inviteTokenFor,
+  requireEnv,
   setGroupStreak,
 } from "./db"
-import { statePath } from "./auth-state"
-
-const OWNER = statePath("owner")
-const JOINER = statePath("joiner")
+import { storageStateFor } from "./session"
 
 const STREAK = 14
 
@@ -21,44 +19,33 @@ const STREAK = 14
  * days inside a test. Everything after that point goes through the UI.
  */
 async function circleOnAStreakWithAJoiner(browser: Browser) {
-  const ownerContext = await browser.newContext({ storageState: OWNER })
+  const ownerEmail = requireEnv("E2E_OWNER_EMAIL")
+
+  // Built through the API. The dashboard form is metered at 5 Circles a day and
+  // is covered by `invite.spec.ts`; this file needs a Circle to exist, not to
+  // re-test how one is made. See `createCircleViaApi`.
+  const { name, groupId } = await createCircleViaApi(ownerEmail, "streak")
+  await setGroupStreak(groupId, STREAK)
+
+  const token = await inviteTokenFor(ownerEmail, groupId)
+
+  const ownerContext = await browser.newContext({
+    storageState: await storageStateFor(ownerEmail),
+  })
   const ownerPage = await ownerContext.newPage()
 
-  const name = circleName("streak")
-  await ownerPage.goto("/dashboard")
-  await ownerPage.getByLabel("Start a Circle").fill(name)
-  await ownerPage.getByRole("button", { name: "Create Circle" }).click()
-  await expect(ownerPage.getByRole("link", { name })).toBeVisible()
-
-  const circle = await findCircleByName(name)
-  if (!circle) throw new Error(`Circle ${name} was not created`)
-  await setGroupStreak(circle.id, STREAK)
-
-  await ownerPage.getByRole("link", { name }).click()
-  await ownerPage.getByRole("link", { name: "Settings" }).click()
-  await ownerPage.getByRole("button", { name: "Generate link" }).click()
-
-  // Wait for an absolute URL. The panel renders `/join/<token>` on the server
-  // and swaps in `location.origin` at hydration, so reading a moment early
-  // returns a relative path and `new URL(link)` throws two lines below with an
-  // error that says nothing about hydration.
-  const code = ownerPage.locator("code")
-  await expect(code).toHaveText(/^https?:\/\/\S+\/join\/\S+$/)
-  const link = (await code.innerText()).trim()
-
-  const joinerContext = await browser.newContext({ storageState: JOINER })
+  // The joiner still joins through the UI: the grace state it produces is what
+  // this file is about, so that step stays a real one.
+  const joinerContext = await browser.newContext({
+    storageState: await storageStateFor(requireEnv("E2E_JOINER_EMAIL")),
+  })
   const joinerPage = await joinerContext.newPage()
-  await joinerPage.goto(new URL(link).pathname)
+  await joinerPage.goto(`/join/${token}`)
   await joinerPage.getByRole("button", { name: new RegExp(`Join ${name}`) }).click()
   await expect(joinerPage).toHaveURL(/\/circles\//)
 
-  return { name, circleId: circle.id, ownerPage, joinerPage, ownerContext, joinerContext }
+  return { name, circleId: groupId, ownerPage, joinerPage, ownerContext, joinerContext }
 }
-
-// 3 Circles here against a cap of 5 a day. See invite.spec.ts.
-test.beforeAll(async () => {
-  await clearRateLimits()
-})
 
 test.afterAll(async () => {
   await deleteE2ECircles()
@@ -69,7 +56,11 @@ test("the joiner is visibly not counted, to everyone", async ({ browser }) => {
 
   // The half that matters most. Without it the Circle silently stops counting
   // someone and the roster looks identical to one where it does not.
-  await expect(s.joinerPage.getByText(/settling in, not counted yet/i)).toBeVisible()
+  //
+  // Matched loosely on purpose: the marker now appears on both tabs, worded
+  // fully on `Members` and short on `Today`, and this test cares that it is
+  // there rather than which tab happens to be the default this month.
+  await expect(s.joinerPage.getByText(/settling in/i)).toBeVisible()
 
   // A member sees the marker but is not asked to decide.
   await expect(
@@ -100,7 +91,7 @@ test("the owner keeps the streak", async ({ browser }) => {
   await expect(
     s.ownerPage.getByRole("heading", { name: /decision is waiting/i }),
   ).toHaveCount(0)
-  await expect(s.ownerPage.getByText(/settling in, not counted yet/i)).toHaveCount(0)
+  await expect(s.ownerPage.getByText(/settling in/i)).toHaveCount(0)
   // Read from the group-streak figure rather than by text search: `14` on its
   // own matches a member's day count too.
   const kept = await findCircleByName(s.name)

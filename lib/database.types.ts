@@ -753,8 +753,10 @@ export type Database = {
       circle_roster: {
         Args: { p_group_id: string }
         Returns: {
+          as_of: string | null
           checked_count: number
           checkin_date: string
+          circle_status: string
           display_name: string
           goals: Json
           is_self: boolean

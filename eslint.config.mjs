@@ -50,6 +50,11 @@ const eslintConfig = defineConfig([
       "app/actions/**",
       "lib/supabase/checkin-date.ts",
       "lib/supabase/circle-preview.ts",
+      // Read during render on a page that already reads four other tables
+      // unmetered; metering a page view would be the wrong control, and the RPC
+      // checks membership itself. The last exemption: a fourth should be taken
+      // as evidence the rule is wrong rather than as another exception.
+      "lib/supabase/circle-roster.ts",
       "e2e/**",
     ],
     rules: {

@@ -1,15 +1,60 @@
-import { test, expect, type Page } from "@playwright/test"
-import { circleName, clearRateLimits, deleteE2ECircles, findCircleByName } from "./db"
-import { statePath } from "./auth-state"
+import { test, expect, type Browser, type Page } from "@playwright/test"
+import {
+  circleName,
+  clearRateLimits,
+  createCircleViaApi,
+  deleteE2ECircles,
+  findCircleByName,
+  inviteTokenFor,
+  requireEnv,
+} from "./db"
+import { storageStateFor } from "./session"
 import { diagnose } from "./diagnose"
-
-const OWNER = statePath("owner")
-const JOINER = statePath("joiner")
 
 const DEAD_LINK = /no longer valid/i
 
-/** Creates a Circle through the dashboard form and returns its name. */
-async function createCircle(page: Page, label: string) {
+/**
+ * Two long-lived contexts, one per account, opened once for the whole file.
+ *
+ * A context per test meant a session per test, and Supabase's auth rate limit
+ * is hourly and separate from the app's own. Exhausting it does not fail
+ * loudly; refreshes start returning 429, `@supabase/ssr` drops the session, and
+ * a test several files later fails as if it were signed out.
+ */
+let ctx: { ownerPage: Page; joinerPage: Page; close: () => Promise<void> } | null = null
+
+async function pages(browser: Browser) {
+  if (ctx) return ctx
+
+  const ownerCtx = await browser.newContext({
+    storageState: await storageStateFor(requireEnv("E2E_OWNER_EMAIL")),
+  })
+  const joinerCtx = await browser.newContext({
+    storageState: await storageStateFor(requireEnv("E2E_JOINER_EMAIL")),
+  })
+
+  ctx = {
+    ownerPage: await ownerCtx.newPage(),
+    joinerPage: await joinerCtx.newPage(),
+    close: async () => {
+      await ownerCtx.close()
+      await joinerCtx.close()
+      ctx = null
+    },
+  }
+  return ctx
+}
+
+/**
+ * Creates a Circle through the dashboard form.
+ *
+ * Kept for the one test that is about the form. `enforce("createCircle")` lives
+ * in the server action rather than in the RPC, so this path and only this path
+ * spends from the 5-a-day budget. Everything else in this file builds its
+ * Circle with `createCircleViaApi`, because needing a Circle to exist is not
+ * the same as testing how one is made.
+ */
+async function createCircleInTheUi(page: Page, label: string) {
   const name = circleName(label)
   await page.goto("/dashboard")
   await page.getByLabel("Start a Circle").fill(name)
@@ -18,10 +63,8 @@ async function createCircle(page: Page, label: string) {
   return name
 }
 
-/** Opens a Circle's settings and mints an invite link. Returns the full URL. */
-async function generateLink(page: Page, name: string) {
-  await page.getByRole("link", { name }).click()
-  await page.getByRole("link", { name: "Settings" }).click()
+/** Mints an invite link on an already-open settings page. Returns the full URL. */
+async function generateLink(page: Page) {
   await page.getByRole("button", { name: "Generate link" }).click()
 
   // Waiting for an absolute URL, not merely for the element.
@@ -36,22 +79,32 @@ async function generateLink(page: Page, name: string) {
   return (await url.innerText()).trim()
 }
 
-// This file creates 4 Circles and the cap is 5 a day per account, so it starts
-// from a full budget rather than from whatever manual testing left behind.
+/** Settings for a Circle whose id is already known, without going via the dashboard. */
+async function openSettings(page: Page, groupId: string) {
+  await page.goto(`/circles/${groupId}/settings`)
+}
+
+// One Circle here now comes from the form, against a cap of 5 a day. The
+// clearing stays so a run does not inherit whatever manual testing left behind.
 test.beforeAll(async () => {
   await clearRateLimits()
 })
 
 test.afterAll(async () => {
   await deleteE2ECircles()
+  await ctx?.close()
 })
 
 test.describe("invite link lifecycle", () => {
-  test.use({ storageState: OWNER })
+  test("generating, regenerating and revoking", async ({ browser }) => {
+    const { ownerPage: page } = await pages(browser)
 
-  test("generating, regenerating and revoking", async ({ page }) => {
-    const name = await createCircle(page, "invite")
-    const first = await generateLink(page, name)
+    // Through the form deliberately: this is the test that covers it.
+    const name = await createCircleInTheUi(page, "invite")
+    await page.getByRole("link", { name }).click()
+    await page.getByRole("link", { name: "Settings" }).click()
+
+    const first = await generateLink(page)
     expect(first).toContain("/join/")
 
     // Regenerating must warn first. A bare button here would silently kill a
@@ -84,15 +137,19 @@ test.describe("invite link lifecycle", () => {
     await expect(page.getByRole("button", { name: "Generate link" })).toBeVisible()
   })
 
-  test("archiving kills the link", async ({ page }) => {
-    const name = await createCircle(page, "archive")
-    const link = await generateLink(page, name)
+  test("archiving kills the link", async ({ browser }) => {
+    const { ownerPage: page } = await pages(browser)
+    const { name, groupId } = await createCircleViaApi(
+      requireEnv("E2E_OWNER_EMAIL"),
+      "archive",
+    )
+
+    await openSettings(page, groupId)
+    const link = await generateLink(page)
 
     await page.getByRole("button", { name: "Archive this Circle" }).click()
     await expect(page.getByText(/can't be undone/i)).toBeVisible()
-    await page
-      .getByRole("button", { name: "Archive this Circle" })
-      .click()
+    await page.getByRole("button", { name: "Archive this Circle" }).click()
 
     await expect(page).toHaveURL(/\/dashboard/)
     await expect(page.getByText(/Circle archived/i)).toBeVisible()
@@ -111,16 +168,14 @@ test.describe("invite link lifecycle", () => {
 test.describe("signed out", () => {
   test.use({ storageState: { cookies: [], origins: [] } })
 
-  test("previews a live invite without signing in", async ({ browser, page }) => {
-    // The link has to be made by someone, so a second context does that as the
-    // owner while this one stays anonymous.
-    const ownerContext = await browser.newContext({ storageState: OWNER })
-    const ownerPage = await ownerContext.newPage()
-    const name = await createCircle(ownerPage, "preview")
-    const link = await generateLink(ownerPage, name)
-    await ownerContext.close()
+  test("previews a live invite without signing in", async ({ page }) => {
+    // No owner browser at all now: the link is minted over the API, and this
+    // context stays anonymous, which is the only thing the test is about.
+    const ownerEmail = requireEnv("E2E_OWNER_EMAIL")
+    const { name, groupId } = await createCircleViaApi(ownerEmail, "preview")
+    const token = await inviteTokenFor(ownerEmail, groupId)
 
-    await page.goto(new URL(link).pathname)
+    await page.goto(`/join/${token}`)
 
     await expect(page.getByRole("heading", { name })).toBeVisible()
     await expect(page.getByText(/1 of 10 member/)).toBeVisible()
@@ -139,7 +194,7 @@ test.describe("signed out", () => {
     await page.waitForURL(/\/auth\/sign-in/)
 
     const next = new URL(page.url()).searchParams.get("next")
-    expect(next).toBe(new URL(link).pathname)
+    expect(next).toBe(`/join/${token}`)
   })
 
   test("a made-up token reveals nothing and lands on the landing page", async ({
@@ -156,16 +211,11 @@ test.describe("signed out", () => {
 })
 
 test.describe("joining", () => {
-  test("a second account joins, and joining twice is harmless", async ({
-    browser,
-  }) => {
-    const ownerContext = await browser.newContext({ storageState: OWNER })
-    const ownerPage = await ownerContext.newPage()
-    const name = await createCircle(ownerPage, "join")
-    const link = await generateLink(ownerPage, name)
-
-    const joinerContext = await browser.newContext({ storageState: JOINER })
-    const joinerPage = await joinerContext.newPage()
+  test("a second account joins, and joining twice is harmless", async ({ browser }) => {
+    const { ownerPage, joinerPage } = await pages(browser)
+    const ownerEmail = requireEnv("E2E_OWNER_EMAIL")
+    const { name, groupId } = await createCircleViaApi(ownerEmail, "join")
+    const token = await inviteTokenFor(ownerEmail, groupId)
 
     // Attached before the click. A server action that fails leaves the button on
     // "Joining…" and the URL unchanged, and the actual cause is a console error
@@ -173,25 +223,26 @@ test.describe("joining", () => {
     // message on its own.
     const report = diagnose(joinerPage)
 
-    await joinerPage.goto(new URL(link).pathname)
+    await joinerPage.goto(`/join/${token}`)
     await joinerPage.getByRole("button", { name: new RegExp(`Join ${name}`) }).click()
 
-    await joinerPage
-      .waitForURL(/\/circles\//, { timeout: 15_000 })
-      .catch(() => {
-        throw new Error(
-          `Joining did not navigate. Still at ${joinerPage.url()}\n\n${report()}`,
-        )
-      })
+    await joinerPage.waitForURL(/\/circles\//, { timeout: 15_000 }).catch(() => {
+      throw new Error(
+        `Joining did not navigate. Still at ${joinerPage.url()}\n\n${report()}`,
+      )
+    })
 
+    // The count sits in the page header, above the tabs, so no tab click is
+    // needed and this assertion does not move when the default tab does.
     await expect(joinerPage.getByText(/2 of 10 members/)).toBeVisible()
 
     // `join_circle` returns the group id without writing when you are already a
     // member, so a stale tab or a double tap lands on the Circle rather than
     // erroring.
-    await joinerPage.goto(new URL(link).pathname)
+    await joinerPage.goto(`/join/${token}`)
     await joinerPage.getByRole("button", { name: new RegExp(`Join ${name}`) }).click()
     await joinerPage.waitForURL(/\/circles\//, { timeout: 15_000 })
+    // Still two, not three: a second join must not write a second membership.
     await expect(joinerPage.getByText(/2 of 10 members/)).toBeVisible()
 
     // Regression: the dashboard listed a Circle once per member.
@@ -209,8 +260,5 @@ test.describe("joining", () => {
       await p.goto("/dashboard")
       await expect(p.getByRole("link", { name })).toHaveCount(1)
     }
-
-    await joinerContext.close()
-    await ownerContext.close()
   })
 })

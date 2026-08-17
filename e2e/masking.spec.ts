@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test"
-import { createClient, type SupabaseClient } from "@supabase/supabase-js"
+import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database } from "@/lib/database.types"
 import {
   admin,
@@ -8,8 +8,9 @@ import {
   clearRateLimits,
   deleteE2ECircles,
   assertOk,
-  freeGoalSlot,
-  restoreGoalSlot,
+  freeGoalSlots,
+  restoreGoalSlots,
+  sessionFor,
   userIdByEmail,
 } from "./db"
 
@@ -36,26 +37,15 @@ const SHARED_NOTE = "E2E SHARED NOTE IS FINE"
  * builds its cookies: mint a magic-link token with the admin API and redeem it.
  * No password, no Google, no user modified.
  */
-async function clientFor(email: string): Promise<SupabaseClient<Database>> {
-  const { data, error } = await admin.auth.admin.generateLink({
-    type: "magiclink",
-    email,
-  })
-  if (error) throw new Error(`generateLink failed for ${email}: ${error.message}`)
-
-  const client = createClient<Database>(
-    requireEnv("NEXT_PUBLIC_SUPABASE_URL"),
-    requireEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"),
-    { auth: { autoRefreshToken: false, persistSession: false } },
-  )
-
-  const { error: verifyError } = await client.auth.verifyOtp({
-    token_hash: data.properties!.hashed_token,
-    type: "email",
-  })
-  if (verifyError) throw new Error(`verifyOtp failed: ${verifyError.message}`)
-
-  return client
+/**
+ * Signed in as a real user. Delegates to the cached `sessionFor`, because every
+ * `verifyOtp` spends from Supabase's hourly auth budget and a spec that mints
+ * one per test exhausts it partway through a run. The symptom is not a clean
+ * error either: refreshes start failing too, and pages quietly become
+ * signed-out several tests downstream.
+ */
+function clientFor(email: string): Promise<SupabaseClient<Database>> {
+  return sessionFor(email)
 }
 
 test.describe("a circle-mate cannot read what they should not", () => {
@@ -91,7 +81,7 @@ test.describe("a circle-mate cannot read what they should not", () => {
 
     // Both accounts are real ones used by hand, and the cap is 10 active goals.
     // The owner sits at exactly 10, so an eleventh insert fails on GOAL_LIMIT.
-    const freed = await freeGoalSlot(ownerId)
+    const freed = await freeGoalSlots(ownerId, 1)
 
     let goalId: string | null = null
     try {
@@ -189,7 +179,7 @@ test.describe("a circle-mate cannot read what they should not", () => {
         await admin.from("goals").delete().eq("id", goalId)
       }
       await deleteE2ECircles()
-      await restoreGoalSlot(freed)
+      await restoreGoalSlots(freed)
     }
   })
 
@@ -213,7 +203,7 @@ test.describe("a circle-mate cannot read what they should not", () => {
 
     const category = await admin.from("goal_categories").select("id").limit(1).single()
     assertOk(category, "read a goal category")
-    const freed = await freeGoalSlot(ownerId)
+    const freed = await freeGoalSlots(ownerId, 1)
 
     let goalId: string | null = null
     try {
@@ -265,7 +255,7 @@ test.describe("a circle-mate cannot read what they should not", () => {
         await admin.from("goals").delete().eq("id", goalId)
       }
       await deleteE2ECircles()
-      await restoreGoalSlot(freed)
+      await restoreGoalSlots(freed)
     }
   })
 })

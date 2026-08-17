@@ -1,4 +1,6 @@
-import { createClient } from "@supabase/supabase-js"
+import fs from "node:fs"
+import path from "node:path"
+import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { Redis } from "@upstash/redis"
 import type { Database } from "@/lib/database.types"
 import { loadEnvLocal } from "./env"
@@ -247,17 +249,28 @@ export function assertOk<T>(
   if (result.data === null) throw new Error(`${what} returned no row`)
 }
 
+/** The `goals_active_limit` trigger's ceiling. Mirrored, not imported. */
+const GOAL_CAP = 10
+
 /**
- * Makes room for one more active goal, and hands back what to undo.
+ * Makes room for `needed` more active goals, and hands back what to undo.
  *
  * The cap is 10 per user and both test accounts are real ones that get used by
- * hand, so a test cannot assume a free slot. Archiving the newest active goal
+ * hand, so a test cannot assume a free slot. Archiving the newest active goals
  * is the smallest possible disturbance: `archived_at` is reversible, unlike a
  * delete, and picking the newest leaves older history untouched.
  *
- * Always pair with `restoreGoalSlot` in a `finally`.
+ * **`needed` is not optional, and that is the point.** This used to free
+ * exactly one slot, which was silently wrong for `roster.spec.ts`: it seeds two
+ * goals, so the first insert took the slot and the second hit the cap. The
+ * failure then landed in the middle of seeding, before any cleanup, leaving the
+ * first goal behind — and each failed run left one more, until the account held
+ * eight stray E2E goals and every roster test failed on the cap from the start.
+ * Requiring the count makes the caller state how many it will create.
+ *
+ * Always pair with `restoreGoalSlots` in a `finally`.
  */
-export async function freeGoalSlot(userId: string): Promise<string | null> {
+export async function freeGoalSlots(userId: string, needed: number): Promise<string[]> {
   const { data, error } = await admin
     .from("goals")
     .select("id")
@@ -266,15 +279,24 @@ export async function freeGoalSlot(userId: string): Promise<string | null> {
     .is("achieved_at", null)
     .order("created_at", { ascending: false })
   if (error) throw error
-  if ((data?.length ?? 0) < 10) return null
 
-  const victim = data![0].id
+  const active = data ?? []
+  const surplus = active.length + needed - GOAL_CAP
+  if (surplus <= 0) return []
+  if (surplus > active.length) {
+    throw new Error(
+      `Cannot free ${needed} slots: ${userId} has only ${active.length} active goals ` +
+        `and the cap is ${GOAL_CAP}.`,
+    )
+  }
+
+  const victims = active.slice(0, surplus).map((g) => g.id)
   const { error: archiveError } = await admin
     .from("goals")
     .update({ archived_at: archivedAtNow() })
-    .eq("id", victim)
+    .in("id", victims)
   if (archiveError) throw archiveError
-  return victim
+  return victims
 }
 
 /**
@@ -295,11 +317,209 @@ function archivedAtNow(): string {
   return new Date(Date.now() - 60_000).toISOString()
 }
 
-export async function restoreGoalSlot(goalId: string | null) {
-  if (!goalId) return
+export async function restoreGoalSlots(goalIds: string[]) {
+  if (!goalIds.length) return
   const { error } = await admin
     .from("goals")
     .update({ archived_at: null })
-    .eq("id", goalId)
+    .in("id", goalIds)
   if (error) throw error
+  forgetParked(goalIds)
+}
+
+/**
+ * Archives every one of a user's active goals, so a test's seeded goals are the
+ * only ones there are.
+ *
+ * **Because a roster count is a claim about the whole account.** `roster.spec`
+ * asserts a member's row reads "1 of 2", which is true only if the two seeded
+ * goals are the account's only active ones. Both test accounts are real and get
+ * used by hand, so the moment the joiner had two goals of their own the row
+ * read "2 of 4" and four assertions failed at once. Freeing *slots* is not
+ * enough; the fixture has to own the whole list.
+ *
+ * Reversible, and journalled, because this archives a real person's real goals.
+ * See `parkedPath`.
+ */
+export async function parkActiveGoals(userId: string): Promise<string[]> {
+  const { data, error } = await admin
+    .from("goals")
+    .select("id")
+    .eq("user_id", userId)
+    .is("archived_at", null)
+    .is("achieved_at", null)
+  if (error) throw error
+
+  const ids = (data ?? []).map((g) => g.id)
+  if (!ids.length) return []
+
+  // Journalled *before* the write, not after. A crash between the two leaves an
+  // id recorded that was never archived, and restoring it is a no-op. The other
+  // order loses the record of a goal that really was archived.
+  rememberParked(ids)
+
+  const { error: archiveError } = await admin
+    .from("goals")
+    .update({ archived_at: archivedAtNow() })
+    .in("id", ids)
+  if (archiveError) throw archiveError
+  return ids
+}
+
+/**
+ * Where parked goal ids are written down.
+ *
+ * Playwright kills a test that exceeds its timeout, and a killed test does not
+ * finish its `finally`. Without this, one timeout leaves a real account's goals
+ * archived with nothing but this process's memory recording which ones, and
+ * that memory dies with the run. The file survives, and
+ * `npm run test:e2e:clean` restores from it.
+ */
+function parkedPath() {
+  return path.join(process.cwd(), "e2e", ".auth", "parked-goals.json")
+}
+
+function readParked(): string[] {
+  try {
+    return JSON.parse(fs.readFileSync(parkedPath(), "utf8")) as string[]
+  } catch {
+    return []
+  }
+}
+
+function writeParked(ids: string[]) {
+  fs.mkdirSync(path.dirname(parkedPath()), { recursive: true })
+  fs.writeFileSync(parkedPath(), JSON.stringify(ids, null, 2))
+}
+
+function rememberParked(ids: string[]) {
+  writeParked([...new Set([...readParked(), ...ids])])
+}
+
+function forgetParked(ids: string[]) {
+  const remaining = readParked().filter((id) => !ids.includes(id))
+  writeParked(remaining)
+}
+
+/** Un-archives anything a killed run left parked. Used by `e2e/clean.ts`. */
+export async function restoreParkedGoals(): Promise<number> {
+  const ids = readParked()
+  if (!ids.length) return 0
+  await restoreGoalSlots(ids)
+  writeParked([])
+  return ids.length
+}
+
+/**
+ * Deletes every goal a test made, active or archived, along with what hangs off
+ * it.
+ *
+ * A safety net rather than the normal path: tests delete their own goals, but a
+ * throw between two inserts skips that, and unlike a stray Circle a stray goal
+ * counts against a cap. Eight of them made every roster test fail before its
+ * first assertion, with an error that named the cap and not the cause.
+ *
+ * Matched on the `E2E ` title prefix, the same convention `deleteE2ECircles`
+ * uses for names, so it cannot touch a goal someone made by hand unless they
+ * named it that way.
+ *
+ * **Global, not scoped to the caller.** Safe only because the suite runs with
+ * one worker; a second worker would have this delete goals another file was
+ * still using. If `workers` ever goes above 1, this has to take a list of ids.
+ */
+export async function deleteE2EGoals() {
+  const { data: goals, error } = await admin
+    .from("goals")
+    .select("id")
+    .like("title", `${E2E_PREFIX}%`)
+  if (error) throw error
+  if (!goals?.length) return 0
+
+  const ids = goals.map((g) => g.id)
+  // Children first: neither of these is ON DELETE CASCADE.
+  for (const table of ["progress_entries", "goal_group_visibility"] as const) {
+    const { error: childError } = await admin.from(table).delete().in("goal_id", ids)
+    if (childError) throw childError
+  }
+  const { error: goalError } = await admin.from("goals").delete().in("id", ids)
+  if (goalError) throw goalError
+  return ids.length
+}
+
+/**
+ * A Supabase client signed in as a real user.
+ *
+ * Built the same way `auth.setup.ts` builds its cookies: mint a magic-link
+ * token with the admin API and redeem it. No password, no Google, no user
+ * modified.
+ *
+ * **Use this rather than `admin` for anything that depends on who is asking.**
+ * The service role has no `auth.uid()`, so `current_checkin_date()` falls back
+ * to UTC for it. Writing a check-in with that date and then asserting against a
+ * roster computed in the member's real timezone fails whenever the two differ,
+ * and passes whenever they happen not to.
+ */
+const sessionCache = new Map<string, Promise<SupabaseClient<Database>>>()
+
+export function sessionFor(email: string): Promise<SupabaseClient<Database>> {
+  // Cached for the same reason as `storageStateFor`: every `verifyOtp` spends
+  // from Supabase's hourly *auth* request budget, which is separate from
+  // anything in `lib/ratelimit.ts` and cannot be cleared from here.
+  let existing = sessionCache.get(email)
+  if (!existing) {
+    existing = mintSession(email)
+    sessionCache.set(email, existing)
+  }
+  return existing
+}
+
+async function mintSession(email: string): Promise<SupabaseClient<Database>> {
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: "magiclink",
+    email,
+  })
+  if (error) throw new Error(`generateLink failed for ${email}: ${error.message}`)
+
+  const client = createClient<Database>(
+    requireEnv("NEXT_PUBLIC_SUPABASE_URL"),
+    requireEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"),
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  )
+  const { error: verifyError } = await client.auth.verifyOtp({
+    token_hash: data.properties!.hashed_token,
+    type: "email",
+  })
+  if (verifyError) throw new Error(`verifyOtp failed for ${email}: ${verifyError.message}`)
+  return client
+}
+
+/**
+ * A Circle, created through the RPC rather than the dashboard form.
+ *
+ * **This spends no rate-limit budget at all**, which is the single biggest
+ * source of flakiness this suite had. `enforce("createCircle")` lives in the
+ * server action, not in `create_circle`, so the UI path is metered at 5 a day
+ * and the RPC path is not. The two stable spec files were stable precisely
+ * because they had always used the RPC.
+ *
+ * **Use this for setup; use the form only when the form is what is under test.**
+ * A test that needs a Circle in order to assert something else should not also
+ * be re-testing Circle creation, and paying a daily quota to do it.
+ */
+export async function createCircleViaApi(email: string, label: string) {
+  const client = await sessionFor(email)
+  const name = circleName(label)
+
+  const created = await client.rpc("create_circle", { p_name: name })
+  if (created.error) throw new Error(`create_circle: ${created.error.message}`)
+
+  return { groupId: created.data as string, name }
+}
+
+/** An invite token for a Circle, likewise without touching the UI. */
+export async function inviteTokenFor(email: string, groupId: string) {
+  const client = await sessionFor(email)
+  const link = await client.rpc("create_invite_link", { p_group_id: groupId })
+  if (link.error) throw new Error(`create_invite_link: ${link.error.message}`)
+  return link.data as string
 }

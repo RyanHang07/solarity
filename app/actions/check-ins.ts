@@ -72,6 +72,9 @@ export async function checkIn(
   }
 
   revalidatePath("/dashboard")
+  // Deliberately not revalidating any Circle page: a check-in changes your
+  // counts on every Circle you belong to, and this action does not know which.
+  // The roster picks it up on the next visit, which is 8g phase 1.
   return { ok: true, data: undefined }
 }
 
@@ -113,6 +116,9 @@ export async function undoCheckIn(
   if (!data?.length) return { ok: false, error: "Nothing to undo for today." }
 
   revalidatePath("/dashboard")
+  // Deliberately not revalidating any Circle page: a check-in changes your
+  // counts on every Circle you belong to, and this action does not know which.
+  // The roster picks it up on the next visit, which is 8g phase 1.
   return { ok: true, data: undefined }
 }
 
@@ -139,6 +145,10 @@ export async function setNoteSharing(
 ): Promise<ActionResult> {
   const entryId = formData.get("entryId")?.toString() ?? ""
   const shared = formData.get("shared") === "true"
+  // Optional, and only used to revalidate the page the control was pressed on.
+  // Never trusted for authorisation: the update is scoped by RLS to your own
+  // rows regardless of what a form claims.
+  const groupId = formData.get("groupId")?.toString() ?? ""
   if (!entryId) return { ok: false, error: "Missing check-in." }
 
   const supabase = await createClient()
@@ -159,5 +169,9 @@ export async function setNoteSharing(
   }
 
   revalidatePath("/dashboard")
+  // The roster is where this control lives, so without this the toggle writes
+  // correctly and the screen keeps showing the old state, which reads as the
+  // action having failed.
+  if (groupId) revalidatePath(`/circles/${groupId}`)
   return { ok: true, data: undefined }
 }

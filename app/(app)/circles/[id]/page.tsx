@@ -2,6 +2,8 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { StreakDecision } from "./streak-decision"
+import { TodayRoster } from "./today-roster"
+import { getCircleRoster } from "@/lib/supabase/circle-roster"
 
 export const metadata = { title: "Circle — Solarity" }
 
@@ -36,7 +38,11 @@ export default async function CirclePage({
 }) {
   const { id } = await params
   const { tab } = await searchParams
-  const showOverview = tab === "overview"
+
+  // `Today` is the default, because it is what the Circle is for. `Members`
+  // therefore needs its own param rather than being the no-param fallback it
+  // used to be. `sw.js` deep-links to `?tab=overview` and is unaffected.
+  const view = tab === "members" || tab === "overview" ? tab : "today"
 
   const supabase = await createClient()
   const {
@@ -94,6 +100,10 @@ export default async function CirclePage({
         .limit(14),
     ])
 
+  // Only when it is going to be rendered. The other two tabs do not need it,
+  // and it is the most expensive read on the page.
+  const roster = view === "today" ? await getCircleRoster(supabase, id) : null
+
   const statsBy = new Map(
     (stats ?? []).map((s) => [s.user_id, s]),
   )
@@ -114,8 +124,10 @@ export default async function CirclePage({
    * they cannot disagree.
    */
   const inGrace = (members ?? []).filter((m) => m.streak_grace)
+  // Username first: this names people to their Circle, and `display_name` is
+  // not unique. See `today-roster.tsx`.
   const graceNames = inGrace.map(
-    (m) => m.users?.display_name || m.users?.username || "Someone",
+    (m) => m.users?.username || m.users?.display_name || "Someone",
   )
   const decisionPending = !!circle.streak_decision_pending && graceNames.length > 0
 
@@ -189,71 +201,118 @@ export default async function CirclePage({
       </section>
 
       <nav className="flex gap-3 border-b text-sm">
-        <Link
-          href={`/circles/${id}`}
-          className={`px-1 pb-2 ${!showOverview ? "border-b-2 font-medium" : "opacity-70"}`}
-        >
-          Members
-        </Link>
-        <Link
-          href={`/circles/${id}?tab=overview`}
-          className={`px-1 pb-2 ${showOverview ? "border-b-2 font-medium" : "opacity-70"}`}
-        >
-          Overview
-        </Link>
+        {(
+          [
+            ["today", "Today", `/circles/${id}`],
+            ["members", "Members", `/circles/${id}?tab=members`],
+            ["overview", "Overview", `/circles/${id}?tab=overview`],
+          ] as const
+        ).map(([key, label, href]) => (
+          <Link
+            key={key}
+            href={href}
+            className={`px-1 pb-2 ${view === key ? "border-b-2 font-medium" : "opacity-70"}`}
+          >
+            {label}
+          </Link>
+        ))}
       </nav>
 
-      {showOverview ? (
+      {view === "overview" ? (
         <OverviewTab digests={digests ?? []} />
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {(members ?? []).map((m) => {
-            const s = statsBy.get(m.user_id)
-            return (
-              <li
-                key={m.user_id}
-                className="flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm"
-              >
-                <span>
-                  {/* coalesce(display_name, username): username is guaranteed
-                      after onboarding, so there is always something to show. */}
-                  {m.users?.display_name || m.users?.username}
-                  {m.user_id === user.id ? <span className="opacity-60"> (you)</span> : null}
-                  {m.role !== "member" ? (
-                    <span className="opacity-60"> · {m.role}</span>
-                  ) : null}
+      ) : view === "today" ? (
+        !roster ? (
+          <p role="alert" className="text-sm text-red-600">
+            Couldn&apos;t load today&apos;s progress. Reload in a moment.
+          </p>
+        ) : (
+          <>
+            {/*
+              An archived or locked Circle reports the day it stopped, not
+              today. `as_of` is null while it is live, which is what this
+              branches on rather than the status string, so the two cannot
+              disagree.
+            */}
+            {roster[0]?.as_of ? (
+              <p className="rounded border px-3 py-2 text-sm">
+                <strong>Final standing</strong>
+                <span className="opacity-70">
+                  {" "}
+                  · this Circle {roster[0].circle_status === "archived" ? "was archived" : "locked"}{" "}
+                  on {new Date(roster[0].as_of).toLocaleDateString()}, so these
+                  numbers stopped changing then.
                 </span>
-                {/* The visible half of `streak_grace`. Without this the Circle
-                    silently stops counting someone and the roster looks
-                    identical to one where it doesn't, which is the bug 7e
-                    exists to close. */}
-                {m.streak_grace ? (
-                  <span className="shrink-0 text-xs opacity-60">
-                    settling in, not counted yet
-                  </span>
-                ) : (
-                  <span className="opacity-70">
-                    {s?.current_streak ?? 0} day
-                    {(s?.current_streak ?? 0) === 1 ? "" : "s"}
-                  </span>
-                )}
-              </li>
-            )
-          })}
-        </ul>
-      )}
+              </p>
+            ) : null}
 
-      {/*
-        Deliberately NOT the dashboard's `+ 1 if today complete` rule. That
-        works there because we know your check-in date. Members can sit in
-        different timezones, so this page has no single "today" to add, and
-        guessing would show a number that disagrees with what that person sees
-        on their own dashboard. Stored values only.
-      */}
-      <p className="text-xs opacity-60">
-        Per-member streaks update at each member&apos;s own daily rollover, so
-        today&apos;s progress appears tomorrow.
-      </p>
+            <TodayRoster
+              members={roster}
+              frozen={!!roster[0]?.as_of}
+              groupId={id}
+            />
+
+            <p className="text-xs opacity-60">
+              Each person&apos;s day is counted in their own timezone, so someone
+              ahead of you may already have finished.
+            </p>
+          </>
+        )
+      ) : (
+        <>
+          <ul className="flex flex-col gap-2">
+            {(members ?? []).map((m) => {
+              const stat = statsBy.get(m.user_id)
+              const days = stat?.current_streak ?? 0
+              return (
+                <li
+                  key={m.user_id}
+                  className="flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm"
+                >
+                  <span>
+                    {/* coalesce(username, display_name): the unique handle
+                        first, because this is where members tell each other
+                        apart. `display_name` is not unique and two people can
+                        hold the same one. */}
+                    {m.users?.username || m.users?.display_name}
+                    {m.user_id === user.id ? (
+                      <span className="opacity-60"> (you)</span>
+                    ) : null}
+                    {m.role !== "member" ? (
+                      <span className="opacity-60"> · {m.role}</span>
+                    ) : null}
+                  </span>
+
+                  {m.streak_grace ? (
+                    <span className="shrink-0 text-xs opacity-60">
+                      settling in, not counted yet
+                    </span>
+                  ) : (
+                    <span className="opacity-70">
+                      {days} day{days === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+
+          {/*
+            Deliberately NOT the dashboard's `+ 1 if today complete` rule. That
+            works there because we know your check-in date. Members sit in
+            different timezones, so this tab has no single "today" to add, and
+            guessing would show a number that disagrees with what that person
+            sees on their own dashboard. Stored values only.
+
+            The `Today` tab is where live progress lives, and it solves the same
+            problem differently: each member's counts are computed against their
+            own check-in date rather than against one shared guess.
+          */}
+          <p className="text-xs opacity-60">
+            Streaks update at each member&apos;s own daily rollover, so today&apos;s
+            progress appears here tomorrow. See the Today tab for live counts.
+          </p>
+        </>
+      )}
     </div>
   )
 }
