@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ServiceWorkerRegistrar } from "@/components/service-worker-registrar";
+import { INSTALL_PROMPT_SCRIPT } from "@/lib/install-prompt";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -41,6 +42,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        {/* Before hydration on purpose: `beforeinstallprompt` fires early, once,
+            and the event object is the only route to the install dialog. A
+            listener added from an effect would miss it on a slow connection.
+            See lib/install-prompt.ts. */}
+        <script dangerouslySetInnerHTML={{ __html: INSTALL_PROMPT_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col">
         {children}
         <ServiceWorkerRegistrar />

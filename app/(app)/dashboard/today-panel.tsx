@@ -35,12 +35,18 @@ export function TodayPanel({
   completedToday,
   streak,
   streakIncludesToday,
+  hideStreak = false,
 }: {
   goals: TodayGoal[]
   completedToday: boolean
   /** Settled days plus today, computed at display time. Never stored. */
   streak: number
   streakIncludesToday: boolean
+  /**
+   * `/today` renders its own streak header above this, with the extra states a
+   * broken run needs. Two streak lines on one screen would be one too many.
+   */
+  hideStreak?: boolean
 }) {
   const [checkState, checkAction] = useActionState<ActionResult | null, FormData>(
     checkIn,
@@ -81,18 +87,20 @@ export function TodayPanel({
         </span>
       </div>
 
-      <p className="text-sm">
-        <strong>
-          {streak} day{streak === 1 ? "" : "s"}
-        </strong>{" "}
-        <span className="opacity-70">
-          {streak === 0
-            ? "Check off every goal to start a streak."
-            : streakIncludesToday
-              ? "including today, which counts once the day ends."
-              : "so far. Today is not counted yet."}
-        </span>
-      </p>
+      {hideStreak ? null : (
+        <p className="text-sm">
+          <strong>
+            {streak} day{streak === 1 ? "" : "s"}
+          </strong>{" "}
+          <span className="opacity-70">
+            {streak === 0
+              ? "Check off every goal to start a streak."
+              : streakIncludesToday
+                ? "including today, which counts once the day ends."
+                : "so far. Today is not counted yet."}
+          </span>
+        </p>
+      )}
 
       {!goals.length ? (
         <p className="text-sm opacity-70">

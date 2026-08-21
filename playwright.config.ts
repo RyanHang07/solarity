@@ -18,6 +18,9 @@ loadEnvLocal()
  */
 export default defineConfig({
   testDir: "./e2e",
+  // Puts back the `today_screen_mode` the run forced to `never`. See
+  // `e2e/global-teardown.ts`.
+  globalTeardown: "./e2e/global-teardown.ts",
   // Serial by default. The specs create and archive Circles owned by the same
   // two real accounts, and the 5-a-day Circle creation limit is per user, so
   // parallel workers would race each other into a rate limit rather than into
@@ -41,6 +44,31 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
       dependencies: ["setup"],
+      // The iPhone spec is WebKit-only by construction; running it here would
+      // assert Safari's behaviour against Chrome's.
+      testIgnore: /ios\.spec\.ts/,
+    },
+
+    /**
+     * Mobile Safari, for the one platform whose answer differs.
+     *
+     * Not a second run of the whole suite: everything else behaves the same in
+     * both engines, and doubling the run would double the Supabase auth
+     * requests the suite is already careful about.
+     *
+     * **What this can and cannot prove.** Playwright's WebKit is not iOS Safari
+     * and never installs a PWA, so it cannot show that push works from the home
+     * screen. What it can show is the branch an iPhone in a browser tab
+     * actually gets, which is the case most people meet first and the one most
+     * likely to regress silently.
+     *
+     * Needs `npx playwright install webkit`.
+     */
+    {
+      name: "mobile-safari",
+      use: { ...devices["iPhone 15"] },
+      dependencies: ["setup"],
+      testMatch: /ios\.spec\.ts/,
     },
   ],
 

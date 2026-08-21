@@ -22,8 +22,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # `npm run typecheck` is `next typegen && tsc --noEmit`, and the first
+      # half is not optional here. `LayoutProps<"/">` and its siblings are
+      # *generated*, not shipped: Next writes them into `.next/types` during dev
+      # or build, so a clean checkout fails with "Cannot find name 'LayoutProps'"
+      # on a file that is perfectly correct locally. `typegen` writes them
+      # without paying for a full build.
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: npm run typecheck
 
       - name: Lint
         run: npx eslint .

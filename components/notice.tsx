@@ -31,6 +31,13 @@ const MESSAGES: Record<string, string> = {
   // invites an argument.
   "invite-invalid":
     "That invite link is no longer valid. Ask whoever invited you for a new one.",
+
+  // 9e. `/today` hands people to the dashboard for two very different reasons,
+  // and an unexplained redirect reads as a bug in both cases.
+  "day-done":
+    "Everything's checked off for today. Come back after your next daily reset.",
+  "no-checkin-date":
+    "Couldn't work out today's date, so the check-in screen is unavailable. Everything else works; try again in a moment.",
 }
 
 export function Notice({

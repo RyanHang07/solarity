@@ -32,7 +32,7 @@ export function OnboardingForm() {
 
   /**
    * Only the browser knows the timezone, and the daily rollover keys off it
-   * (architecture.md section 5), so it is read rather than inferred from an IP.
+   * (architecture/time-and-streaks.md section 5), so it is read rather than inferred from an IP.
    *
    * `useSyncExternalStore` with a distinct server snapshot reads a client-only
    * value without a hydration mismatch. `useEffect` + `setState` gives the same

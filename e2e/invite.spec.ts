@@ -56,7 +56,9 @@ async function pages(browser: Browser) {
  */
 async function createCircleInTheUi(page: Page, label: string) {
   const name = circleName(label)
-  await page.goto("/dashboard")
+  // `?tab=circles` since 8f-1. The list and the create form moved off Overview,
+  // and a bare `/dashboard` now renders the check-in panel and goals instead.
+  await page.goto("/dashboard?tab=circles")
   await page.getByLabel("Start a Circle").fill(name)
   await page.getByRole("button", { name: "Create Circle" }).click()
   await expect(page.getByRole("link", { name })).toBeVisible()
@@ -65,6 +67,18 @@ async function createCircleInTheUi(page: Page, label: string) {
 
 /** Mints an invite link on an already-open settings page. Returns the full URL. */
 async function generateLink(page: Page) {
+  // Assert we are on the page before reaching for a control on it.
+  //
+  // Without this, a settings route that fails to serve spends the full test
+  // timeout "waiting for getByRole('button', { name: 'Generate link' })" and
+  // reports as a missing button. It has happened once already, and the answer
+  // was a bare 404 from the dev server for a route that exists, unmodified, in
+  // the repo. Thirty seconds of silence versus a sentence naming the page.
+  await expect(
+    page.getByRole("heading", { name: "Circle settings" }),
+    `Settings did not load. Landed on ${page.url()}`,
+  ).toBeVisible()
+
   await page.getByRole("button", { name: "Generate link" }).click()
 
   // Waiting for an absolute URL, not merely for the element.
@@ -101,8 +115,25 @@ test.describe("invite link lifecycle", () => {
 
     // Through the form deliberately: this is the test that covers it.
     const name = await createCircleInTheUi(page, "invite")
+
+    // ---------------------------------------------------------------------
+    // Wait for the Circle page before reaching for its Settings link.
+    //
+    // **"Settings" stopped being unique in 8f-1.** The dashboard now carries a
+    // gear `Link` with `aria-label="Settings"`, so a `getByRole("link", { name:
+    // "Settings" })` issued while still on the dashboard matches *that* and
+    // lands on `/settings`, the account page. The failure then reads as "Circle
+    // settings did not load", which is true and points nowhere near the cause.
+    //
+    // The general form: after a click that navigates, wait for the destination
+    // before locating anything on it. Playwright waits for the *element*, not
+    // for the page you meant to be on, and a name that is unique on the
+    // destination need not be unique on the origin.
+    // ---------------------------------------------------------------------
     await page.getByRole("link", { name }).click()
+    await page.waitForURL(/\/circles\/[0-9a-f-]+$/)
     await page.getByRole("link", { name: "Settings" }).click()
+    await page.waitForURL(/\/circles\/[0-9a-f-]+\/settings$/)
 
     const first = await generateLink(page)
     expect(first).toContain("/join/")
@@ -257,7 +288,7 @@ test.describe("joining", () => {
     // Only reproducible with two members, which is why every earlier test
     // missed it and only a React duplicate-key warning gave it away.
     for (const p of [joinerPage, ownerPage]) {
-      await p.goto("/dashboard")
+      await p.goto("/dashboard?tab=circles")
       await expect(p.getByRole("link", { name })).toHaveCount(1)
     }
   })

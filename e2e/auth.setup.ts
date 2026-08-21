@@ -2,7 +2,8 @@ import { test as setup, expect } from "@playwright/test"
 import { createServerClient } from "@supabase/ssr"
 import fs from "node:fs"
 import { AUTH_DIR, statePath, type E2EAccount } from "./auth-state"
-import { admin, requireEnv } from "./db"
+import { admin, requireEnv, userIdByEmail } from "./db"
+import { saveModes, type TodayMode } from "./saved-modes"
 
 /**
  * Signs both test accounts in without touching Google.
@@ -25,6 +26,18 @@ import { admin, requireEnv } from "./db"
  * No user is modified. No password is set. Nothing here exists in production.
  */
 
+/**
+ * Both accounts opt out of the `/today` diversion for the whole run.
+ *
+ * **Otherwise step 9b's gate breaks most of the suite.** Neither test account
+ * finishes its goals, so every `goto("/dashboard")` in `invite`, `roster` and
+ * `dashboard` would be redirected to `/today` and every assertion after it
+ * would fail somewhere that never mentions check-ins. Same shape as moving the
+ * Circles list in 8f-1, one layer wider.
+ *
+ * `gates.spec.ts` sets the mode it needs per test and puts it back to `never`,
+ * so the file that tests the gate is the only one that sees it.
+ */
 const ACCOUNTS: Record<E2EAccount, string> = {
   owner: requireEnv("E2E_OWNER_EMAIL"),
   joiner: requireEnv("E2E_JOINER_EMAIL"),
@@ -80,6 +93,45 @@ async function sessionCookiesFor(email: string) {
     sameSite: "Lax" as const,
   }))
 }
+
+/**
+ * Both accounts opt out of the `/today` diversion for the whole run.
+ *
+ * **Otherwise step 9b's gate breaks most of the suite.** Neither test account
+ * finishes its goals, so every `goto("/dashboard")` in `invite`, `roster` and
+ * `dashboard` would be redirected to `/today`, and the assertion after it would
+ * fail somewhere that never mentions check-ins. Same shape as moving the
+ * Circles list in 8f-1, one layer wider.
+ *
+ * `gates.spec.ts` sets whichever mode it needs per test and puts it back to
+ * `never`, so the file that tests the gate is the only one that meets it.
+ */
+setup("opt both accounts out of the /today gate", async () => {
+  const previous: Record<string, TodayMode> = {}
+
+  for (const email of Object.values(ACCOUNTS)) {
+    const id = await userIdByEmail(email)
+
+    // Recorded before it is changed, so `global-teardown.ts` can put it back.
+    // These are the accounts used for manual testing; leaving the check-in
+    // screen switched off after every run is a cost paid outside the suite.
+    const { data, error: readError } = await admin
+      .from("users")
+      .select("today_screen_mode")
+      .eq("id", id)
+      .single()
+    if (readError) throw readError
+    previous[email] = data.today_screen_mode
+
+    const { error } = await admin
+      .from("users")
+      .update({ today_screen_mode: "never" })
+      .eq("id", id)
+    if (error) throw error
+  }
+
+  saveModes(previous)
+})
 
 for (const [who, email] of Object.entries(ACCOUNTS)) {
   setup(`authenticate as ${who}`, async () => {

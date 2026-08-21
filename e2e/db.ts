@@ -160,7 +160,7 @@ export async function userIdByEmail(email: string): Promise<string> {
  *
  * Deletes rather than archives, which is the opposite of what the product does
  * on purpose: archived test Circles would pile up in a real account's sidebar
- * forever. See build-plan.md, "Clearing test data".
+ * forever. See testing.md, "Clearing test data".
  */
 export async function deleteE2ECircles() {
   const { data: groups, error: findError } = await admin
@@ -194,10 +194,11 @@ export async function deleteE2ECircles() {
     .in("group_id", ids)
   if (memberError) throw memberError
 
-  // That trigger also wrote a `kicked` notification per member, because the
-  // service role has no `auth.uid()` and the removal therefore reads as a kick
-  // rather than as leaving. Those notifications hang off `users`, not `groups`,
-  // so deleting the Circle would leave them in a real account's feed forever.
+  // The membership trigger writes a `kicked` notification per member, because
+  // the service role has no `auth.uid()` and the removal therefore reads as a
+  // kick rather than as leaving. Notifications hang off `users`, not `groups`,
+  // and `payload.group_id` has no foreign key, so deleting the Circle would
+  // leave them in a real account's feed forever.
   //
   // Cleared after the memberships, since that is what creates them.
   //
@@ -205,10 +206,19 @@ export async function deleteE2ECircles() {
   // lives inside a jsonb payload, and a filter that silently matches nothing
   // would leave notifications behind without failing, which is the kind of
   // cleanup bug you only find months later.
+  // **Every type, not a list of them.** This used to filter
+  // `type in ('kicked','invite_accepted')`, which was true when it was written
+  // and is not now: all five types carry `payload.group_id`, and migration 73
+  // made that a constraint. A `digest` for an E2E Circle survives the Circle,
+  // and the notifications tab built in 8f renders it as
+  // "(no longer available)" in a real account's feed forever.
+  //
+  // Matching on the group instead of on a type allowlist means a sixth type
+  // needs no change here. A hardcoded list of enum values is a thing that must
+  // be remembered, and this suite has already been caught by one.
   const { data: notifications, error: readError } = await admin
     .from("notifications")
     .select("id, payload")
-    .in("type", ["kicked", "invite_accepted"])
   if (readError) throw readError
 
   const mine = (notifications ?? [])
@@ -293,29 +303,27 @@ export async function freeGoalSlots(userId: string, needed: number): Promise<str
   const victims = active.slice(0, surplus).map((g) => g.id)
   const { error: archiveError } = await admin
     .from("goals")
-    .update({ archived_at: archivedAtNow() })
+    .update({ archived_at: NOW })
     .in("id", victims)
   if (archiveError) throw archiveError
   return victims
 }
 
 /**
- * A timestamp the `goals_archived_not_future` CHECK will accept.
+ * The value `goals_archived_not_future` will always accept.
  *
- * The constraint is `archived_at <= now()`, evaluated against the **database**
- * clock, while `new Date()` reads the caller's. A few hundred milliseconds of
- * skew is enough to be refused, which is exactly what happened: a value 217ms
- * ahead of the server failed with a bare `23514` and no hint.
+ * Postgres reads the literal `now` as the current transaction time, so the
+ * clock that judges the value is the clock that mints it. Nothing here reads a
+ * host clock at all.
  *
- * A minute of slack is far more than any sane skew and far less than anything
- * that could matter to a timestamp nobody reads to the second.
- *
- * The app has the same exposure in `archiveGoal`. Noted in build-plan.md: the
- * real fix is for the database to set the value, not the caller.
+ * **This used to be `new Date(Date.now() - 60_000)`**, a minute of backdated
+ * slack, because a value 217ms ahead of the server had failed with a bare
+ * `23514`. The comment on it said the app carried the same exposure in
+ * `archiveGoal`, and it did: months later a skewed dev host made every archive
+ * in the product fail with "That value isn't allowed." A workaround in the test
+ * helper is not a fix for the thing it is testing.
  */
-function archivedAtNow(): string {
-  return new Date(Date.now() - 60_000).toISOString()
-}
+const NOW = "now"
 
 export async function restoreGoalSlots(goalIds: string[]) {
   if (!goalIds.length) return
@@ -360,7 +368,7 @@ export async function parkActiveGoals(userId: string): Promise<string[]> {
 
   const { error: archiveError } = await admin
     .from("goals")
-    .update({ archived_at: archivedAtNow() })
+    .update({ archived_at: NOW })
     .in("id", ids)
   if (archiveError) throw archiveError
   return ids
@@ -430,12 +438,14 @@ export async function restoreParkedGoals(): Promise<number> {
 export async function deleteE2EGoals() {
   const { data: goals, error } = await admin
     .from("goals")
-    .select("id")
+    // `user_id` as well, so the recount below knows whose day changed.
+    .select("id, user_id")
     .like("title", `${E2E_PREFIX}%`)
   if (error) throw error
   if (!goals?.length) return 0
 
   const ids = goals.map((g) => g.id)
+  const owners = [...new Set(goals.map((g) => g.user_id))]
   // Children first: neither of these is ON DELETE CASCADE.
   for (const table of ["progress_entries", "goal_group_visibility"] as const) {
     const { error: childError } = await admin.from(table).delete().in("goal_id", ids)
@@ -443,6 +453,10 @@ export async function deleteE2EGoals() {
   }
   const { error: goalError } = await admin.from("goals").delete().in("id", ids)
   if (goalError) throw goalError
+  // Deleting a goal fires no completion trigger (see `recountToday`), so the
+  // day's row would otherwise keep describing goals that no longer exist.
+  for (const userId of owners) await recountToday(userId)
+
   return ids.length
 }
 
@@ -522,4 +536,290 @@ export async function inviteTokenFor(email: string, groupId: string) {
   const link = await client.rpc("create_invite_link", { p_group_id: groupId })
   if (link.error) throw new Error(`create_invite_link: ${link.error.message}`)
   return link.data as string
+}
+
+/**
+ * Notifications a test made, and the ones it merely disturbed.
+ *
+ * **Marking read is destructive in a way most of this suite is not.** The two
+ * accounts are real and their inbox has real rows; a test that opens the
+ * notifications tab marks every one of them read, and there is no undo the
+ * product offers. So the unread set is captured first and put back in a
+ * `finally`, which keeps the spec repeatable and leaves the account as it was.
+ */
+export async function unreadNotificationIds(userId: string): Promise<string[]> {
+  const { data, error } = await admin
+    .from("notifications")
+    .select("id")
+    .eq("user_id", userId)
+    .is("read_at", null)
+  if (error) throw error
+  return (data ?? []).map((n) => n.id)
+}
+
+export async function markUnread(ids: string[]) {
+  if (!ids.length) return
+  const { error } = await admin
+    .from("notifications")
+    .update({ read_at: null })
+    .in("id", ids)
+  if (error) throw error
+}
+
+/**
+ * A notification the test owns.
+ *
+ * `type` is deliberately loose: one of these specs inserts a value the app has
+ * never rendered, to prove the fallback branch exists. That is only reachable
+ * with the service key, since no writer produces the two unwritten types yet.
+ */
+export async function insertNotification(
+  userId: string,
+  type: Database["public"]["Enums"]["notification_type"],
+  payload: Database["public"]["Tables"]["notifications"]["Insert"]["payload"],
+): Promise<string> {
+  const { data, error } = await admin
+    .from("notifications")
+    .insert({ user_id: userId, type, payload })
+    .select("id")
+    .single()
+  if (error) throw new Error(`insert ${type} notification: ${error.message}`)
+  return data.id
+}
+
+export async function deleteNotifications(ids: string[]) {
+  if (!ids.length) return
+  const { error } = await admin.from("notifications").delete().in("id", ids)
+  if (error) throw error
+}
+
+/** The zone in force and the one queued, so a settings test can put both back. */
+export async function checkinTimezone(userId: string) {
+  const { data, error } = await admin
+    .from("users")
+    .select("checkin_timezone, pending_checkin_timezone")
+    .eq("id", userId)
+    .single()
+  if (error) throw error
+  return { live: data.checkin_timezone, pending: data.pending_checkin_timezone }
+}
+
+export async function setCheckinTimezone(
+  userId: string,
+  tz: { live: string; pending: string | null },
+) {
+  const { error } = await admin
+    .from("users")
+    .update({ checkin_timezone: tz.live, pending_checkin_timezone: tz.pending })
+    .eq("id", userId)
+  if (error) throw error
+}
+
+/** The daily check-in screen preference, so a settings test can put it back. */
+export async function todayScreenMode(userId: string) {
+  const { data, error } = await admin
+    .from("users")
+    .select("today_screen_mode")
+    .eq("id", userId)
+    .single()
+  if (error) throw error
+  return data.today_screen_mode
+}
+
+export async function setTodayScreenMode(
+  userId: string,
+  mode: Database["public"]["Enums"]["today_screen_mode"],
+) {
+  const { error } = await admin
+    .from("users")
+    .update({ today_screen_mode: mode })
+    .eq("id", userId)
+  if (error) throw error
+}
+
+/**
+ * Removes the account's completion history for the duration, and puts it back.
+ *
+ * **A streak length is a claim about the whole account.** Seeding a three-day
+ * run proved nothing while the owner already had a completed day just before
+ * it: the walk kept going and the header read four. Same shape as
+ * `parkActiveGoals` — a count assertion needs the fixture to own the whole
+ * list, not just the part it wrote.
+ *
+ * Safe to delete and restore: `daily_completion` carries no triggers, so
+ * nothing recomputes behind this. Verified rather than assumed.
+ */
+export async function parkCompletionHistory(userId: string) {
+  const { data, error } = await admin
+    .from("daily_completion")
+    .select("date, all_completed")
+    .eq("user_id", userId)
+  if (error) throw error
+
+  // **The streak is not in this table.** `getTodayData` reads
+  // `user_lifetime_stats.current_streak` and adds today, so clearing history
+  // alone leaves the header reporting a streak the parked rows no longer
+  // support. Two tests assumed the owner's stat was zero and passed for months
+  // because it was; they failed the morning the rollover cron settled a
+  // completed day and made it 1. Fourth instance of asserting on state the
+  // test does not own, and the first triggered by a cron rather than by
+  // another test.
+  const { data: stats } = await admin
+    .from("user_lifetime_stats")
+    .select("current_streak")
+    .eq("user_id", userId)
+    .maybeSingle()
+
+  const rows = data ?? []
+  if (rows.length) {
+    const { error: delError } = await admin
+      .from("daily_completion")
+      .delete()
+      .eq("user_id", userId)
+    if (delError) throw delError
+  }
+
+  if (stats && stats.current_streak !== 0) {
+    // Zero is always allowed: `uls_longest_gte_current` only requires the
+    // longest to be at least the current.
+    const { error: zeroError } = await admin
+      .from("user_lifetime_stats")
+      .update({ current_streak: 0 })
+      .eq("user_id", userId)
+    if (zeroError) throw zeroError
+  }
+
+  return async () => {
+    // Whatever the test wrote goes first, so the restore cannot collide with it.
+    await admin.from("daily_completion").delete().eq("user_id", userId)
+    if (rows.length) {
+      const { error: restoreError } = await admin
+        .from("daily_completion")
+        .insert(rows.map((r) => ({ ...r, user_id: userId })))
+      if (restoreError) throw restoreError
+    }
+
+    // Last, and unconditionally: this is a real account, and a streak the suite
+    // silently zeroed is exactly the kind of thing that costs an afternoon.
+    if (stats && stats.current_streak !== 0) {
+      const { error: unzeroError } = await admin
+        .from("user_lifetime_stats")
+        .update({ current_streak: stats.current_streak })
+        .eq("user_id", userId)
+      if (unzeroError) throw unzeroError
+    }
+  }
+}
+
+/**
+ * Writes `daily_completion` history directly.
+ *
+ * A streak cannot be earned inside a test, and a *broken* one needs days that
+ * stopped — so both are fabricated. Returns what was written so the caller can
+ * delete exactly that and leave any real history alone.
+ */
+export async function seedCompletedDays(
+  userId: string,
+  dates: string[],
+): Promise<string[]> {
+  if (!dates.length) return []
+  const { error } = await admin
+    .from("daily_completion")
+    .upsert(
+      dates.map((date) => ({ user_id: userId, date, all_completed: true })),
+      { onConflict: "user_id,date" },
+    )
+  if (error) throw error
+  return dates
+}
+
+/** The user's own check-in date, from the database rather than from Node. */
+export async function checkinDateFor(email: string): Promise<string> {
+  const client = await sessionFor(email)
+  const { data, error } = await client.rpc("current_checkin_date")
+  if (error) throw new Error(`current_checkin_date: ${error.message}`)
+  return data as string
+}
+
+/**
+ * Guarantees the account has an unfinished day, by giving it one goal that
+ * nobody has checked off, and returns the undo.
+ *
+ * **Written after six tests failed at once for lack of it.** Every gate test
+ * that expects a divert was asserting on a fact about the *account* — "there is
+ * something left to do today" — that it never established. It held for months
+ * because the accounts happened to have unchecked goals, and stopped holding
+ * the day every active goal was checked off by hand. Third instance of a test
+ * asserting on state it does not own.
+ *
+ * A returned goal makes the day incomplete by definition, and `goals` recounts
+ * completion on INSERT, so the `daily_completion` row is correct the moment
+ * this returns.
+ *
+ * Frees a slot first if the account is at the cap, and puts it back after.
+ */
+export async function ensureUnfinishedDay(userId: string): Promise<() => Promise<void>> {
+  const freed = await freeGoalSlots(userId, 1)
+
+  const { data: category, error: categoryError } = await admin
+    .from("goal_categories")
+    .select("id")
+    .limit(1)
+    .single()
+  if (categoryError) throw categoryError
+
+  const { data: goal, error } = await admin
+    .from("goals")
+    .insert({
+      user_id: userId,
+      // Prefixed, so `deleteE2EGoals` and the clean script can both find it if
+      // a timeout kills the test before its cleanup runs.
+      title: `${E2E_PREFIX}unfinished ${Date.now().toString().slice(-6)}`,
+      category_id: category.id,
+    })
+    .select("id")
+    .single()
+  if (error) throw error
+
+  return async () => {
+    await admin.from("progress_entries").delete().eq("goal_id", goal.id)
+    await admin.from("goals").delete().eq("id", goal.id)
+    // **Deleting a goal recounts nothing.** `goals_maintain_completion` covers
+    // INSERT and UPDATE, not DELETE, because production has no DELETE grant on
+    // goals at all — only this suite removes them. Without this the day's row
+    // keeps describing a goal that no longer exists, and the next run inherits
+    // the lie.
+    await recountToday(userId)
+    await restoreGoalSlots(freed)
+  }
+}
+
+/**
+ * Forces a completion recount for a user's current day.
+ *
+ * `private.recompute_daily_completion` is not reachable over the API: the
+ * schema is not exposed, and exposing it to give tests a shortcut would widen
+ * the product's surface for the suite's convenience.
+ *
+ * So it is triggered rather than called. `goals_maintain_completion` fires on
+ * `UPDATE OF archived_at`, and Postgres fires `UPDATE OF` on assignment rather
+ * than on change, so writing a column back to itself is a no-op that recounts.
+ *
+ * Silent when the user has no goals left: there is nothing to touch, and
+ * nothing that can disagree either, since the next insert recounts.
+ */
+export async function recountToday(userId: string) {
+  const { data } = await admin
+    .from("goals")
+    .select("id, archived_at")
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle()
+  if (!data) return
+
+  const { error } = await admin
+    .from("goals")
+    .update({ archived_at: data.archived_at })
+    .eq("id", data.id)
+  if (error) throw error
 }

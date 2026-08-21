@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
+import { RefreshOnReturn } from "./refresh-on-return"
 import { StreakDecision } from "./streak-decision"
 import { TodayRoster } from "./today-roster"
 import { getCircleRoster } from "@/lib/supabase/circle-roster"
@@ -135,6 +136,14 @@ export default async function CirclePage({
 
   return (
     <div className="flex flex-col gap-6">
+      {/*
+        8g phase 1, and only on a Circle that is still running. An inactive
+        Circle's roster is frozen at a past instant, so a refresh cannot change
+        anything, and a page that quietly refetches implies live data where
+        there is none.
+      */}
+      {circle.group_status === "active" ? <RefreshOnReturn /> : null}
+
       <header className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h1 className="text-xl font-semibold">{circle.name}</h1>
@@ -156,7 +165,7 @@ export default async function CirclePage({
       {/*
         Shown prominently and stated as the last playable day, not a bare date.
         A deadline of the 15th means the 15th is fully playable and the Circle
-        locks at the 2 AM rollover on the 16th. architecture.md section 8.
+        locks at the 2 AM rollover on the 16th. architecture/time-and-streaks.md section 8.
       */}
       <section className="rounded border px-3 py-2 text-sm">
         {deadline ? (
@@ -344,7 +353,7 @@ function OverviewTab({
               </span>
             </div>
             {/* Usernames come from the snapshot, not a live join: a rename must
-                not silently relabel a past digest. architecture.md section 3. */}
+                not silently relabel a past digest. architecture/schema.md section 3. */}
             <p className="mt-1 opacity-70">
               {s.members
                 .map((m) => `${m.completed ? "✓" : "·"} ${m.username}`)

@@ -57,10 +57,15 @@ export const BY_HINT: Record<string, string> = {
   // Profile
   USERNAME_RENAME_TOO_SOON: "You can only change your username once every 14 days.",
   TIMEZONE_INVALID: "We didn't recognise that timezone. Try reloading the page.",
+
+  // Push. Both mean the browser handed us a subscription we can't use, which
+  // nobody can act on, so the copy points at the one thing that ever fixes it.
+  PUSH_ENDPOINT_INVALID: "We couldn't set up notifications on this device. Try turning them off and on again.",
+  PUSH_KEYS_MISSING: "We couldn't set up notifications on this device. Try turning them off and on again.",
 }
 
 /**
- * Maps a database error to a message worth showing. See architecture.md
+ * Maps a database error to a message worth showing. See architecture/
  * section 2b.
  *
  * Order matters: **hint first, then SQLSTATE.** The hint is deliberate and

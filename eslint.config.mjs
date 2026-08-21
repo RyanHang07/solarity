@@ -28,7 +28,7 @@ const eslintConfig = defineConfig([
   // Enforcing this in the database doesn't work: revoking EXECUTE from
   // `authenticated` would force calls through the server, but the RPCs check
   // auth.uid() internally and service_role has none, so all of them would raise
-  // "Not authenticated". See architecture.md section 4.
+  // "Not authenticated". See architecture/security.md section 4.
   // ---------------------------------------------------------------------
   {
     files: ["**/*.{ts,tsx}"],
@@ -63,7 +63,7 @@ const eslintConfig = defineConfig([
         {
           selector: "CallExpression[callee.property.name='rpc']",
           message:
-            "Call RPCs from app/actions/ only. A direct .rpc() from a component skips rate limiting, Turnstile, and the profanity filter. See architecture.md section 4.",
+            "Call RPCs from app/actions/ only. A direct .rpc() from a component skips rate limiting, Turnstile, and the profanity filter. See architecture/security.md section 4.",
         },
       ],
     },

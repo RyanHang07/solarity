@@ -10,8 +10,10 @@
     "test": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:clean": "tsx e2e/clean.ts",
+    "test:e2e:ios": "playwright test --project=mobile-safari",
     "test:e2e:ui": "playwright test --ui",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

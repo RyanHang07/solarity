@@ -23,4 +23,27 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
+
+  /*
+   * The safe area, paid back.
+   *
+   * The root layout asks for `viewport-fit=cover` and an
+   * `apple-mobile-web-app-status-bar-style` of `black-translucent`. Together
+   * those are a deliberate request to draw **under** the status bar and the
+   * camera housing, so the themed background reaches the edges — and nothing
+   * here ever gave the content its margin back. On any iPhone with a notch or
+   * a Dynamic Island the header sat beneath the camera and lost its top.
+   *
+   * Padding on `body` rather than per screen: every route in the app renders
+   * inside it, including onboarding and the auth pages, and a rule per layout
+   * is a rule someone forgets on the next one. Tailwind's preflight sets
+   * `border-box`, so the `min-h-full` chain is unaffected.
+   *
+   * All four sides. Landscape puts an inset on the left or right, and the home
+   * indicator takes a slice of the bottom.
+   */
+  padding-top: env(safe-area-inset-top);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
 }

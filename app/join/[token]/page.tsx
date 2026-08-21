@@ -119,6 +119,34 @@ export default async function JoinPage({
     profileIncomplete = !profile?.username
   }
 
+  /**
+   * 8h-4: what this Circle will actually see of your list.
+   *
+   * **Honest by construction.** Per-Circle visibility rows cannot exist yet:
+   * `ggv_insert_own_goal` requires `is_group_member(group_id)`, and you are not
+   * one. So the only thing that can hide a goal from a Circle you have not
+   * joined is `hidden_everywhere`, and counting over `goals` alone cannot be
+   * out of date.
+   *
+   * Signed out this stays null. There are no goals to count, and rendering a
+   * line about "your goals" to someone without an account implies one exists.
+   */
+  let goalCounts: { total: number; visible: number } | null = null
+  if (user && !profileIncomplete) {
+    const { data: myGoals } = await supabase
+      .from("goals")
+      .select("hidden_everywhere")
+      .eq("user_id", user.id)
+      .is("archived_at", null)
+      .is("achieved_at", null)
+
+    const total = myGoals?.length ?? 0
+    goalCounts = {
+      total,
+      visible: (myGoals ?? []).filter((g) => !g.hidden_everywhere).length,
+    }
+  }
+
   return (
     <main className="flex min-h-full flex-1 flex-col items-center justify-center gap-6 p-8">
       <div className="flex w-full max-w-sm flex-col gap-4 rounded border px-4 py-5">
@@ -156,6 +184,26 @@ export default async function JoinPage({
               Everyone here can see whether you checked off your goals each day.
               That is the point of a Circle.
             </p>
+            {/*
+              Both numbers whenever they differ. "3 goals visible here" alone
+              would conceal that there were ever five, which is the one fact
+              this line exists to surface.
+
+              No link to change it, deliberately. The per-Circle switches cannot
+              exist before you are a member, so the only thing reachable from
+              here is the hide-everywhere switch you can reach any time, and
+              sending someone out of a two-click flow to find it costs more than
+              it gives.
+            */}
+            {goalCounts ? (
+              <p className="text-xs opacity-60">
+                {goalCounts.total === 0
+                  ? "You have no goals yet. Nothing to show until you add one."
+                  : goalCounts.visible === goalCounts.total
+                    ? `Your ${goalCounts.total} ${goalCounts.total === 1 ? "goal" : "goals"} will be visible here.`
+                    : `${goalCounts.visible} of your ${goalCounts.total} goals will be visible here. The rest are hidden everywhere.`}
+              </p>
+            ) : null}
           </>
         ) : (
           <>

@@ -3,6 +3,12 @@
 // Regenerate after any migration:
 //   npx supabase gen types typescript --project-id wyuadcnrxisqmzygzhzd > lib/database.types.ts
 //
+// **Redirect with care on Windows.** PowerShell's `>` writes UTF-16LE, which
+// `tsc` tolerates and ESLint rejects outright as "File appears to be binary",
+// and which silently drops this header. If that happens, re-encode as UTF-8:
+//   npx supabase gen types typescript --project-id wyuadcnrxisqmzygzhzd `
+//     | Out-File -Encoding utf8 lib/database.types.ts
+//
 // Note: job_* functions appear here because they exist in the public schema, but
 // EXECUTE is granted to service_role only — calling them from the client will be
 // refused by Postgres regardless of what the types allow.
@@ -16,8 +22,35 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.15"
+  }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -135,9 +168,21 @@ export type Database = {
         ]
       }
       daily_completion: {
-        Row: { all_completed: boolean; date: string; user_id: string }
-        Insert: { all_completed: boolean; date: string; user_id: string }
-        Update: { all_completed?: boolean; date?: string; user_id?: string }
+        Row: {
+          all_completed: boolean
+          date: string
+          user_id: string
+        }
+        Insert: {
+          all_completed: boolean
+          date: string
+          user_id: string
+        }
+        Update: {
+          all_completed?: boolean
+          date?: string
+          user_id?: string
+        }
         Relationships: [
           {
             foreignKeyName: "daily_completion_user_id_fkey"
@@ -149,9 +194,24 @@ export type Database = {
         ]
       }
       digest_snapshots: {
-        Row: { created_at: string; date: string; group_id: string; summary: Json }
-        Insert: { created_at?: string; date: string; group_id: string; summary: Json }
-        Update: { created_at?: string; date?: string; group_id?: string; summary?: Json }
+        Row: {
+          created_at: string
+          date: string
+          group_id: string
+          summary: Json
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          group_id: string
+          summary: Json
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          group_id?: string
+          summary?: Json
+        }
         Relationships: [
           {
             foreignKeyName: "digest_snapshots_group_id_fkey"
@@ -163,15 +223,42 @@ export type Database = {
         ]
       }
       goal_categories: {
-        Row: { color_hex: string; id: string; name: string; slug: string }
-        Insert: { color_hex: string; id?: string; name: string; slug: string }
-        Update: { color_hex?: string; id?: string; name?: string; slug?: string }
+        Row: {
+          color_hex: string
+          id: string
+          name: string
+          slug: string
+        }
+        Insert: {
+          color_hex: string
+          id?: string
+          name: string
+          slug: string
+        }
+        Update: {
+          color_hex?: string
+          id?: string
+          name?: string
+          slug?: string
+        }
         Relationships: []
       }
       goal_group_visibility: {
-        Row: { goal_id: string; group_id: string; hidden: boolean }
-        Insert: { goal_id: string; group_id: string; hidden?: boolean }
-        Update: { goal_id?: string; group_id?: string; hidden?: boolean }
+        Row: {
+          goal_id: string
+          group_id: string
+          hidden: boolean
+        }
+        Insert: {
+          goal_id: string
+          group_id: string
+          hidden?: boolean
+        }
+        Update: {
+          goal_id?: string
+          group_id?: string
+          hidden?: boolean
+        }
         Relationships: [
           {
             foreignKeyName: "goal_group_visibility_goal_id_fkey"
@@ -196,6 +283,7 @@ export type Database = {
           category_id: string
           created_at: string
           deadline: string | null
+          hidden_everywhere: boolean
           id: string
           title: string
           updated_at: string
@@ -207,6 +295,7 @@ export type Database = {
           category_id: string
           created_at?: string
           deadline?: string | null
+          hidden_everywhere?: boolean
           id?: string
           title: string
           updated_at?: string
@@ -218,6 +307,7 @@ export type Database = {
           category_id?: string
           created_at?: string
           deadline?: string | null
+          hidden_everywhere?: boolean
           id?: string
           title?: string
           updated_at?: string
@@ -321,9 +411,21 @@ export type Database = {
         ]
       }
       group_daily_completion: {
-        Row: { all_members_completed: boolean; cycle_id: string; date: string }
-        Insert: { all_members_completed: boolean; cycle_id: string; date: string }
-        Update: { all_members_completed?: boolean; cycle_id?: string; date?: string }
+        Row: {
+          all_members_completed: boolean
+          cycle_id: string
+          date: string
+        }
+        Insert: {
+          all_members_completed: boolean
+          cycle_id: string
+          date: string
+        }
+        Update: {
+          all_members_completed?: boolean
+          cycle_id?: string
+          date?: string
+        }
         Relationships: [
           {
             foreignKeyName: "group_daily_completion_cycle_id_fkey"
@@ -637,9 +739,21 @@ export type Database = {
         ]
       }
       user_blocks: {
-        Row: { blocked_user_id: string; blocker_user_id: string; created_at: string }
-        Insert: { blocked_user_id: string; blocker_user_id: string; created_at?: string }
-        Update: { blocked_user_id?: string; blocker_user_id?: string; created_at?: string }
+        Row: {
+          blocked_user_id: string
+          blocker_user_id: string
+          created_at: string
+        }
+        Insert: {
+          blocked_user_id: string
+          blocker_user_id: string
+          created_at?: string
+        }
+        Update: {
+          blocked_user_id?: string
+          blocker_user_id?: string
+          created_at?: string
+        }
         Relationships: [
           {
             foreignKeyName: "user_blocks_blocked_user_id_fkey"
@@ -696,9 +810,24 @@ export type Database = {
         ]
       }
       username_history: {
-        Row: { changed_at: string; id: string; old_username: string; user_id: string }
-        Insert: { changed_at?: string; id?: string; old_username: string; user_id: string }
-        Update: { changed_at?: string; id?: string; old_username?: string; user_id?: string }
+        Row: {
+          changed_at: string
+          id: string
+          old_username: string
+          user_id: string
+        }
+        Insert: {
+          changed_at?: string
+          id?: string
+          old_username: string
+          user_id: string
+        }
+        Update: {
+          changed_at?: string
+          id?: string
+          old_username?: string
+          user_id?: string
+        }
         Relationships: [
           {
             foreignKeyName: "username_history_user_id_fkey"
@@ -718,6 +847,8 @@ export type Database = {
           display_name: string | null
           id: string
           last_rollover_date: string | null
+          pending_checkin_timezone: string | null
+          today_screen_mode: Database["public"]["Enums"]["today_screen_mode"]
           updated_at: string
           username: string | null
         }
@@ -729,6 +860,8 @@ export type Database = {
           display_name?: string | null
           id: string
           last_rollover_date?: string | null
+          pending_checkin_timezone?: string | null
+          today_screen_mode?: Database["public"]["Enums"]["today_screen_mode"]
           updated_at?: string
           username?: string | null
         }
@@ -740,20 +873,33 @@ export type Database = {
           display_name?: string | null
           id?: string
           last_rollover_date?: string | null
+          pending_checkin_timezone?: string | null
+          today_screen_mode?: Database["public"]["Enums"]["today_screen_mode"]
           updated_at?: string
           username?: string | null
         }
         Relationships: []
       }
     }
-    Views: { [_ in never]: never }
+    Views: {
+      [_ in never]: never
+    }
     Functions: {
       archive_circle: { Args: { p_group_id: string }; Returns: undefined }
       build_daily_digests: { Args: { p_date?: string }; Returns: number }
+      circle_preview: {
+        Args: { p_token: string }
+        Returns: {
+          circle_name: string
+          is_full: boolean
+          member_count: number
+          status: string
+        }[]
+      }
       circle_roster: {
         Args: { p_group_id: string }
         Returns: {
-          as_of: string | null
+          as_of: string
           checked_count: number
           checkin_date: string
           circle_status: string
@@ -767,21 +913,14 @@ export type Database = {
           username: string
         }[]
       }
-      circle_preview: {
-        Args: { p_token: string }
-        Returns: {
-          circle_name: string
-          is_full: boolean
-          member_count: number
-          status: string
-        }[]
-      }
       complete_onboarding: {
         Args: { p_timezone: string; p_username: string }
         Returns: undefined
       }
-      current_checkin_date: { Args: never; Returns: string }
-      create_circle: { Args: { p_deadline?: string; p_name: string }; Returns: string }
+      create_circle: {
+        Args: { p_deadline?: string; p_name: string }
+        Returns: string
+      }
       create_invite_link: {
         Args: {
           p_expires_at?: string
@@ -790,22 +929,73 @@ export type Database = {
         }
         Returns: string
       }
+      current_checkin_date: { Args: never; Returns: string }
       cycle_continue: {
         Args: { p_group_id: string; p_new_deadline?: string }
         Returns: undefined
       }
-      cycle_reset: { Args: { p_group_id: string; p_new_deadline?: string }; Returns: string }
+      cycle_reset: {
+        Args: { p_group_id: string; p_new_deadline?: string }
+        Returns: string
+      }
       export_user_data: { Args: never; Returns: Json }
+      my_pending_checkin_timezone: { Args: never; Returns: string }
+      job_list_expired_photos: {
+        Args: { p_days?: number; p_limit?: number }
+        Returns: {
+          entry_id: string
+          path: string
+        }[]
+      }
+      job_mark_photos_purged: {
+        Args: { p_entry_ids: string[] }
+        Returns: number
+      }
+      job_scrub_and_list_user_media: {
+        Args: { p_user_id: string }
+        Returns: {
+          bucket: string
+          path: string
+        }[]
+      }
       join_circle: { Args: { p_token: string }; Returns: string }
       resolve_streak_decision: {
         Args: { p_continue: boolean; p_group_id: string }
         Returns: undefined
       }
+      run_daily_rollover: {
+        Args: { p_date?: string }
+        Returns: {
+          circles_locked: number
+          cycles_processed: number
+          users_processed: number
+        }[]
+      }
+      run_retention_sweep: {
+        Args: { p_batch_size?: number; p_days?: number; p_max_batches?: number }
+        Returns: {
+          digests_deleted: number
+          notifications_deleted: number
+        }[]
+      }
+      set_checkin_timezone: { Args: { p_timezone: string }; Returns: undefined }
       set_circle_deadline: {
         Args: { p_deadline: string; p_group_id: string }
         Returns: undefined
       }
-      sync_checkin_timezone: { Args: { p_timezone: string }; Returns: undefined }
+      subscribe_push: {
+        Args: {
+          p_auth: string
+          p_device_label?: string
+          p_endpoint: string
+          p_p256dh: string
+        }
+        Returns: undefined
+      }
+      sync_checkin_timezone: {
+        Args: { p_timezone: string }
+        Returns: undefined
+      }
       transfer_ownership: {
         Args: { p_group_id: string; p_new_owner: string }
         Returns: undefined
@@ -826,11 +1016,13 @@ export type Database = {
         | "group_streak_reset"
         | "member_joined"
         | "member_left"
+        | "group_archived"
       content_report_status: "pending" | "reviewed" | "actioned" | "dismissed"
       content_report_type: "checkin_photo" | "checkin_note" | "planet_avatar"
       default_stats_view: "cycle_stats" | "leaderboard"
       group_member_role: "owner" | "admin" | "member"
       group_status: "active" | "locked" | "archived"
+      today_screen_mode: "every_open" | "once_daily" | "never"
       notification_type:
         | "digest"
         | "kicked"
@@ -838,36 +1030,164 @@ export type Database = {
         | "group_locked_renewal"
         | "deadline_changed"
     }
-    CompositeTypes: { [_ in never]: never }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
 }
 
-type DefaultSchema = Database["public"]
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
 
-export type Tables<T extends keyof DefaultSchema["Tables"]> =
-  DefaultSchema["Tables"][T]["Row"]
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
-export type TablesInsert<T extends keyof DefaultSchema["Tables"]> =
-  DefaultSchema["Tables"][T]["Insert"]
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
 
-export type TablesUpdate<T extends keyof DefaultSchema["Tables"]> =
-  DefaultSchema["Tables"][T]["Update"]
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
 
-export type Enums<T extends keyof DefaultSchema["Enums"]> =
-  DefaultSchema["Enums"][T]
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
 
-// Convenience aliases for the types used most across the app.
-export type User = Tables<"users">
-export type Goal = Tables<"goals">
-export type GoalCategory = Tables<"goal_categories">
-export type Circle = Tables<"groups">
-export type CircleMember = Tables<"group_members">
-export type Cycle = Tables<"group_cycles">
-export type CheckIn = Tables<"progress_entries">
-export type DailyCompletion = Tables<"daily_completion">
-export type LifetimeStats = Tables<"user_lifetime_stats">
-export type Notification = Tables<"notifications">
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
 
-export type CircleRole = Enums<"group_member_role">
-export type CircleStatus = Enums<"group_status">
-export type NotificationType = Enums<"notification_type">
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
+  public: {
+    Enums: {
+      audit_action_type: [
+        "member_kicked",
+        "ownership_transferred",
+        "admin_promoted",
+        "admin_demoted",
+        "invite_link_toggled",
+        "invite_link_regenerated",
+        "group_deadline_changed",
+        "group_cycle_reset",
+        "group_cycle_extended",
+        "group_streak_continued",
+        "group_streak_reset",
+        "member_joined",
+        "member_left",
+        "group_archived",
+      ],
+      content_report_status: ["pending", "reviewed", "actioned", "dismissed"],
+      content_report_type: ["checkin_photo", "checkin_note", "planet_avatar"],
+      default_stats_view: ["cycle_stats", "leaderboard"],
+      group_member_role: ["owner", "admin", "member"],
+      group_status: ["active", "locked", "archived"],
+      today_screen_mode: ["every_open", "once_daily", "never"],
+      notification_type: [
+        "digest",
+        "kicked",
+        "invite_accepted",
+        "group_locked_renewal",
+        "deadline_changed",
+      ],
+    },
+  },
+} as const

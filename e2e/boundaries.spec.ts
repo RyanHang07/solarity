@@ -315,17 +315,53 @@ test.describe("the goal cap, on the path nobody checks", () => {
       .is("archived_at", null)
       .is("achieved_at", null)
       .order("created_at", { ascending: false })
-    assertOk(active, "count the joiner's active goals")
+    assertOk(active, "count the owner's active goals")
 
-    // Only meaningful at the cap. Below it, restoring is legitimately fine.
-    test.skip(
-      active.data.length < 10,
-      `needs an account at the 10-goal cap, this one has ${active.data.length}`,
-    )
-
-    const victim = active.data[0].id
     const category = await admin.from("goal_categories").select("id").limit(1).single()
     assertOk(category, "read a goal category")
+
+    // ---------------------------------------------------------------------
+    // Fill to the cap rather than requiring the account to already be there.
+    //
+    // **This used to `test.skip` below ten**, which meant it quietly stopped
+    // running the day the owner account dropped to five goals, and reported
+    // that as a pass. A conditional test is a test that reports "fine" for
+    // "did not look", and this one guards the suite as much as the product:
+    // `restoreGoalSlots` in `e2e/db.ts` assumes un-archiving cannot exceed the
+    // cap. Bug pattern: a test that borrows state it did not create.
+    // ---------------------------------------------------------------------
+    const padding: string[] = []
+    let victim: string
+
+    try {
+      for (let i = active.data.length; i < 10; i++) {
+        const pad = await admin
+          .from("goals")
+          .insert({
+            user_id: atCapId,
+            title: `E2E CAP PAD ${i}`,
+            category_id: category.data.id,
+          })
+          .select("id")
+          .single()
+        // A plain `if`, not `assertOk`. An assertion function narrowing a
+        // loop-scoped `const` whose type is still being inferred makes
+        // TypeScript report a circularity (TS7022); the explicit check narrows
+        // the same union without joining the inference.
+        if (pad.error) {
+          throw new Error(`fill slot ${i} on the way to the cap: ${pad.error.message}`)
+        }
+        padding.push(pad.data.id)
+      }
+
+      // Ten now, whatever the account looked like a moment ago. Prefer a goal
+      // this test created, so the archive/restore below never touches a real
+      // one when it does not have to.
+      victim = padding[0] ?? active.data[0].id
+    } catch (e) {
+      for (const id of padding) await admin.from("goals").delete().eq("id", id)
+      throw e
+    }
 
     let replacement: string | null = null
     try {
@@ -358,8 +394,12 @@ test.describe("the goal cap, on the path nobody checks", () => {
       expect(error?.hint, "the cap refused, but without its code").toBe("GOAL_LIMIT")
     } finally {
       if (replacement) await admin.from("goals").delete().eq("id", replacement)
-      // Restore last, once the slot is free again.
+      // Restore before deleting the padding: the restore is the write that
+      // could hit the cap, and it needs the replacement gone but the count
+      // otherwise unchanged, which is the state this test just proved is
+      // exactly at ten.
       await admin.from("goals").update({ archived_at: null }).eq("id", victim)
+      for (const id of padding) await admin.from("goals").delete().eq("id", id)
     }
   })
 })

@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server"
 import { signOut } from "@/app/actions/auth"
 
 /**
- * Onboarding gate for every signed-in screen. See architecture.md section 2b
+ * Onboarding gate for every signed-in screen. See architecture/app.md section 2b
  * for why this lives here rather than in the proxy.
  *
  * A signed-in user with no row is a broken state rather than a new user — the

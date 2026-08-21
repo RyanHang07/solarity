@@ -15,6 +15,7 @@ import {
 } from "./db"
 import { storageStateFor } from "./session"
 import { diagnose } from "./diagnose"
+import { MIN_GAP_MS } from "@/app/(app)/circles/[id]/refresh-on-return"
 
 /**
  * Step 8b and 8c: the `Today` tab, and `Members` moving out of the default.
@@ -504,6 +505,288 @@ test("a note written at check-in reaches the Circle only when shared", async ({
       await admin.from("progress_entries").delete().eq("goal_id", id)
       await admin.from("goals").delete().eq("id", id)
     }
+    await cleanup(s)
+  }
+})
+
+/**
+ * 8h-2 and 8h-3, end to end, and the assertion the whole step exists for.
+ *
+ * `roster.spec` has asserted since migration 64 that a hidden title never
+ * reaches the HTML. Until now every hidden goal in this file was hidden with
+ * the service key, so what that proved was that the database masks a flag **no
+ * user could set**. This is the first test where a person hides a goal and
+ * another person fails to see it.
+ */
+test("hiding a goal from the dashboard removes it from a circle-mate's view", async ({
+  browser,
+}) => {
+  const s = await circleWithGoals(browser)
+  try {
+    const mine = s.joinerPage
+    const theirs = s.ownerPage
+
+    // The goals list, not Today. The dashboard prints each title in both, so an
+    // unscoped locator matches two rows and Playwright's strict mode refuses.
+    const panel = mine.getByRole("region", { name: "Your goals" })
+    const row = panel.locator("li").filter({ hasText: VISIBLE_TITLE })
+
+    await mine.goto("/dashboard")
+    await expect(row).toHaveCount(1)
+    await expect(row.getByText("Visible to all your Circles")).toBeVisible()
+
+    // Visible before, or the assertion after the toggle proves nothing: a
+    // roster that never showed the title would pass either way.
+    await theirs.goto(`/circles/${s.groupId}`)
+    await theirs.getByRole("button").filter({ hasText: "1 of 2" }).click()
+    await expect(theirs.getByText(VISIBLE_TITLE)).toBeVisible()
+
+    // One placeholder to start with: the fixture seeds a second goal already
+    // hidden. Counted rather than asserted visible, because after the toggle
+    // there are two and `getByText` is strict about matching more than one.
+    // The count is the better assertion anyway: it says the newly hidden goal
+    // *joined* the placeholders rather than disappearing from the list.
+    const placeholders = theirs.getByText("Hidden goal")
+    await expect(placeholders).toHaveCount(1)
+
+    // ---- hide it, in this Circle only ----
+    await row.getByText("Visible to all your Circles").click()
+    const circleRow = row.locator("li").filter({ hasText: s.name })
+    await circleRow.getByRole("button", { name: /hide it/ }).click()
+    await expect(circleRow.getByRole("button", { name: /show it/ })).toBeVisible()
+
+    await theirs.reload()
+    await theirs.getByRole("button").filter({ hasText: "1 of 2" }).click()
+    await expect(placeholders).toHaveCount(2)
+    // Read from the delivered HTML, not from the screen. `toBeVisible` passes
+    // on a title that is present and styled away, and those are different
+    // claims: only one of them survives someone opening view-source.
+    expect(
+      await theirs.content(),
+      "a title hidden through the UI still reached a circle-mate",
+    ).not.toContain(VISIBLE_TITLE)
+
+    // Still counted. Hiding conceals the title, never the commitment, and a
+    // count that dropped to "1 of 1" would be a way to quietly abandon a goal.
+    await expect(theirs.getByText(/1 of 2/)).toBeVisible()
+
+    // ---- and back, so the control is not a one-way door ----
+    await circleRow.getByRole("button", { name: /show it/ }).click()
+    await expect(circleRow.getByRole("button", { name: /hide it/ })).toBeVisible()
+
+    await theirs.reload()
+    await theirs.getByRole("button").filter({ hasText: "1 of 2" }).click()
+    await expect(theirs.getByText(VISIBLE_TITLE)).toBeVisible()
+    await expect(placeholders).toHaveCount(1)
+  } finally {
+    await cleanup(s)
+  }
+})
+
+test("hide everywhere outranks the per-Circle switch, and says so", async ({
+  browser,
+}) => {
+  const s = await circleWithGoals(browser)
+  try {
+    const mine = s.joinerPage
+    const theirs = s.ownerPage
+
+    const panel = mine.getByRole("region", { name: "Your goals" })
+    const row = panel.locator("li").filter({ hasText: VISIBLE_TITLE })
+
+    await mine.goto("/dashboard")
+    await row.getByText("Visible to all your Circles").click()
+    await row.getByRole("button", { name: "Hide from every Circle" }).click()
+    await expect(row.getByText("Hidden from every Circle")).toBeVisible()
+
+    // The per-Circle switch does not sit there reading "visible" while the goal
+    // is hidden. A control that contradicts the state it controls is a lie
+    // about what other people can see.
+    const circleRow = row.locator("li").filter({ hasText: s.name })
+    await expect(circleRow.getByText("hidden everywhere")).toBeVisible()
+    await expect(circleRow.getByRole("button")).toHaveCount(0)
+
+    await theirs.goto(`/circles/${s.groupId}`)
+    await theirs.getByRole("button").filter({ hasText: "1 of 2" }).click()
+    expect(
+      await theirs.content(),
+      "a goal hidden everywhere still reached a circle-mate",
+    ).not.toContain(VISIBLE_TITLE)
+
+    // Your own row is the exception, and migration 72 is why. Masking is a
+    // statement about other people: hiding a goal must not hide it from you.
+    await mine.goto(`/circles/${s.groupId}`)
+    await mine.getByRole("button").filter({ hasText: "1 of 2" }).click()
+    await expect(mine.getByText(VISIBLE_TITLE)).toBeVisible()
+    await expect(mine.getByText("hidden here").first()).toBeVisible()
+
+    await mine.goto("/dashboard")
+    await row.getByText("Hidden from every Circle").click()
+    await row.getByRole("button", { name: "Show in my Circles again" }).click()
+    await expect(row.getByText("Visible to all your Circles")).toBeVisible()
+  } finally {
+    await cleanup(s)
+  }
+})
+
+/**
+ * 8h-4: the join preview names what a Circle will actually see.
+ *
+ * Lives here rather than in `invite.spec.ts` because it needs a deterministic
+ * goal count, and `parkActiveGoals` is what makes that possible. A count
+ * assertion in a file whose fixture does not own the whole list is the mistake
+ * this suite has already made once.
+ */
+test("the join preview counts your goals, and excludes the hidden ones", async ({
+  browser,
+}) => {
+  const s = await circleWithGoals(browser)
+  try {
+    // A Circle the joiner is **not** in, so the preview is a real preview. The
+    // owner makes it; the joiner only looks.
+    const { groupId: otherId } = await createCircleViaApi(
+      requireEnv("E2E_OWNER_EMAIL"),
+      "preview-count",
+    )
+    const token = await inviteTokenFor(requireEnv("E2E_OWNER_EMAIL"), otherId)
+
+    const mine = s.joinerPage
+    await mine.goto(`/join/${token}`)
+    // Two goals, both visible: one line, one number.
+    await expect(mine.getByText("Your 2 goals will be visible here.")).toBeVisible()
+
+    // Hide one everywhere. Per-Circle rows cannot exist for a Circle you have
+    // not joined, so this is the only thing that can change the number, which
+    // is what makes the line honest without a membership to read.
+    await admin
+      .from("goals")
+      .update({ hidden_everywhere: true })
+      .eq("id", s.goalIds[1])
+
+    await mine.reload()
+    await expect(
+      mine.getByText("1 of your 2 goals will be visible here."),
+    ).toBeVisible()
+
+    // Both numbers, not just the visible one. A bare "1 goal visible" would
+    // conceal that there were ever two, which is the fact the line is for.
+    await expect(mine.getByText(/The rest are hidden everywhere/)).toBeVisible()
+
+    // Back to two. Note the fixture's second goal also carries a per-Circle
+    // hidden row for the Circle the joiner is already in, and the count is
+    // still 2: this line is about the Circle being previewed, and a row for
+    // somewhere else has no business in it.
+    await admin.from("goals").update({ hidden_everywhere: false }).eq("id", s.goalIds[1])
+    await mine.reload()
+    await expect(mine.getByText("Your 2 goals will be visible here.")).toBeVisible()
+
+    // Signed out there is no line at all. Counting "your goals" for someone
+    // without an account would imply one exists.
+    const anon = await browser.newContext({ storageState: { cookies: [], origins: [] } })
+    try {
+      const anonPage = await anon.newPage()
+      await anonPage.goto(`/join/${token}`)
+      await expect(anonPage.getByRole("link", { name: "Sign in to join" })).toBeVisible()
+      await expect(anonPage.getByText(/goals will be visible here/)).toHaveCount(0)
+    } finally {
+      await anon.close()
+    }
+  } finally {
+    await cleanup(s)
+  }
+})
+
+/**
+ * 8g phase 1: coming back to the tab re-reads the roster.
+ *
+ * The check-in is made **over the API**, not in a second browser, because the
+ * point is that this page learns about a change it did not witness. Driving it
+ * through another tab would prove the same thing more slowly and with a second
+ * session to keep alive.
+ */
+test("returning to the tab picks up a circle-mate's check-in", async ({ browser }) => {
+  const s = await circleWithGoals(browser)
+  // A throwaway page in the owner's existing context, so it shares the session
+  // and costs no extra mint. **Its own page, though, because `clock.install()`
+  // has no uninstall**: leaving a frozen clock on the file's shared page would
+  // follow every later test that used it, and the failure would land somewhere
+  // unrelated with no mention of time.
+  const p = await s.ownerPage.context().newPage()
+  try {
+    // Installed before navigating, so the page's own `Date.now` is the mocked
+    // one. `MIN_GAP_MS` is 30s and the throttle is seeded at mount, so without
+    // this the dispatch below would be swallowed and the test would be
+    // exercising the throttle rather than the refresh — passing while the
+    // feature was broken.
+    await p.clock.install()
+    await p.goto(`/circles/${s.groupId}`)
+    await expect(p.getByRole("button").filter({ hasText: "1 of 2" })).toBeVisible()
+
+    // The other member finishes their second goal, elsewhere.
+    const joinerEmail = requireEnv("E2E_JOINER_EMAIL")
+    const joinerSession = await sessionFor(joinerEmail)
+    const today = await joinerSession.rpc("current_checkin_date")
+    if (today.error) throw new Error(`current_checkin_date: ${today.error.message}`)
+
+    const entry = await admin
+      .from("progress_entries")
+      .insert({
+        goal_id: s.goalIds[1],
+        user_id: await userIdByEmail(joinerEmail),
+        check_in_date: today.data as string,
+      })
+      .select("id")
+      .single()
+    if (entry.error) throw new Error(`check the second goal off: ${entry.error.message}`)
+
+    // Still stale, and that is the state this feature exists to end. Asserted
+    // rather than assumed: if the page were somehow live already, the assertion
+    // after the dispatch would pass for the wrong reason.
+    await expect(p.getByRole("button").filter({ hasText: "1 of 2" })).toBeVisible()
+
+    await p.clock.fastForward(MIN_GAP_MS + 1000)
+    await p.evaluate(() => document.dispatchEvent(new Event("visibilitychange")))
+
+    // No reload anywhere in this test.
+    await expect(p.getByRole("button").filter({ hasText: "2 of 2" })).toBeVisible()
+  } finally {
+    await p.close()
+    await cleanup(s)
+  }
+})
+
+test("an inactive Circle does not refetch, because it cannot change", async ({
+  browser,
+}) => {
+  const s = await circleWithGoals(browser)
+  const p = await s.ownerPage.context().newPage()
+  try {
+    await admin.from("groups").update({ group_status: "archived" }).eq("id", s.groupId)
+    await admin
+      .from("group_cycles")
+      .update({ ended_at: new Date(Date.now() - 60_000).toISOString() })
+      .eq("group_id", s.groupId)
+      .is("ended_at", null)
+
+    await p.clock.install()
+    await p.goto(`/circles/${s.groupId}`)
+    await expect(p.getByRole("button").filter({ hasText: "1 of 2" })).toBeVisible()
+
+    // Counted, not compared. A frozen roster shows the same numbers whether or
+    // not it refetched, so asserting the numbers are unchanged would pass on a
+    // page that hammers the server every time you look at it.
+    let requests = 0
+    p.on("request", (r) => {
+      if (r.url().includes(`/circles/${s.groupId}`)) requests += 1
+    })
+
+    await p.clock.fastForward(MIN_GAP_MS + 1000)
+    await p.evaluate(() => document.dispatchEvent(new Event("visibilitychange")))
+    await p.waitForTimeout(1000)
+
+    expect(requests, "an archived Circle refetched on return").toBe(0)
+  } finally {
+    await p.close()
     await cleanup(s)
   }
 })

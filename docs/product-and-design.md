@@ -1,6 +1,6 @@
 # Solarity: Product & Design
 
-**What the product is meant to be.** Build phases, naming, screens, and the deferred visual concept. `architecture.md` owns the schema, security model and server behaviour; `build-plan.md` owns the work queue.
+**What the product is meant to be.** Build phases, naming, screens, and the deferred visual concept. `architecture/` owns the schema, security model and server behaviour; `build-plan.md` owns the work queue.
 
 **Scope rule**: this doc governs *build phasing*, *user-facing language* and *visual design*. It never renames schema. `groups` and `group_cycles` stay as they are in the database even though they display as "Circles" and "Cycles."
 
@@ -56,7 +56,7 @@ Home dashboard, Circle page, Profile page, Notifications. Plain functional names
 
 **Onboarding needs an "add to home screen" step.** Not cosmetic: web push on iOS only works for an installed PWA, and iOS offers no native install prompt, so a user who skips it silently gets no notifications at all. Copy still to write.
 
-**Invite failure states need distinct copy.** The database returns machine codes (`INVITE_EXPIRED`, `CIRCLE_FULL`, `CIRCLE_LOCKED`, `CIRCLE_ARCHIVED`, `INVITE_REVOKED`, `INVITE_INVALID`, `CIRCLE_ORPHANED`, `NOT_AUTHENTICATED`); the UI should branch on those rather than on message text. See `architecture.md` section 10 for which cases are deliberately indistinguishable and why.
+**Invite failure states need distinct copy.** The database returns machine codes (`INVITE_EXPIRED`, `CIRCLE_FULL`, `CIRCLE_LOCKED`, `CIRCLE_ARCHIVED`, `INVITE_REVOKED`, `INVITE_INVALID`, `CIRCLE_ORPHANED`, `NOT_AUTHENTICATED`); the UI should branch on those rather than on message text. See `architecture/app.md` section 10 for which cases are deliberately indistinguishable and why.
 
 **The join screen is seen twice by a new person**, once signed out and once signed in, so it needs two states rather than one. Signed out it shows the Circle's name and size with "Sign in to join"; signed in, the same screen with "Join". Nobody should be asked to authenticate before they know what they are joining.
 
@@ -84,7 +84,7 @@ The deadline date is the **last playable day**: a deadline of March 15 means Mar
 | **Star** | permanent background progress. A burst is added when a goal is achieved. |
 | **Nebula** | a cluster of stars, blending category colours. |
 
-Ring and planet colour come from the goal's category (`goals.category_id`, required at creation: no uncategorized state, so no fallback colour is needed). The palette is nine vivid colours, fixed in `architecture.md` section 3.
+Ring and planet colour come from the goal's category (`goals.category_id`, required at creation: no uncategorized state, so no fallback colour is needed). The palette is nine vivid colours, fixed in `architecture/schema.md` section 3.
 
 **Achieving a goal removes its ring and planet entirely** and converts them into category-coloured stars. Nothing sits around half-finished; finishing something turns it into permanent background progress. This is what keeps the "always growing" quality of the scene.
 

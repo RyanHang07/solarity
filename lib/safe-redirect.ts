@@ -1,6 +1,6 @@
 /**
  * Constrains a user-supplied `next=` parameter to an in-app path, so the
- * sign-in page can't be used as an open redirect. See architecture.md
+ * sign-in page can't be used as an open redirect. See architecture/
  * section 2b.
  *
  * `//host` is protocol-relative and resolves to another origin; some parsers

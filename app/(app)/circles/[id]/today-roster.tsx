@@ -110,13 +110,25 @@ export function TodayRoster({
                       <li key={g.id} className="flex flex-col gap-0.5">
                         <span className="flex items-baseline justify-between gap-3">
                           <span className={g.hidden ? "italic opacity-60" : ""}>
-                            {/* `title` is null for a hidden goal, so the
-                                placeholder is the only thing there is to
-                                render. Hiding means "not what it is", never
-                                "not whether it was done", which is why the
-                                tick still shows. */}
-                            {g.hidden ? "Hidden goal" : g.title}
+                            {/* Hidden means "not what it is", never "not
+                                whether it was done", which is why the tick
+                                still shows either way.
+
+                                On your own row you get the real title and a
+                                marker. `circle_roster` withheld it from you
+                                too until migration 72, so this read "Hidden
+                                goal" to the one person who already knew what
+                                it said. `hidden` stays true on your own row
+                                precisely so this marker has something to read;
+                                it is the only place you can see, from inside
+                                the Circle, what this Circle cannot. */}
+                            {g.hidden && !m.is_self ? "Hidden goal" : g.title}
                           </span>
+                          {g.hidden && m.is_self ? (
+                            <span className="shrink-0 text-xs opacity-50">
+                              hidden here
+                            </span>
+                          ) : null}
                           <span
                             aria-label={g.checked ? "done" : "not done"}
                             className={`shrink-0 ${g.checked ? "" : "opacity-40"}`}

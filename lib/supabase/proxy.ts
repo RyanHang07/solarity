@@ -4,7 +4,7 @@ import type { Database } from "@/lib/database.types"
 
 /**
  * Refreshes the auth session and redirects anonymous requests. Called from
- * `proxy.ts`. See architecture.md section 2b.
+ * `proxy.ts`. See architecture/app.md section 2b.
  *
  * `response` must be the object that gets returned — building a fresh
  * NextResponse instead would discard the refreshed cookies and log people out

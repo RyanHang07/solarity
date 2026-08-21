@@ -1,0 +1,253 @@
+# Security model
+
+RLS, grants, the error contract, photo access, and what happens to data when an account ends.
+
+---
+
+## 4. Security model
+
+### Grants come first
+
+**Postgres checks table grants before evaluating any policy.** A perfect policy with no grant returns nothing. Because "Automatically expose new tables" is disabled on this project, no role: including `service_role`: holds DML by default. Every table needs an **explicit grant paired with its policy in the same migration** so they can't drift.
+
+This is the stronger posture: access is an allowlist, and a forgotten grant fails closed.
+
+- **`anon` holds no grant on any table.** The product is invite-only and unauthenticated visitors are routed through sign-in before anything is read.
+- **Column-scoped `UPDATE` grants** where a table has immutable columns. A column that was never granted can't be targeted at all, which is stronger than a `WITH CHECK` expression someone has to write correctly.
+- **`TRUNCATE` is revoked** from all client roles, with default privileges altered so new tables don't reacquire it. **TRUNCATE bypasses RLS entirely**: policies are never consulted, so the grant would have undercut every rule here. Not reachable through PostgREST today, but relying on the API surface staying narrow forever isn't a security argument.
+- `REFERENCES` and `TRIGGER` remain: both need ownership-level access and neither reads data.
+- **`service_role` bypasses RLS but still needs grants.** When grants were rebuilt as an explicit allowlist, everything went to `authenticated` and nothing to `service_role`, so every Edge Function query returned a 500. Grants are checked *before* RLS, and bypassing RLS does not help a role that cannot touch the table at all.
+
+  It went unnoticed because pg_cron runs as the table owner; only the Edge Functions exercise that path.
+
+  `service_role` now holds blanket DML deliberately. It already bypasses RLS, so per-table grants add no real restriction and only produce failures of this kind. Its real control is that the key never leaves server-side contexts. `TRUNCATE` stays revoked even here, since it bypasses RLS *and* skips triggers.
+- **PostgREST cannot address the `private` schema, so job helpers live in `public`.** Edge Functions calling `.schema("private").rpc(...)` fail, because PostgREST honours a schema header only for schemas in its exposed list. `private` deliberately is not one, since exposing it would hand clients the RLS-bypassing helpers it exists to hide. The three job-only functions (`job_list_expired_photos`, `job_mark_photos_purged`, `job_scrub_and_list_user_media`) therefore sit in `public` with `EXECUTE` granted to **`service_role` alone**. PostgREST resolves them, Postgres refuses any other caller, and they stay off the linter's report, which flags only what `anon` and `authenticated` can call.
+
+### Access matrix (`authenticated`)
+
+| Table | Read | Insert | Update (columns) | Delete |
+|---|---|---|---|---|
+| `users` | self + circle-mates | none | `display_name, avatar_url` | none |
+| `user_lifetime_stats` | self; circle-mate if opted-in and not blocking you | none | `visible_on_profile` | none |
+| `goal_categories` | all | none | none | none |
+| `goals` | self + circle-mates | own | `title, category_id, deadline, achieved_at, archived_at` | none |
+| `progress_entries` | self + circle-mates | own, **active** goal, **today only** | `note, photo_url` | own |
+| `daily_completion` | self + circle-mates | none | none | none |
+| `goal_group_visibility` | goal owner or circle member | own goal + member | `hidden` (member only) | own goal |
+| `groups` | members | none | `name` (admin); leaderboard settings (owner, via trigger) | none |
+| `group_members` | circle-mates | none | `role` (owner only, never targeting owner) | self or admin-kick, never the owner |
+| `group_cycles` | members | none | none | none |
+| `invite_links` | admins | none, RPC only | `enabled` | none |
+| `group_cycle_stats` / `group_daily_completion` | cycle members | none | none | none |
+| `group_member_category_stats` / `digest_snapshots` | circle members | none | none | none |
+| `notifications` | self | none | `read_at` | own |
+| `push_subscriptions` | self | own | `device_label` | own |
+| `user_blocks` | blocker only | own | none | own |
+| `content_reports` | own submissions | own, circle-mate target | none | none |
+| `audit_log`, `username_history` | none | none | none | none |
+
+### Policy mechanics
+
+- `USING` filters existing rows (`SELECT`/`UPDATE`/`DELETE`); `WITH CHECK` validates rows being written (`INSERT`/`UPDATE`). An `UPDATE` needs both, and they differ: `USING` says which rows you may edit, `WITH CHECK` what they may become, which is what stops editing your row into someone else's.
+- Multiple policies on the same operation are **OR-ed**. Each grants a reason; they never narrow each other.
+- **`(select auth.uid())`, not bare `auth.uid()`**: the wrapped form evaluates once per query rather than once per row.
+- **RLS filters silently.** An `UPDATE` on an invisible row affects zero rows without erroring, unlike a missing column grant which raises `insufficient_privilege`. Code that assumes success because nothing threw needs to check the affected row count.
+
+### The `private` schema
+
+Shared policy predicates live in `private`, which resolves a genuine conflict:
+
+- A policy is evaluated with the privileges of whoever runs the query, so these **must** be `EXECUTE`-able by `authenticated`.
+- But anything in `public` is published as an RPC endpoint, and these are `SECURITY DEFINER` functions that bypass RLS.
+
+PostgREST doesn't expose `private`, so policies can call them and HTTP clients cannot reach them.
+
+They also solve a recursion problem: the natural policy on `group_members` ("you can see rows for groups you belong to") queries `group_members` to decide, which Postgres rejects as infinite recursion. `SECURITY DEFINER` runs the lookup with RLS bypassed so it never re-enters.
+
+| Function | Purpose |
+|---|---|
+| `is_group_member(group_id)` | caller belongs to the circle |
+| `is_group_admin(group_id)` | caller is owner or admin |
+| `is_group_owner(group_id)` | caller is owner |
+| `is_cycle_member(cycle_id)` | reaches the circle through `group_cycles` |
+| `shares_group_with(user_id)` | the core visibility rule; symmetric |
+| `is_blocked_by(user_id)` | has that user blocked the caller: **directional** |
+| `is_goal_hidden_in_group(goal_id, group_id)` | encodes the sparse-table coalesce once |
+| `owns_goal(goal_id)` | caller owns it |
+| `owns_active_goal(goal_id)` | owns it **and** it's neither achieved nor archived. Wired into `checkin_photos_insert` by migration 64, after two months unreferenced. The policy previously checked only that the folder was the uploader's, so any fabricated or archived goal id was a valid upload target |
+
+**These predicates are ceilings, not filters.** `group_members_select_circlemate` is `is_group_member(group_id)`, so a member can read *every* member row of *every* Circle they belong to. That is exactly what the roster on `/circles/[id]` needs and far more than the dashboard wanted: reading it without `.eq("user_id", …)` returned one row per member and listed a Circle of three three times, each showing a different person's role.
+
+Dropping a `WHERE` clause because "the policy covers it" is safe only when the policy's predicate is **identical** to the filter you would have written. `goals_update_own` and `progress_entries_delete_own` are both `user_id = auth.uid()` and do pass that test, which is why `archiveGoal` and `undoCheckIn` legitimately omit the filter.
+
+The failure is invisible until a Circle has two members, so it will not show up in solo testing.
+| `current_checkin_date()` | today under the caller's frozen timezone and 2 AM rule |
+
+Not client-granted (jobs and triggers only): `checkin_date_for`, `recompute_daily_completion`, `rollover_user_day`, `rollover_group_day`, `list_expired_photos`, `mark_photos_purged`, `scrub_and_list_user_media`.
+
+**An overload is a new object, and inherits nothing.** `private.current_checkin_date(uuid)` was added in migration 64 beside an existing no-argument version and came out `anon`-executable, because `create or replace` on a *different signature* creates a fresh function with Postgres's default grant to `PUBLIC`. The original's revoke did not apply to it. Revoke in the same migration that creates a function, every time. Found by the standing check, fixed in migration 67.
+
+**`ALTER DEFAULT PRIVILEGES` is a convenience, not a guarantee.** A default revoking `EXECUTE` from `PUBLIC` in `private` was set early, yet five helpers created afterwards still came out `anon`-executable. The linter did not flag it because `anon` lacked schema `USAGE`, so one barrier stood where two were intended. Currently **0 anon-executable, 0 with a mutable `search_path`**. The function count was 41 at migration 57 and rises with each migration that adds one, so `build-plan.md` carries the query rather than a number worth trusting. Re-run it after any migration that adds a function.
+
+### Notable policy decisions
+
+**Check-ins require an ACTIVE goal.** Without this a user could check in on archived goals: the 10-goal cap bounds only *active* ones, so someone could accumulate unlimited archived goals and check into all of them daily, inflating the raw `total_completions` the leaderboard ranks on while `total_possible` stayed flat, until the `completions <= possible` invariant started rejecting legitimate writes. The cap was meant to bound exactly this; check-ins were routing around it.
+
+**Goals have no `DELETE`.** `archived_at` is the retirement path, keeping check-in history intact where a delete would strand entries with a null `goal_id`.
+
+**`daily_completion` has no client write access at all.** The entire streak system is built on it.
+
+**Hidden goals are masked by `circle_roster`, not by RLS.** Migration 64.
+
+`goals_select_own` and `progress_entries_select_own` are both `user_id = auth.uid()`: a circle-mate cannot read either table directly at all. `public.circle_roster(group_id)` is `SECURITY DEFINER`, checks membership itself, and returns each member's goals with `title` nulled where `goal_group_visibility` says hidden.
+
+**Why not RLS.** Policies are row-level. Returning a row to one viewer with a column blanked and to another intact is not something a `USING` clause can express. The previous design said "the API masks title/note/photo_url", but the client talks to PostgREST directly and that API never existed, so a circle-mate could read every title and note through `/rest/v1/goals`. Nothing leaked in practice only because nothing rendered them.
+
+**`checked` is returned for hidden goals; `title` is not.** Hiding means "do not show what it is", not "do not show whether it was done" — a hidden goal still counts toward the shared streak, so masking its state would opt out of the accountability while keeping the benefit. The denominator includes hidden goals, so the count reveals how many someone has. Unavoidable once the numbers have to add up.
+
+**The cost, stated once:** every future read of a circle-mate's goals goes through the RPC. That is the point. The old design failed precisely because masking lived in a layer that could be bypassed.
+
+`daily_completion` and `users` stay readable by circle-mates. Whether someone finished their day, and their name, are the product, and neither carries free text needing a mask.
+
+**Blocking doesn't hide the `users` row or a circle-mate's goals.** It hides `user_lifetime_stats`. Hiding identity would leave a member in a roster with no name to render, which advertises the block rather than concealing it; hiding goals would break the accountability the Circle exists for.
+
+**`group_members` `DELETE` covers leaving and kicking in one policy**: `role <> 'owner' AND (user_id = auth.uid() OR is_group_admin(group_id))`. The owner is unreachable as a target of either, so an owner can't leave without transferring and no admin can remove them: enforced in the policy, not the app layer.
+
+**Owner-only Circle settings use a trigger, not a grant.** Column grants are per-*role*, so they can't distinguish owner from admin. `guard_group_owner_only_settings` compares old and new rows to see which columns actually changed and who changed them.
+
+**Onboarding can't be a client query.** Since a user only reads rows for people they share a Circle with, the "is this username taken?" check runs server-side under `service_role`, which is also where the profanity filter and rate limiting belong.
+
+### RPCs
+
+Some operations span multiple tables and can't be made safe by a policy:
+
+| Operation | Why not a policy |
+|---|---|
+| Create a circle | group + owner membership + first cycle must be atomic, or a failure halfway leaves an ownerless circle nobody can clean up |
+| Join via invite | RLS can't see the token; also needs capacity, block check, and an audit write |
+| Transfer ownership | demote-then-promote must be ordered inside one transaction, since the one-owner index forbids two owners existing even momentarily |
+| Cycle continue / reset | closes one cycle, opens another, zeroes stats |
+
+These are `SECURITY DEFINER` functions in `public`. A function body *is* a transaction, so atomicity is free, and the logic sits next to the constraints it depends on.
+
+| Function | Returns | Checks |
+|---|---|---|
+| `create_circle(name, deadline)` | `group_id` | authenticated |
+| `circle_preview(token)` | `status, circle_name, member_count, is_full` | authenticated |
+| `join_circle(token)` | `group_id` | token valid, circle active, not blocked, under 10, has an owner. Idempotent. |
+| `transfer_ownership(group_id, new_owner)` | void | caller is owner; target is a member |
+| `cycle_continue(group_id, new_deadline)` | void | owner or admin; deadline may only extend or clear |
+| `cycle_reset(group_id, new_deadline)` | `cycle_id` | owner or admin |
+| `create_invite_link(group_id, expires_at, use_default_expiry)` | token | owner or admin; circle active and under 10 |
+| `complete_onboarding(username, timezone)` | void | validates timezone against `pg_timezone_names`; enforces the 14-day rename limit |
+| `sync_checkin_timezone(timezone)` | void | **no-op unless the check-in day has elapsed** |
+| `resolve_streak_decision(group_id, continue)` | void | owner only; requires a pending decision |
+| `set_circle_deadline(group_id, deadline)` | void | owner or admin; Circle active; deadline ≥ next day or NULL |
+| `archive_circle(group_id)` | void | Owner only. Closes the open cycle, sets status `archived`, audits. Links are disabled by trigger, members are kept, nothing is notified. **Not reversible.** |
+| `export_user_data()` | jsonb | **`SECURITY INVOKER`**: RLS applies, so it can't return another user's rows |
+| `current_checkin_date()` | date | **`SECURITY INVOKER`**: a thin wrapper over the `private` function of the same name, which PostgREST cannot address. Grants nothing new: `authenticated` already executes the private one, because policies call it with the caller's privileges. Exists so the app can supply `progress_entries.check_in_date`, which the INSERT policy requires to match it exactly. |
+
+**Unlike the `private` helpers, these are intentional API surface.** Each validates its caller in its own body: `SECURITY DEFINER` gets no RLS for free. All pin `search_path` and are granted only to `authenticated`.
+
+**Invoked from Next.js server actions, not the browser.** A browser calling `supabase.rpc()` goes straight to Supabase and never touches the app, so Upstash rate limiting, Turnstile, and the profanity filter would have nowhere to run: circle creation and joins would be entirely unthrottled.
+
+**Deliberate errors carry a machine code in the HINT.** The rule: if a message is written to be read by a person, the raise sets a hint. `lib/errors.ts` checks the hint before the SQLSTATE and falls through to a generic message for anything it does not recognise.
+
+This exists because a SQLSTATE is a category, not an intent. `check_violation` covers both "you already have 10 goals", which belongs on screen, and "value too long for type character varying(50)", which does not. Without a hint the app could only tell them apart by matching message text, which means renaming a constraint silently changes what people read.
+
+**Enforced by lint, not by the database.** A stray `supabase.rpc()` in a component works fine and silently skips all three protections. The database cannot enforce the boundary: revoking `EXECUTE` from `authenticated` would force calls through the server, but the RPCs check `auth.uid()` internally and `service_role` has none, so every call would raise "Not authenticated". An ESLint rule therefore bans `.rpc(` outside `app/actions/`.
+
+**Two exemptions, both read-only and both justified in the file itself.**
+
+| File | Why |
+|---|---|
+| `lib/supabase/checkin-date.ts` | Argument-free, needed by both the read and the write path, nothing to meter. Confining it would mean duplicating it into the page. |
+| `lib/supabase/circle-preview.ts` | Read during render on a public route, so a server action would publish a POST endpoint for a value never submitted. **This one does need metering**, per IP, and the exemption is conditional on its single call site applying it. |
+
+The second is the weaker of the two and worth watching. `circle_preview` is granted to `anon` (migration 63), which makes it the app's only unauthenticated endpoint; step 7f adds the per-IP limit at `/join/[token]`.
+
+Trade-off accepted: PL/pgSQL is harder to unit-test under Vitest. These are tested with `DO` blocks in SQL instead.
+
+### Expected, permanent linter output
+
+Anything beyond this list is a real finding.
+
+- `rls_enabled_no_policy` on `audit_log` and `username_history`: deliberately client-inaccessible.
+- `authenticated_security_definer_function_executable` on the 12 client-callable `public` RPCs: deliberately callable; `anon` is excluded.
+- `unused_index` on everything, until there's real traffic.
+
+**A replay into a shadow database is its own category of test.** `supabase db diff` builds a fresh Postgres and runs all 67 migrations, which is the only way to catch a history that depends on state it never creates. The recurring bug patterns this schema has produced, and the checks that find them, are catalogued in `build-plan.md`.
+
+---
+
+---
+
+## 9. Photo check-ins
+
+- Accepts HEIC, JPG, PNG. HEIC is converted client-side; nothing stores raw HEIC since it doesn't render reliably outside Safari.
+- Normalized to **WebP**, max ~1600px, 75–80% quality, compressed in-browser before upload.
+- Max pre-compression upload: 10MB.
+- Upload endpoint rate-limited via Upstash (~20/hour).
+- **Validate magic bytes, not the extension or MIME type**: stops a renamed executable posing as a `.jpg`. Cap decompression dimensions against decompression bombs. **Strip EXIF during re-encode** as an explicit requirement, or a check-in photo leaks the poster's GPS location to the Circle.
+
+### Storage buckets
+
+**Path convention: fixed. Changing it later means migrating objects.**
+
+```
+checkin-photos : {user_id}/{goal_id}/{entry_id}.webp
+avatars        : {user_id}/{filename}
+```
+
+The check-in path encodes owner **and** goal so the policy evaluates both the shared-Circle rule and the not-hidden rule from the path alone, without joining `progress_entries` on every object read.
+
+Both buckets are private, capped (`checkin-photos` 10MB, `avatars` 2MB), and restricted to `image/webp`. Since everything is normalized to WebP client-side, that restriction means a client skipping conversion is rejected by Storage rather than silently storing an unrenderable HEIC.
+
+**The read rule is "at least one", not "this Circle".** Hiding is per-Circle and a viewer may share several Circles with the owner, so a photo is readable if **there exists at least one shared Circle where the goal isn't hidden**. Evaluating a single Circle would hide a photo that's legitimately visible elsewhere: verified by test: a user sharing two Circles with the owner, with the goal hidden in one, still sees it.
+
+Enforced as a Storage policy rather than only API-layer masking, so the restriction holds even against a direct object URL. Writes are owner-only, scoped by the first path folder.
+
+**Retention: fixed 90 days**, via the `purge-expired-photos` Edge Function. The row and all derived statistics survive; only the image goes.
+
+*Not cycle-based, as originally specified*: a check-in belongs to a user-owned goal visible in every Circle that user is in, so "the cycle this photo belongs to" is not a question the schema can answer. A fixed age is predictable and unaffected by membership churn.
+
+*Ordering matters*: objects are removed from Storage **before** `photo_url` is nulled. Reversed, a crash between the steps leaves rows claiming no photo while the objects linger unreferenced.
+
+---
+
+---
+
+## 11. Account lifecycle
+
+Self-serve in-app deletion, not a support ticket: Apple requires it for apps offering account creation.
+
+### Edge Functions
+
+| Function | `verify_jwt` | Auth | Notes |
+|---|---|---|---|
+| `delete-account` | yes | caller's JWT | user id comes from the token, **never** the body |
+| `export-data` | yes | caller's JWT | runs as the user; RLS enforces isolation |
+| `purge-expired-photos` | no | `x-cron-secret` | scheduler-invoked; **fails closed** if the secret is unset |
+
+**`delete-account` ordering is load-bearing:**
+
+1. Identify the caller from their own JWT.
+2. Scrub note text and collect Storage paths: **before** the user row is gone, since afterwards the rows can't be located.
+3. Delete Storage objects (check-in photos, avatar).
+4. Delete the auth user, cascading into `public.users` → `group_members`, firing owner succession and audit.
+
+`progress_entries` survive, anonymized: the FKs null attribution automatically, and the function additionally scrubs the free-text `note`, which a foreign key can't reach. Hard-deleting them would retroactively corrupt other members' stats for cycles they shared.
+
+**Export returns JSON directly** rather than a signed Storage URL: at v1 volumes a user's history is small, and an export artifact would need its own retention and access rules, which is attack surface for no benefit.
+
+**Removal is classified three ways**, decided by whether the *target user row still exists* rather than by comparing `auth.uid()`:
+
+| Situation | Recorded as | Leaderboard |
+|---|---|---|
+| Account deleted | `member_left`, `via: account_deletion`, actor and target nulled | untouched |
+| Left voluntarily | `member_left`, `via: left` | **kept** |
+| Removed by someone else | `member_kicked`, `via: kicked` | **zeroed** |
+
+An earlier version compared `auth.uid()`, which recorded account deletion as a *kick*: wrongly implying moderation and applying the stat penalty to someone who just closed their account.
+
+---

@@ -2,7 +2,7 @@ import { Ratelimit } from "@upstash/ratelimit"
 import { Redis } from "@upstash/redis"
 
 /**
- * The app's primary abuse control. Limits are tabulated in architecture.md
+ * The app's primary abuse control. Limits are tabulated in architecture/
  * section 2b.
  *
  * Only applies to calls made through server actions, which is why `.rpc(` is

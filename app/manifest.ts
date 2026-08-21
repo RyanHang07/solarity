@@ -4,7 +4,7 @@ import type { MetadataRoute } from "next"
  * Served at /manifest.webmanifest. Generated natively by Next.js.
  *
  * Installability is not cosmetic: iOS delivers push only to an installed PWA,
- * and `display: standalone` is the part it checks. See architecture.md
+ * and `display: standalone` is the part it checks. See architecture/
  * section 7b.
  */
 export default function manifest(): MetadataRoute.Manifest {

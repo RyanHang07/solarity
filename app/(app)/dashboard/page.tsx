@@ -2,23 +2,41 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { getCheckinDate } from "@/lib/supabase/checkin-date"
-import { CreateCircleForm } from "./create-circle-form"
+import { alreadySeen, hasUnfinishedDay } from "@/lib/today-gate"
+import { getTodayData } from "@/lib/supabase/today"
 import { GoalsPanel } from "./goals-panel"
 import { TodayPanel } from "./today-panel"
+import { CirclesPanel, type CircleRow } from "./circles-panel"
+import { DigestPanel, type DigestRow } from "./digest-panel"
+import { NotificationsPanel, type NotificationRow } from "./notifications-panel"
 import { Notice } from "@/components/notice"
+import { PushNudge } from "@/components/push-nudge"
+import { pushNudgeDismissed } from "@/lib/push-nudge"
 
 export const metadata = { title: "Solarity" }
 
 /**
- * Placeholder shell. The v1 dashboard is the check-in panel, Circles list,
- * Overview and notifications — see product-and-design.md section 3.
+ * Three tabs and a settings link, addressable by URL.
+ *
+ * `Overview` is where you stand: today's check-in, your goals, and how
+ * yesterday ended in each Circle. `Circles` is the list and the create form.
+ * `Notifications` is the reader those rows never had.
+ *
+ * Same shape as `/circles/[id]`: `?tab=` read on the server, no client state,
+ * deep-linkable, and an unknown value falls back to the default rather than
+ * rendering nothing. `sw.js` can point at `?tab=notifications` when it needs to.
+ *
+ * The settings icon is a `Link` and not a tab. It goes to another route, and
+ * dressing navigation as a tab makes the back button behave unlike its
+ * neighbours.
  */
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ notice?: string }>
+  searchParams: Promise<{ notice?: string; tab?: string }>
 }) {
-  const { notice } = await searchParams
+  const { notice, tab } = await searchParams
+  const view = tab === "circles" || tab === "notifications" ? tab : "overview"
   const supabase = await createClient()
 
   // The layout above has already established there is a session, so this is a
@@ -31,7 +49,7 @@ export default async function DashboardPage({
   } = await supabase.auth.getUser()
   if (!user) redirect("/auth/sign-in")
 
-  const [{ data: circles }, { data: goals }, { data: categories }] =
+  const [{ data: circles }, { data: goals }, { data: categories }, { data: profile }] =
     await Promise.all([
       // `.eq("user_id", …)` is load-bearing, and leaving it out was a bug.
       //
@@ -56,150 +74,290 @@ export default async function DashboardPage({
       // check the policy to know this panel shows your goals.
       supabase
         .from("goals")
-        .select("id, title, archived_at, achieved_at, goal_categories(name, color_hex)")
+        .select(
+          "id, title, archived_at, achieved_at, hidden_everywhere, goal_categories(name, color_hex)",
+        )
         .eq("user_id", user.id)
         .order("created_at", { ascending: true }),
 
       supabase.from("goal_categories").select("slug, name, color_hex").order("name"),
+
+      // Only for the `/today` gate below. One column, and the row is already
+      // cached by the layout's own read of this table.
+      supabase
+        .from("users")
+        .select("today_screen_mode")
+        .eq("id", user.id)
+        .maybeSingle(),
     ])
 
   // One implementation of the 2 AM boundary rule, in the database, shared by
   // this read path and the INSERT policy that guards writes.
   const today = await getCheckinDate(supabase)
 
-  const [{ data: entries }, { data: completion }, { data: stats }] =
-    await Promise.all([
-      // `today ?? ""` never matches a real date, so a failed lookup shows an
-      // empty day rather than filtering on null and returning every row ever.
-      supabase
-        .from("progress_entries")
-        .select("goal_id")
-        .eq("user_id", user.id)
-        .eq("check_in_date", today ?? ""),
-      supabase
-        .from("daily_completion")
-        .select("all_completed")
-        .eq("user_id", user.id)
-        .eq("date", today ?? "")
-        .maybeSingle(),
-      supabase
-        .from("user_lifetime_stats")
-        .select("current_streak")
-        .eq("user_id", user.id)
-        .maybeSingle(),
-    ])
-
-  const completedToday = completion?.all_completed ?? false
+  /**
+   * The panel's numbers come from the shared read, not from four queries
+   * written out again here.
+   *
+   * `/today` renders the same component, and two copies of "what is checked off
+   * and what does that make the streak" would drift. The rule is one
+   * implementation per rule; see `patterns.md`.
+   */
+  const todayData = await getTodayData(supabase, user.id, today)
+  const completedToday = todayData.completedToday
+  const displayStreak = todayData.streak
 
   /**
-   * `current_streak` contains settled days only. Today is added here rather
-   * than stored, because today's completion is reversible right up until the
-   * day ends: undo a check-in and it flips back, add a goal and the
-   * denominator grows. Storing it would mean a streak that can decrease,
-   * which is how people stop trusting the number.
+   * Step 9b: divert to `/today` when the day is unfinished.
    *
-   * architecture.md section 5.
+   * **Here and not in `(app)/layout.tsx`.** `/today` lives inside `(app)`, so a
+   * condition in that layout would fire on `/today` itself and redirect it to
+   * `/today` forever. `/onboarding` gets away with being a layout gate's target
+   * only because it sits outside the route group. `e2e/gates.spec.ts` holds
+   * both halves of that.
+   *
+   * `alreadySeen` only reads cookies, because a render cannot set one. `/today`
+   * marks itself seen once it has painted.
    */
-  const displayStreak = (stats?.current_streak ?? 0) + (completedToday ? 1 : 0)
+  const mode = profile?.today_screen_mode ?? "once_daily"
+  if (
+    !(await alreadySeen(mode, today)) &&
+    (await hasUnfinishedDay(supabase, user.id, today))
+  ) {
+    redirect("/today")
+  }
 
-  const checkedIn = new Set((entries ?? []).map((e) => e.goal_id))
   const activeGoals = (goals ?? []).filter((g) => !g.archived_at && !g.achieved_at)
-  const todayGoals = activeGoals.map((g) => ({
-    id: g.id,
-    title: g.title,
-    checkedIn: checkedIn.has(g.id),
-    color: g.goal_categories?.color_hex ?? null,
-  }))
 
+  /**
+   * Which of your goals are hidden in which Circles.
+   *
+   * **Filtered to your own goal ids on purpose.** `ggv_select_owner_or_member`
+   * is `owns_goal(goal_id) OR is_group_member(group_id)`, so an unfiltered read
+   * also returns rows for *other* members' goals in Circles you belong to.
+   * Correct as a policy, wrong as a query: this panel is about your goals, and
+   * RLS bounds what you may read rather than what you meant to read.
+   *
+   * Second query rather than an embed, because the row only exists when hidden
+   * and an inner join would drop every visible goal.
+   */
+  const ownGoalIds = activeGoals.map((g) => g.id)
+  const { data: visibility } = ownGoalIds.length
+    ? await supabase
+        .from("goal_group_visibility")
+        .select("goal_id, group_id")
+        .in("goal_id", ownGoalIds)
+        .eq("hidden", true)
+    : { data: [] }
+
+  const hiddenIn = new Map<string, string[]>()
+  for (const row of visibility ?? []) {
+    hiddenIn.set(row.goal_id, [...(hiddenIn.get(row.goal_id) ?? []), row.group_id])
+  }
   // `locked` and `archived` move beneath rather than disappearing: locked is
   // awaiting a renewal decision, archived is retired, and both are still
   // history the owner may want. product-and-design.md section 3.
   const active = circles?.filter((m) => m.groups?.group_status === "active") ?? []
   const inactive = circles?.filter((m) => m.groups?.group_status !== "active") ?? []
 
-  // The heading has to name what is actually in the list. `locked` lands here
-  // too, and a Circle awaiting a renewal decision filed under "Archived" reads
-  // as retired, which is the opposite of "needs your attention".
-  const hasLocked = inactive.some((m) => m.groups?.group_status === "locked")
-  const inactiveLabel = hasLocked ? "Locked and archived" : "Archived"
+  /**
+   * The unread count, on every render regardless of tab.
+   *
+   * It renders on the `Notifications` label, so it cannot be fetched only when
+   * that tab is open: a badge you can see only after looking is not a badge.
+   * `head: true` asks PostgREST for the count and none of the rows.
+   */
+  const { count: unread } = await supabase
+    .from("notifications")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .is("read_at", null)
+
+  /**
+   * The latest digest per Circle, one small query each rather than one large
+   * one.
+   *
+   * Retention keeps 90 days, so a single `.in(...)` over ten Circles could pull
+   * 900 rows to use ten of them. PostgREST has no `DISTINCT ON`, and taking the
+   * newest N overall would silently drop a Circle whose last finished day is
+   * older than the others.
+   *
+   * Bounded by how many Circles one person is in, which is small in practice.
+   * If that stops being true this wants a view or an RPC, not a bigger limit.
+   */
+  let digests: DigestRow[] = []
+  if (view === "overview") {
+    digests = await Promise.all(
+      [...active, ...inactive].map(async (m): Promise<DigestRow> => {
+        const { data } = await supabase
+          .from("digest_snapshots")
+          .select("date, summary")
+          .eq("group_id", m.group_id)
+          .order("date", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        // `summary` is jsonb written by a job, so a shape change ships
+        // silently. Read what is present rather than destructuring and taking
+        // the whole dashboard down for everyone.
+        const summary = (data?.summary ?? {}) as Record<string, unknown>
+        const num = (v: unknown) => (typeof v === "number" ? v : null)
+
+        return {
+          groupId: m.group_id,
+          circleName: m.groups?.name ?? "Circle",
+          date: data?.date ?? null,
+          completed: num(summary.completed_count),
+          members: num(summary.member_count),
+          groupStreak: num(summary.group_streak),
+        }
+      }),
+    )
+  }
+
+  // Read for the notifications tab only, and cheap: one cookie, no query.
+  const nudgeDismissed = view === "notifications" ? await pushNudgeDismissed() : true
+
+  let notifications: NotificationRow[] = []
+  if (view === "notifications") {
+    const { data: rows } = await supabase
+      .from("notifications")
+      .select("id, type, created_at, read_at, payload")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(100)
+
+    // The live name, keyed by id. `payload.group_id` has no foreign key, so a
+    // Circle can be gone; those fall back to the stored copy. See migration 73.
+    const names = new Map<string, string>()
+    for (const m of [...active, ...inactive]) {
+      if (m.groups?.name) names.set(m.group_id, m.groups.name)
+    }
+
+    notifications = (rows ?? []).map((n): NotificationRow => {
+      const payload = (n.payload ?? {}) as Record<string, unknown>
+      const groupId = typeof payload.group_id === "string" ? payload.group_id : null
+      const stored =
+        typeof payload.circle_name === "string" ? payload.circle_name : null
+
+      return {
+        id: n.id,
+        type: n.type,
+        createdAt: new Date(n.created_at).toLocaleString(),
+        readAt: n.read_at,
+        circleName: groupId ? (names.get(groupId) ?? null) : null,
+        storedCircleName: stored,
+        groupId,
+        payload,
+      }
+    })
+  }
+
+  const tabs = [
+    ["overview", "Overview", "/dashboard"],
+    ["circles", "Circles", "/dashboard?tab=circles"],
+    [
+      "notifications",
+      unread ? `Notifications (${unread})` : "Notifications",
+      "/dashboard?tab=notifications",
+    ],
+  ] as const
 
   return (
     <div className="flex flex-col gap-8">
       <Notice notice={notice} />
 
-      {/*
-        Without a date, "nothing is checked in" and "we could not tell" are
-        indistinguishable, and the streak would quietly under-report. So the
-        panel is replaced rather than rendered with confidently wrong numbers.
+      <nav className="flex items-center justify-between gap-3 border-b text-sm">
+        <div className="flex gap-3">
+          {tabs.map(([key, label, href]) => (
+            <Link
+              key={key}
+              href={href}
+              className={`px-1 pb-2 ${
+                view === key ? "border-b-2 font-medium" : "opacity-70"
+              }`}
+            >
+              {label}
+            </Link>
+          ))}
+        </div>
+        <Link
+          href="/settings"
+          // "Account settings", not "Settings". The Circle page has its own
+          // Settings link to a different route, and two links with the same
+          // name and different destinations are ambiguous to a screen reader
+          // as well as to a test locator.
+          aria-label="Account settings"
+          title="Account settings"
+          className="pb-2 opacity-70"
+        >
+          {/* Text, not an icon font or an SVG dependency. The gear is the
+              conventional glyph and it needs no asset pipeline. */}
+          <span aria-hidden>⚙</span>
+        </Link>
+      </nav>
 
-        Only the panel, though. Returning this in place of the whole page also
-        hid the goals list, the Circles list and the create form, none of which
-        depend on today's date, while the copy claimed only today's progress was
-        missing.
-      */}
-      {today ? (
-        <TodayPanel
-          goals={todayGoals}
-          completedToday={completedToday}
-          streak={displayStreak}
-          streakIncludesToday={completedToday}
-        />
-      ) : (
-        <p role="alert" className="text-sm text-red-600">
-          Couldn&apos;t work out today&apos;s date, so today&apos;s progress and
-          your streak aren&apos;t showing. Everything else below is fine. Reload
-          in a moment.
-        </p>
-      )}
+      {view === "overview" ? (
+        <>
+          {/*
+            Without a date, "nothing is checked in" and "we could not tell" are
+            indistinguishable, and the streak would quietly under-report. So the
+            panel is replaced rather than rendered with confidently wrong
+            numbers.
 
-      <GoalsPanel goals={goals ?? []} categories={categories ?? []} />
+            Only the panel, though. Returning this in place of the whole page
+            also hid the goals list and the Circles list, neither of which
+            depends on today's date, while the copy claimed only today's
+            progress was missing.
+          */}
+          {today ? (
+            <TodayPanel
+              goals={todayData.goals}
+              completedToday={completedToday}
+              streak={displayStreak}
+              streakIncludesToday={completedToday}
+            />
+          ) : (
+            <p role="alert" className="text-sm text-red-600">
+              Couldn&apos;t work out today&apos;s date, so today&apos;s progress
+              and your streak aren&apos;t showing. Everything else below is fine.
+              Reload in a moment.
+            </p>
+          )}
 
-      <section className="flex flex-col gap-4">
-        <h2 className="text-lg font-semibold">Your Circles</h2>
+          {/*
+            Only active Circles get a visibility toggle. An archived Circle's
+            roster is frozen at a past instant, so a change now would either do
+            nothing or appear to rewrite history depending on which side of that
+            instant it landed. Same reasoning as the note-sharing controls in 8d.
+          */}
+          <GoalsPanel
+            goals={goals ?? []}
+            categories={categories ?? []}
+            circles={active.map((m) => ({
+              id: m.group_id,
+              name: m.groups?.name ?? "Circle",
+            }))}
+            hiddenIn={Object.fromEntries(hiddenIn)}
+          />
 
-        <CreateCircleForm />
+          <DigestPanel rows={digests} />
+        </>
+      ) : null}
 
-        {!active.length ? (
-          <p className="text-sm opacity-70">
-            No active Circles yet. Start one above.
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {active.map((m) => (
-              <li key={m.group_id} className="rounded border text-sm">
-                <Link
-                  href={`/circles/${m.group_id}`}
-                  className="flex justify-between px-3 py-2"
-                >
-                  <span>{m.groups?.name}</span>
-                  <span className="opacity-60">{m.role}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+      {view === "circles" ? (
+        <CirclesPanel active={active as CircleRow[]} inactive={inactive as CircleRow[]} />
+      ) : null}
 
-        {inactive.length ? (
-          <details>
-            <summary className="cursor-pointer text-sm opacity-70">
-              {inactiveLabel} ({inactive.length})
-            </summary>
-            <ul className="mt-2 flex flex-col gap-2">
-              {inactive.map((m) => (
-                <li key={m.group_id} className="rounded border text-sm opacity-60">
-                  <Link
-                    href={`/circles/${m.group_id}`}
-                    className="flex justify-between px-3 py-2"
-                  >
-                    <span>{m.groups?.name}</span>
-                    <span>{m.groups?.group_status}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </details>
-        ) : null}
-      </section>
+      {view === "notifications" ? (
+        <>
+          {/* 10f. Above the list, and only for people who never decided. The
+              cookie is read here because a client component cannot; everything
+              else it needs is client-side. */}
+          <PushNudge dismissed={nudgeDismissed} />
+          <NotificationsPanel rows={notifications} unread={unread ?? 0} />
+        </>
+      ) : null}
     </div>
   )
 }
