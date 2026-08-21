@@ -1925,3 +1925,17 @@ The three things the suite cannot reach are the three things step 10 is actually
 **The checkpoint was planned for after 10d and the work carried on to 10f.** Both pieces are small, and the suite can prove their invariants without a device — re-subscription never prompts, the nudge never reaches for the dialog. That was a reasonable call, and it does not move the checkpoint: it means more code now rests on a moment nobody has seen.
 
 **Step 11 waits behind it**, and not because it depends on step 10. It does not. It waits because a permission dialog is the one thing here that shipping a fix cannot undo, and the reliable way to waste that is to start the next feature and never come back.
+
+---
+
+### Signing out did not let you sign in as anyone else
+
+Found while preparing the manual pass, which needs two accounts on one phone.
+
+Google skips its account chooser whenever exactly one account is signed in to the browser, so pressing "Continue with Google" after signing out went straight back into the account just left. **Nothing in the app could fix that from the inside**: the session that decides is Google's, and `supabase.auth.signOut()` only clears ours.
+
+`signInWithOAuth` now passes `queryParams: { prompt: "select_account" }`. One extra tap for someone with a single account, and the difference between usable and not for anyone with two — a test account, a work login, a shared machine.
+
+**Not `prompt=consent`**, which re-asks for permissions already granted and reads as though something has gone wrong.
+
+A small thing, and worth recording for two reasons: it was invisible to every test, because the suite mints sessions through the admin API and never touches Google; and it would have made the manual pass materially harder at exactly the moment two accounts are needed.

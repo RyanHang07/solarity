@@ -25,6 +25,8 @@ export async function signInWithGoogle(formData: FormData) {
     provider: "google",
     options: {
       redirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`,
+      // Force the account chooser; Google skips it for a single signed-in account, and `consent` re-prompts permissions.
+      queryParams: { prompt: "select_account" },
     },
   })
 

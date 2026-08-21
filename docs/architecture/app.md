@@ -56,6 +56,8 @@ proxy.ts            session refresh + anonymous redirect
 
 ### Three enforcement points, in order
 
+**Sign-in always asks which Google account.** `signInWithOAuth` passes `prompt=select_account`, because Google skips its own chooser whenever exactly one account is signed in to the browser — so signing out of Solarity and signing back in silently returns you to the account you just left, and nothing in the app can undo that: the session is Google's, and `signOut` cannot reach it. One extra tap for someone with a single account; the difference between usable and not for anyone with two.
+
 1. **`proxy.ts`** refreshes the auth session and redirects anonymous requests to sign-in. It uses `getUser()`, not `getSession()`: the latter reads the cookie without verifying it, which is not a basis for an authorization decision. It deliberately does **not** check onboarding: that would be a database round trip on every request, including prefetches and asset fetches.
 2. **`app/(app)/layout.tsx`** checks that a username exists and redirects to onboarding otherwise. One query per protected navigation, and the same query the header needs anyway.
 3. **`app/actions/*`** wrap each RPC with rate limiting, profanity screening, and error mapping. RLS still protects the data if this layer is bypassed; what is lost is throttling.
