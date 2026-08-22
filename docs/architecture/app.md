@@ -41,24 +41,31 @@ Build phases, screen inventory and the deferred galaxy visualization are in `pro
 app/
   (app)/            signed-in screens; layout.tsx is the onboarding gate
   actions/          server actions: the only place .rpc() may appear
+  api/csp-report/   where CSP violations land; logs and returns 204
   auth/             sign-in page, OAuth callback route, error page
   onboarding/       username + timezone, then install/ (10b), then notifications/ (10c)
   manifest.ts       web app manifest
 components/         client components
 lib/
+  digest-days.ts    grouping, ordering, UTC-pinned dates — pure, unit-tested
+  notification-types.ts  which types the Notifications tab owns
+  security-headers.ts  the CSP and the fixed headers, in one place
+  csp-report.ts     reads both spellings of a violation report
   supabase/         browser client, server client, admin client, proxy helper
   ratelimit.ts      Upstash limiters
   errors.ts         SQLSTATE → user-facing message
   profanity.ts      obscenity matcher
   safe-redirect.ts  open-redirect guard for the `next=` parameter
-proxy.ts            session refresh + anonymous redirect
+proxy.ts            session refresh + anonymous redirect + the nonce CSP
+next.config.ts      the headers with no per-request component
 ```
 
-### Three enforcement points, in order
+### Four enforcement points, in order
 
 **Sign-in always asks which Google account.** `signInWithOAuth` passes `prompt=select_account`, because Google skips its own chooser whenever exactly one account is signed in to the browser — so signing out of Solarity and signing back in silently returns you to the account you just left, and nothing in the app can undo that: the session is Google's, and `signOut` cannot reach it. One extra tap for someone with a single account; the difference between usable and not for anyone with two.
 
-1. **`proxy.ts`** refreshes the auth session and redirects anonymous requests to sign-in. It uses `getUser()`, not `getSession()`: the latter reads the cookie without verifying it, which is not a basis for an authorization decision. It deliberately does **not** check onboarding: that would be a database round trip on every request, including prefetches and asset fetches.
+0. **`next.config.ts`** ships the fixed security headers on every path, including the static assets the proxy deliberately skips. See `security.md` section 3b.
+1. **`proxy.ts`** refreshes the auth session, mints the per-request CSP nonce, and redirects anonymous requests to sign-in. It uses `getUser()`, not `getSession()`: the latter reads the cookie without verifying it, which is not a basis for an authorization decision. It deliberately does **not** check onboarding: that would be a database round trip on every request, including prefetches and asset fetches.
 2. **`app/(app)/layout.tsx`** checks that a username exists and redirects to onboarding otherwise. One query per protected navigation, and the same query the header needs anyway.
 3. **`app/actions/*`** wrap each RPC with rate limiting, profanity screening, and error mapping. RLS still protects the data if this layer is bypassed; what is lost is throttling.
 
@@ -201,6 +208,28 @@ Realtime respects RLS, so `notifications_select_own` governs the socket too: one
 
 ---
 
+## 6b. The dashboard
+
+Three tabs, addressable by `?tab=`, read on the server with no client state.
+
+| Tab | Answers |
+|---|---|
+| Overview | Where you stand: today's check-in, your goals, and **five days of digest boxes** |
+| Circles | The list, and the create form |
+| Notifications | The four **event** types, and nothing else |
+
+### The day boxes
+
+One box per day, newest first, five days, from `digest_snapshots`. Each box lists the Circles that reported *that day*; a Circle with no snapshot for a day is simply absent from it, and a Circle with no snapshots at all appears nowhere here — the Circles tab is where the full list lives.
+
+**Five days, never five rows.** One query, `.in("group_id", …)` with `limit(circles × 5)`, grouped in TypeScript. At most one row exists per Circle per date, so that limit cannot cut into the fifth day while a fifth day exists. Taking the newest N *rows* instead would drop a Circle whose day sorted last, and would show fewer days the more Circles someone is in — the panel would mean something different for every account.
+
+**Collapsed is a line; expanded is a `<details>`** holding the roll call: every member marked finished or not, their username **as it was that day**, their streak, your own row marked, and whether the Circle's group streak moved since the box below. `<details>` rather than client state, so it needs no client component, survives with JavaScript off, and keeps the hidden content in the document for search and screen readers.
+
+**Ordering is a fact about now, not about the day.** A Circle with a pending streak decision or an unread event notification sorts to the top of *every* box, including last week's. Deliberate: the boxes are a place to scan, and the thing waiting on you should not be halfway down the fourth one.
+
+**Dates are formatted UTC-pinned.** These are check-in dates that already had a timezone applied; `new Date(date)` re-applies an offset and dates every box a day early for anyone west of UTC. `lib/digest-days.ts` holds the grouping, ordering, formatting and delta as pure functions, tested in a runner deliberately pinned to a non-UTC zone.
+
 ## 7b. PWA & push delivery
 
 Notifications are the app's re-engagement loop, and on iOS they only work for an installed PWA. That makes the PWA layer functional infrastructure, not polish.
@@ -226,6 +255,8 @@ Notifications are the app's re-engagement loop, and on iOS they only work for an
 **The toggle in settings is per device, and asks the server.** Whether push is on is the conjunction of three facts: the browser permits it, this browser holds a subscription, and the row still names *you*. The third matters because a browser keeps its `PushSubscription` across sign-ins while `subscribe_push` hands the endpoint to whoever subscribed last, so a local-only check would show "on" to someone whose endpoint now belongs to a flatmate. `pushSubscribed(endpoint)` is the read.
 
 Turning it off unsubscribes the browser **first**, then deletes the row: a half-failure then converges, because the sender prunes dead endpoints on 404 or 410. The reverse order leaves a live subscription with no row and nothing to notice.
+
+**`notifications` is two things at once, and the split is deliberate.** For the four event types it is an outbox: written by the database, rendered on the Notifications tab, marked read when shown, counted by the badge. For `digest` it is a **delivery queue**: written by `build_daily_digests`, read once by `send-digest-push`, and never rendered — the day boxes on Overview show that content from `digest_snapshots` instead. So `read_at` never applies to a digest and stays `null`; a timestamp would claim you read something the app never showed you. The type list lives in `lib/notification-types.ts` and is imported by all three readers, because a drift between them is silent in every direction.
 
 **Registration deliberately does NOT request notification permission.** Browsers effectively allow one ask: a denial is sticky and cannot be re-prompted, only reversed by the user digging through settings. Asking on first page load, before anyone knows what Solarity is, mostly buys a permanent no. The prompt belongs in onboarding, **after** the add-to-home-screen step, once the reason is obvious.
 

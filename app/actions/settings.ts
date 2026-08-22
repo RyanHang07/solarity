@@ -221,3 +221,39 @@ export async function exportUserData(): Promise<
   if (error) return { ok: false, error: toMessage(error) }
   return { ok: true, data }
 }
+
+/**
+ * Whether a push body may name the Circle it is about.
+ *
+ * **A plain column write, like the check-in screen setting**, and for the same
+ * reason: nothing here is hidden from anyone, so there is no case for an RPC.
+ *
+ * **No `revalidatePath`.** Nothing rendered depends on it. The only reader is
+ * `send-digest-push`, which queries the database when it runs, so a stale page
+ * cannot produce a stale notification.
+ */
+export async function updatePushShowsCircleName(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  // A checkbox sends its value only when ticked, so absence is the off state
+  // rather than a missing field.
+  const show = formData.get("show") === "on"
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: "Please sign in again." }
+
+  const { data, error } = await supabase
+    .from("users")
+    .update({ push_shows_circle_name: show })
+    .eq("id", user.id)
+    .select("id")
+
+  if (error) return { ok: false, error: toMessage(error) }
+  if (!data?.length) return { ok: false, error: "Couldn't save that." }
+
+  return { ok: true, data: undefined }
+}

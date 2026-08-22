@@ -45,6 +45,68 @@ async function iphone(browser: import("@playwright/test").Browser) {
   return { page, close: () => context.close() }
 }
 
+test("WebKit runs the app's client JavaScript under the policy", async ({ browser }) => {
+  /**
+   * **Step 12 broke this project twice, and named nothing either time.**
+   *
+   * In dev, a nonce sitting beside `'unsafe-inline'` in `script-src` switched
+   * `'unsafe-inline'` off, so every un-nonced script Turbopack injected was
+   * blocked. In a production build, `upgrade-insecure-requests` over http
+   * rewrote the bundle and the stylesheet to `https://localhost:3000`, which
+   * nothing answers — no block, no violation, just elements that were never
+   * fetched.
+   *
+   * Chromium hid both: it tolerated the first and exempts localhost from the
+   * second. What the failures looked like from here was four tests reporting
+   * missing text and a missing padding value.
+   *
+   * So the check is stated once, first, in the terms the failure actually
+   * has, and it prints the policy and the DOM counts beside its own result.
+   * A WebKit-only, production-only breakage is slow to reproduce; one run
+   * should be enough to name the directive.
+   */
+  const { page, close } = await iphone(browser)
+  const blocked: string[] = []
+  page.on("console", (m) => {
+    if (/Content Security Policy|Refused to (load|execute|apply|connect)/i.test(m.text())) {
+      blocked.push(m.text())
+    }
+  })
+
+  try {
+    const response = await page.goto("/onboarding/install")
+    await page.waitForLoadState("networkidle")
+
+    const csp = response!.headers()["content-security-policy"] ?? "(none)"
+    const facts = await page.evaluate(() => {
+      const scripts = Array.from(document.querySelectorAll("script"))
+      return {
+        scripts: scripts.length,
+        withSrc: scripts.filter((s) => s.src).length,
+        nonced: scripts.filter((s) => s.nonce || s.getAttribute("nonce")).length,
+        sheets: document.querySelectorAll('link[rel="stylesheet"]').length,
+        bodyDisplay: getComputedStyle(document.body).display,
+      }
+    })
+    const report = `\nCSP: ${csp}\nDOM: ${JSON.stringify(facts)}`
+
+    expect(blocked, blocked.join("\n") + report).toHaveLength(0)
+
+    expect(facts.withSrc, "no client bundle loaded at all" + report).toBeGreaterThan(0)
+
+    // **An unstyled body has meant two different things here already.** In dev
+    // Turbopack injects the stylesheet from JavaScript, so it means scripts
+    // were blocked. In a production build the stylesheet is a plain
+    // same-origin `<link>`, and the cause was `upgrade-insecure-requests`
+    // rewriting it to a port nothing listens on — present in the DOM, never
+    // fetched, no violation raised. Which is why the report above prints
+    // `sheets` and `nonced` rather than only this result.
+    expect(facts.bodyDisplay, "the page rendered unstyled" + report).not.toBe("block")
+  } finally {
+    await close()
+  }
+})
+
 test("an iPhone is told how to install, since nothing will offer", async ({
   browser,
 }) => {

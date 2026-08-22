@@ -23,6 +23,11 @@ export type NotificationRow = {
  * Rows have been written since the 13th and nothing has ever displayed one, so
  * `read_at` was a column with no writer and 52 rows sat unread. Same shape as
  * 8h, one layer up.
+ *
+ * **Four types, not five, since 11c.** Digests moved to the day boxes on
+ * Overview, and were 69 of the 70 rows here — burying the handful that might
+ * actually need a response. The query filters by type; this component renders
+ * whatever it is given.
  */
 
 /** Marks everything read once the list has actually rendered. */
@@ -61,12 +66,10 @@ function describe(n: NotificationRow): string {
   const p = n.payload
 
   switch (n.type) {
-    case "digest": {
-      const done = Number(p.completed_count ?? 0)
-      const total = Number(p.member_count ?? 0)
-      const when = typeof p.date === "string" ? p.date : "that day"
-      return `${name}: ${done} of ${total} finished on ${when}`
-    }
+    // **No `digest` case, since 11c.** The query feeding this list filters by
+    // type, so one cannot arrive here; a branch for it would be code with no
+    // reader. If one ever did leak through, the default below says something
+    // dull and true rather than nothing.
     case "invite_accepted": {
       const who = typeof p.joined_username === "string" ? p.joined_username : "Someone"
       return `${who} joined ${name}`
@@ -96,7 +99,6 @@ function hrefFor(n: NotificationRow): string | null {
   // Not `kicked`: you are no longer a member, so the link would land on a
   // redirect, and offering it reads as a way back in.
   if (n.type === "kicked") return null
-  if (n.type === "digest") return `/circles/${n.groupId}?tab=overview`
   return `/circles/${n.groupId}`
 }
 

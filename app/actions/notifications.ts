@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server"
 import { toMessage, type ActionResult } from "@/lib/errors"
+import { TAB_NOTIFICATION_TYPES } from "@/lib/notification-types"
 
 /**
  * Marks everything you have not read as read.
@@ -21,6 +22,11 @@ import { toMessage, type ActionResult } from "@/lib/errors"
  * **Scoped by `read_at is null`** so a repeat call writes nothing at all, and
  * the timestamp records when you first looked rather than the last time a tab
  * re-mounted.
+ *
+ * **And scoped by type, since 11c.** Digests are not rendered in that list any
+ * more, so marking them read here would claim you had read something the app
+ * deliberately did not show you. `read_at` simply does not apply to a digest;
+ * see `lib/notification-types.ts`.
  */
 export async function markNotificationsRead(): Promise<ActionResult> {
   const supabase = await createClient()
@@ -43,6 +49,7 @@ export async function markNotificationsRead(): Promise<ActionResult> {
     .update({ read_at: "now" })
     .eq("user_id", user.id)
     .is("read_at", null)
+    .in("type", TAB_NOTIFICATION_TYPES)
 
   if (error) return { ok: false, error: toMessage(error) }
   return { ok: true, data: undefined }

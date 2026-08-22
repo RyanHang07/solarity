@@ -7,9 +7,11 @@ import { getTodayData } from "@/lib/supabase/today"
 import { GoalsPanel } from "./goals-panel"
 import { TodayPanel } from "./today-panel"
 import { CirclesPanel, type CircleRow } from "./circles-panel"
-import { DigestPanel, type DigestRow } from "./digest-panel"
+import { DigestPanel } from "./digest-panel"
+import { getDigestDays, type DigestDay } from "@/lib/supabase/digests"
 import { NotificationsPanel, type NotificationRow } from "./notifications-panel"
 import { Notice } from "@/components/notice"
+import { TAB_NOTIFICATION_TYPES } from "@/lib/notification-types"
 import { PushNudge } from "@/components/push-nudge"
 import { pushNudgeDismissed } from "@/lib/push-nudge"
 
@@ -64,7 +66,9 @@ export default async function DashboardPage({
       // what you *may* read, never what you *meant* to read.
       supabase
         .from("group_members")
-        .select("group_id, role, groups(name, group_status)")
+        // `streak_decision_pending` is one more column on a query this page
+        // already runs, and it is half of what orders the digest boxes.
+        .select("group_id, role, groups(name, group_status, streak_decision_pending)")
         .eq("user_id", user.id)
         .order("joined_at", { ascending: true }),
 
@@ -172,6 +176,10 @@ export default async function DashboardPage({
     .select("id", { count: "exact", head: true })
     .eq("user_id", user.id)
     .is("read_at", null)
+    // A badge must count what its tab can show. Digests moved to the day boxes
+    // in 11c, so counting them would put a number on this tab that nothing on
+    // this tab could clear.
+    .in("type", TAB_NOTIFICATION_TYPES)
 
   /**
    * The latest digest per Circle, one small query each rather than one large
@@ -185,34 +193,53 @@ export default async function DashboardPage({
    * Bounded by how many Circles one person is in, which is small in practice.
    * If that stops being true this wants a view or an RPC, not a bigger limit.
    */
-  let digests: DigestRow[] = []
+  /**
+   * Step 11. Five days of digests, grouped into boxes.
+   *
+   * **Two reads, both cheap, and neither per Circle.** The snapshots are one
+   * query; the attention signals are one more. The panel this replaced ran a
+   * query per Circle to render a single row each.
+   */
+  let digestDays: DigestDay[] = []
   if (view === "overview") {
-    digests = await Promise.all(
-      [...active, ...inactive].map(async (m): Promise<DigestRow> => {
-        const { data } = await supabase
-          .from("digest_snapshots")
-          .select("date, summary")
-          .eq("group_id", m.group_id)
-          .order("date", { ascending: false })
-          .limit(1)
-          .maybeSingle()
+    const membership = [...active, ...inactive].map((m) => ({
+      groupId: m.group_id,
+      circleName: m.groups?.name ?? "Circle",
+      inactive: m.groups?.group_status !== "active",
+    }))
 
-        // `summary` is jsonb written by a job, so a shape change ships
-        // silently. Read what is present rather than destructuring and taking
-        // the whole dashboard down for everyone.
-        const summary = (data?.summary ?? {}) as Record<string, unknown>
-        const num = (v: unknown) => (typeof v === "number" ? v : null)
+    /**
+     * Which Circles want something from you, right now.
+     *
+     * **A fact about the present, not about the day in the box**, so a Circle
+     * awaiting a decision rises to the top of every box including last week's.
+     * That is deliberate: the boxes are a place to scan, and the thing waiting
+     * on you should not be halfway down the fourth one.
+     */
+    const needsAttention = new Set<string>()
+    for (const m of [...active, ...inactive]) {
+      if (m.groups?.streak_decision_pending) needsAttention.add(m.group_id)
+    }
 
-        return {
-          groupId: m.group_id,
-          circleName: m.groups?.name ?? "Circle",
-          date: data?.date ?? null,
-          completed: num(summary.completed_count),
-          members: num(summary.member_count),
-          groupStreak: num(summary.group_streak),
-        }
-      }),
-    )
+    // Unread notifications, by Circle. `payload->>group_id` rather than reading
+    // whole payloads: this needs one string per row, and payloads carry more.
+    //
+    // **The same type filter, and it is load-bearing.** Digests are never
+    // marked read, so without it every Circle with a digest would count as
+    // "needing you" forever, and the ordering would say nothing at all.
+    const { data: unreadRows } = await supabase
+      .from("notifications")
+      .select("payload->>group_id")
+      .eq("user_id", user.id)
+      .is("read_at", null)
+      .in("type", TAB_NOTIFICATION_TYPES)
+
+    for (const row of unreadRows ?? []) {
+      const groupId = (row as { group_id: string | null }).group_id
+      if (groupId) needsAttention.add(groupId)
+    }
+
+    digestDays = await getDigestDays(supabase, membership, needsAttention)
   }
 
   // Read for the notifications tab only, and cheap: one cookie, no query.
@@ -224,6 +251,9 @@ export default async function DashboardPage({
       .from("notifications")
       .select("id, type, created_at, read_at, payload")
       .eq("user_id", user.id)
+      // Filtered by type rather than by read state: a digest must not appear
+      // here whether or not anything ever marked it read.
+      .in("type", TAB_NOTIFICATION_TYPES)
       .order("created_at", { ascending: false })
       .limit(100)
 
@@ -341,7 +371,7 @@ export default async function DashboardPage({
             hiddenIn={Object.fromEntries(hiddenIn)}
           />
 
-          <DigestPanel rows={digests} />
+          <DigestPanel days={digestDays} viewerId={user.id} today={today} />
         </>
       ) : null}
 

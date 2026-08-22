@@ -848,6 +848,7 @@ export type Database = {
           id: string
           last_rollover_date: string | null
           pending_checkin_timezone: string | null
+          push_shows_circle_name: boolean
           today_screen_mode: Database["public"]["Enums"]["today_screen_mode"]
           updated_at: string
           username: string | null
@@ -861,6 +862,7 @@ export type Database = {
           id: string
           last_rollover_date?: string | null
           pending_checkin_timezone?: string | null
+          push_shows_circle_name?: boolean
           today_screen_mode?: Database["public"]["Enums"]["today_screen_mode"]
           updated_at?: string
           username?: string | null
@@ -874,6 +876,7 @@ export type Database = {
           id?: string
           last_rollover_date?: string | null
           pending_checkin_timezone?: string | null
+          push_shows_circle_name?: boolean
           today_screen_mode?: Database["public"]["Enums"]["today_screen_mode"]
           updated_at?: string
           username?: string | null

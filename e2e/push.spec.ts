@@ -481,6 +481,67 @@ test("the nudge stays away from everyone who has already decided", async ({
   }
 })
 
+/* ------------------------------------------------------------------ 10g --
+ * What a notification is allowed to say. Per account, not per device.
+ */
+
+test("the Circle-name setting saves, persists, and is not the device toggle", async ({
+  browser,
+}) => {
+  const userId = await userIdByEmail(requireEnv("E2E_OWNER_EMAIL"))
+  const { page, close } = await signedIn(browser, DENIED)
+
+  const { data: before } = await admin
+    .from("users")
+    .select("push_shows_circle_name")
+    .eq("id", userId)
+    .single()
+
+  try {
+    await page.goto("/settings")
+    const form = page.getByRole("form", { name: "Notification detail" })
+    const box = form.getByRole("checkbox")
+
+    // On by default: an unattributable notification is the failure this piece
+    // exists to fix.
+    await expect(box).toBeChecked()
+
+    await box.uncheck()
+    await form.getByRole("button", { name: "Save" }).click()
+    await expect(form.getByText("Saved.")).toBeVisible()
+
+    // The database, not the checkbox. A form that reports success and writes
+    // nothing is a shape this codebase has already met once.
+    await expect
+      .poll(async () => {
+        const { data } = await admin
+          .from("users")
+          .select("push_shows_circle_name")
+          .eq("id", userId)
+          .single()
+        return data?.push_shows_circle_name
+      })
+      .toBe(false)
+
+    await page.reload()
+    await expect(page.getByRole("form", { name: "Notification detail" }).getByRole("checkbox")).not.toBeChecked()
+
+    // **Independent of the device toggle.** This context has permission denied,
+    // so the toggle above is not even a switch — and this setting still works,
+    // because what a notification may say is an account fact and whether this
+    // browser gets one is a device fact.
+    await expect(
+      page.getByRole("region", { name: "Notifications" }).getByRole("button"),
+    ).toHaveCount(0)
+  } finally {
+    await admin
+      .from("users")
+      .update({ push_shows_circle_name: before?.push_shows_circle_name ?? true })
+      .eq("id", userId)
+    await close()
+  }
+})
+
 declare global {
   interface Window {
     __askCount?: number

@@ -23,10 +23,10 @@ Ordered so the app works **alone** before it works **together**: streaks can be 
 | 1–7 | Auth, Circles, goals, check-ins, the Circle page, invites | ✅ 12–14 Aug |
 | 8 | Seeing each other | ✅ 17 Aug, migrations 68–75 |
 | 9 | The daily check-in flow | ✅ 18 Aug, migration 76 |
-| **10** | **Install nudge, then push permission** | built and audited. **Open: the manual pass, on a phone** |
-| 11 | Digest boxes on Overview | planned in full; starts once the pass is clean |
-| 12 | Security headers | |
-| 13 | Check-in photos | split out of 9; schema exists since migration 64 |
+| 10 | Install nudge, then push permission | ✅ built, audited, **manual pass done**. Migrations 77–78 |
+| 11 | Digest boxes on Overview | ✅ done, no migration |
+| 12 | Security headers | ✅ done, audited, no migration |
+| **13** | **Check-in photos** | **next**. Split out of 9; schema exists since migration 64 |
 
 **Step 8 shipped** the `Today` roster, note sharing, goal hiding, the dashboard tabs, notifications, settings, and refresh-on-return. Eight migrations and six product bugs, all in `history.md`.
 
@@ -44,157 +44,63 @@ Ordered so the app works **alone** before it works **together**: streaks can be 
 | 9d | Check off goals, reusing `TodayPanel` |
 | 9e | Hand-off, and the skip link |
 
-**Audited against all twenty patterns.** Every symbol the step added has both a reader and a writer; `anon` still reaches only `circle_preview`; no orphaned notifications, stray Circles or stray goals. Two things it changed about the suite are recorded in `testing.md`.
+**Audited against every pattern as the list stood then, twenty of them.** Every symbol the step added has both a reader and a writer; `anon` still reaches only `circle_preview`; no orphaned notifications, stray Circles or stray goals. Two things it changed about the suite are recorded in `testing.md`.
 
-### 10. Install nudge, then push permission — built, **awaiting its manual pass**
+### 10. Install nudge, then push permission ✅ **done** — migrations 77, 78
 
-Onboarding gained two screens after the username: add to home screen, then notifications. Settings gained a per-device toggle, the service worker repairs a rotated subscription, and the notifications tab carries one dismissible line for people who never decided.
+Onboarding gained two screens after the username, settings gained two controls, the worker repairs a rotated subscription, and push bodies now name their Circle. Detail, and the eight bugs found on the way, in `history.md`.
 
-**Every piece is built, tested and audited.** The reasoning for each — and the six product bugs found on the way — is in `history.md`.
-
-| Piece | | Migration |
-|---|---|---|
-| 10a | `subscribe_push`, and the actions that call it | **77** |
-| 10b | Install nudge, branching on platform | no |
-| 10c | The permission screen, the only place the app asks | no |
-| 10d | Settings toggle for this device | no |
-| 10e | `RESUBSCRIBE_PUSH` repairing a rotated subscription | no |
-| 10f | The dismissible nudge on the notifications tab | no |
-
-**74 Chromium tests and 6 in WebKit at iPhone size.** What they deliberately cannot reach: a real permission dialog, a real push delivery, and anything about a notch. All three are below.
-
----
-
-#### The manual pass — the open work
-
-**This is the current step.** Everything in 10 is written; none of it has met a real phone.
-
-The permission dialog is the one thing in this codebase that cannot be undone by shipping a fix: one ask per browser, and a denial is permanent until the person changes a browser setting themselves. Playwright can grant a permission to a context and headless Chromium reports it denied anyway, never drawing the dialog, so no test in this suite can tell you whether the moment reads well.
-
-What the pass covers, on an actual device:
-
-| | Check |
+| Piece | |
 |---|---|
-| iOS | The Share-sheet instructions match what the current iOS actually shows, and installing then produces a working push subscription |
-| Android or desktop | `beforeinstallprompt` fires, the button replays it, and declining the install leaves onboarding finishable |
-| Both | The explanation before the prompt is convincing enough to earn a yes, since a reflexive no is permanent |
-| Both | Skipping both screens leaves a fully usable account |
-| Settings | The toggle turns it on and off, and a denied browser shows the generic sentence with working help links |
-| Layout | Nothing sits under the camera housing or the Dynamic Island, portrait **and** landscape, and the home indicator does not overlap the bottom. `env(safe-area-inset-*)` is 0 in every headless browser, so this can only be seen on hardware |
-| Goal form | The category wheel commits what it displays, including tapping Done without spinning |
+| 10a | `subscribe_push`, the writer `push_subscriptions` never had |
+| 10b–10c | Install nudge, then the one permission ask |
+| 10d–10f | Device toggle, `RESUBSCRIBE_PUSH`, the dismissible nudge |
+| 10g | Circle names in push, behind a per-account setting |
 
-**The checkpoint was originally placed after 10d**, on the reasoning that 10e and 10f were only worth building once the flow read well. They were built first because they are small and because the suite could prove their invariants without a device — but that decision does not move the checkpoint, it only means more code is now resting on an unverified moment.
+**Manual pass done on an iPhone.** It found the identical-notifications problem that became 10g; everything else held. **The eight flows are kept in `history.md`** rather than deleted: a permission dialog is one-shot per browser, so the next device and the next iOS version will need the same procedure.
 
-**Until this pass is done, step 11 waits.** Not because it depends on step 10 — it does not — but because a permission dialog is the one thing in this codebase that shipping a fix cannot undo, and the fastest way to spend that mistake is to move on to the next feature and forget.
+### 11. Digest boxes on Overview ✅ **done** — no migration
 
----
+Overview shows one box per day, five days, each naming the Circles that reported and — folded away — who finished and who did not. Digests left the Notifications tab entirely.
 
-### 11. Digest boxes on Overview
+| Piece | |
+|---|---|
+| 11a–11b | The five-day read, the boxes, and the roll call in a `<details>` |
+| 11c | Digests out of the tab, its badge, and mark-read |
+| ~~11d~~ | Dropped: both ways of writing `read_at` for a digest record something untrue |
 
-One box per day, newest first, five days. Each box lists the Circles that reported that day, and each Circle names **who finished and who did not**.
+**No migration.** `digest_snapshots.summary` had carried the roll call since it was first written, so the step was a read and a render.
 
-**And digests leave the Notifications tab entirely.** That tab keeps the four types that are events rather than summaries: kicked, invite accepted, cycle finished, deadline changed. Today digests are 69 of the 70 rows there, so the four things that might need a response are buried under a week of routine.
+**Two rules it established**, both in `history.md`: `notifications` is an outbox for four event types and a **delivery queue** for digests, and the test runner is pinned to a non-UTC timezone because a UTC runner cannot fail a date test.
 
-#### The data is already there, which changes the whole shape of this step
+### 12. Security headers ✅ **done** — no migration
 
-`digest_snapshots.summary` has carried a per-member roll call since it was written:
+A CSP with a per-request nonce, HSTS, `nosniff`, `Referrer-Policy`, `X-Frame-Options` and a `Permissions-Policy` that grants nothing. Full reasoning in `architecture/security.md` section 3b.
 
-```json
-{ "members": [ { "user_id": "…", "username": "ryahn2", "completed": false, "streak": 0 } ],
-  "completed_count": 0, "member_count": 1, "group_streak": 0 }
-```
+| Piece | |
+|---|---|
+| 12a | The fixed headers, in `next.config.ts`, because the proxy's matcher skips `sw.js` and the static assets |
+| 12b | Nonce CSP in `proxy.ts`, dev and prod branched; the layout reads `x-nonce` |
+| 12c | `/api/csp-report`, logging only; `Reporting-Endpoints` **and** `report-uri`, since Safari supports only the latter |
+| 12d | Header assertions on real responses, plus loading every route and asserting **zero CSP violations** |
+| 12e | The headers section in `architecture/security.md` |
 
-**No migration.** Nothing needs a new writer, a new column or a backfill. `summary.members` is denormalised at write time on purpose, so a past day keeps the usernames and streaks it had — a rename does not silently relabel last Tuesday.
-
-Two consequences worth stating before anything is built:
+**Four bugs, and the shape of all four was the same.** Not one raised an error, and not one failure message named a header.
 
 | | |
 |---|---|
-| Access | `digest_snapshots_select_member` is `is_group_member(group_id)`, and the roster already shows who has checked in. Naming members here exposes nothing new |
-| Masking | Completion is a count, never a goal title. `hidden_everywhere` goals still count toward a member's day, and nothing in this view can leak one |
+| A nonce beside `'unsafe-inline'` | The nonce wins and `'unsafe-inline'` is discarded, so the permissive-looking dev policy was the strict one. Chromium tolerated it; **WebKit ran no client JavaScript at all** |
+| `upgrade-insecure-requests` over http | Rewrote the bundle and stylesheet to `https://localhost:3000`, which nothing answers. No block, no violation — every element in the DOM and none of them fetched. Chromium exempts localhost and hid it entirely. It now keys on the **connection**, not the build |
+| `form-action 'self'` | **Found by audit, never by a test.** `form-action` is enforced at every redirect hop, and sign-in is a form that redirects twice before reaching Google. Hydrated it never applies; a **click before hydration**, on the first page a signed-out visitor sees, would have been refused |
+| The report route swallowed a broken limiter | `Redis.fromEnv()` throws with no Upstash config, and the catch treated it as a refusal. An environment without those variables would have discarded every report while answering 204 and looking healthy — this endpoint's own failure mode, reproduced inside it |
 
-#### Decided
+**What that cost, and the lesson worth keeping:** three rounds went into `script-src`, because a page that runs no JavaScript *looks* blocked. It is now `patterns.md`'s twenty-sixth shape — **a protection that fails as absence rather than as refusal**. When something is missing and nothing was refused, stop reading the allowlist and ask what rewrote the URL.
 
-| Question | Decision |
-|---|---|
-| "Only five" | **Five day boxes.** Every Circle that reported appears inside its day |
-| Where digests live | **Overview only.** The existing "latest per Circle" panel becomes this |
-| Where the other four live | **Notifications tab only**, as the flat list they already are |
-| Progress | **Counted in members**, and named: who finished, who did not |
-| How much detail | **All of it, most of it folded away.** Build the whole thing now and hide it, rather than returning to add a field at a time |
-| A Circle with no report that day | **Omitted from that box.** "No digest" almost always means no cycle was running |
+**Two stale tests fell out of it**, both left over from 11c and both worth more than the bugs they hid: one planted a `digest` and asserted an unread badge, which had been passing on the owner account's real unread rows; the other polled *all* unread notifications to zero, which since 11c can never happen on an account with any digest history.
 
-#### Two levels, and everything is in the markup either way
+**`E2E_PROD=1` on the WebKit project is the run that matters.** Both browser bugs were production-only and WebKit-only, and Chromium was green through all of it.
 
-**Collapsed** is one line per Circle: the name, `2 of 3 finished`, and the Circle's streak.
-
-**Expanded** is a `<details>` in the same row, holding what the snapshot already knows:
-
-| Shown when opened | Source |
-|---|---|
-| Every member, marked finished or not | `members[].completed` |
-| Each member's streak that day | `members[].streak` |
-| Your own row, marked as yours | `members[].user_id` against the session |
-| Whether the Circle's streak moved since the day before | the adjacent day's snapshot, already loaded |
-
-`<details>` rather than React state, the same choice as the goal visibility panel: it needs no client component, it survives with JavaScript off, and the content is in the document for search and for screen readers rather than conjured on click.
-
-**The streak delta is free and worth having.** Five days are loaded already, so comparing a Circle's `group_streak` against the previous box costs one lookup and answers the question a streak number cannot: whether it went up, held, or reset.
-
-#### The shape of the read
-
-Five *days*, not five rows. `digest_snapshots` is keyed `(group_id, date)`, so five days across N Circles is up to 5N rows.
-
-| Option | Why not |
-|---|---|
-| One query per Circle, `limit 5` | What the current panel does with `limit 1`. Ten Circles, ten round trips |
-| Filter on a date range | A quiet week returns three days rather than five, and the panel silently shows less than it promises |
-
-**One query, `.in("group_id", …).order("date", desc).limit(circles × 5)`, grouped by date in TypeScript, then the first five dates.** At most one row per Circle per date, so `circles × 5` rows guarantee five distinct dates whenever five exist. PostgREST has no `DISTINCT ON`, and this needs no view.
-
-**`summary` is read defensively**, as the current panel already does: it is jsonb written by a job, so a shape change ships silently. A missing `members` array degrades to the counts, not to a blank dashboard.
-
-#### The sharp bit: a badge for rows the tab no longer shows
-
-`markNotificationsRead` marks **everything** unread, and the badge counts everything unread. Move digests off that tab and one of two things breaks quietly:
-
-- the badge counts digests nobody can reach from it, so it never clears
-- or the tab marks digests read on open, claiming you read something it deliberately did not show
-
-**Whoever displays a row marks it read.** Overview marks digests once the boxes render; Notifications marks the other four; the badge counts the four. `markNotificationsRead` takes a set of types, and `read_at` stays meaningful for digests rather than becoming a column with a writer and no reader.
-
-#### The trap this must not fall into
-
-`digest_snapshots.date` and `payload.date` are **plain dates**, not timestamps. `new Date("2026-08-18")` parses as UTC midnight and formats in the viewer's zone, so anyone west of UTC reads every box as the day before. Formatting is UTC-pinned, the way `shiftDate` in `lib/supabase/today.ts` already is.
-
-#### Pieces
-
-| | Piece | Migration |
-|---|---|---|
-| 11a | The five-day read, and `DigestPanel` becomes day boxes with the collapsed line | no |
-| 11b | The expanded roll call: members, their streaks, your own row, the streak delta | no |
-| 11c | Digests out of the Notifications tab and out of its badge | no |
-| 11d | Per-surface mark-read, and Overview marking digests | no |
-
-**11c and 11d ship together.** Either alone leaves the badge lying in one direction or the other.
-
-#### Test plan
-
-- **11a**: boxes are dated, newest first, never more than five; a Circle appears under each day it reported; a renamed Circle shows its **live** name in the heading; no digests at all still says so rather than rendering an empty frame.
-- **11a, the date**: seeded rows render the date they name, asserted from a context pinned to a zone behind UTC. The one that catches the parse trap, and it is cheap.
-- **11b**: a seeded day with one member finished and one not names both, on the right sides; the viewer's own row is marked; a snapshot with no `members` key still renders its counts.
-- **11b, the freeze**: renaming a member after the snapshot leaves the old username in the roll call. That is the denormalisation working, and it is worth a test because it looks like a bug to anyone who has not read `build_daily_digests`.
-- **11c**: the Notifications tab lists none of the seeded digests, and does list a seeded `invite_accepted`.
-- **11d**: opening Notifications leaves seeded digests unread; opening Overview marks them read; the badge ignores digests.
-
-#### Still open
-
-- Whether the collapsed line gets a progress bar as well as `2 of 3`. Text first: it is the part that has to be right, and a bar is styling over the same two numbers.
-- Whether an archived Circle's old digests still appear. They do today, via `[...active, ...inactive]`, and keeping that is the smaller change.
-
-### 12. Security headers
-
-CSP with a nonce-based `script-src`, HSTS, `nosniff`, `Referrer-Policy`.
+**One thing still owed to a real device.** A dev server on plain http never sends HSTS, and no headless browser can show whether an installed PWA still receives push under the policy. Both want a look on the phone once this is deployed.
 
 ### 13. Check-in photos
 
@@ -205,6 +111,8 @@ CSP with a nonce-based `script-src`, HSTS, `nosniff`, `Referrer-Policy`.
 **What does not:** any upload UI. `browser-image-compression` has been a dependency since the start and has never been imported. Migration 64 tightened `checkin_photos_insert` to require `owns_active_goal`, so the insert path has narrowed since the policy was written and has never been exercised by a real client.
 
 **Open questions when it starts:** capture versus file picker on mobile, where compression runs, the storage path convention, and what happens to a photo when its goal is archived.
+
+**And one that is not a question, only a thing to remember:** step 12 ships `Permissions-Policy: camera=()`. Whichever way the capture question goes, that header has to be opened in the same commit, or `getUserMedia` fails for a reason that is in a config file rather than in the code being written.
 
 ---
 

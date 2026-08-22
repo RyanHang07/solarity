@@ -3,6 +3,7 @@ import path from "node:path"
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { Redis } from "@upstash/redis"
 import type { Database } from "@/lib/database.types"
+import { TAB_NOTIFICATION_TYPES } from "@/lib/notification-types"
 import { loadEnvLocal } from "./env"
 
 // Before anything reads `process.env`, including the `admin` client below.
@@ -113,6 +114,13 @@ export async function clearRateLimits() {
   // roughly a dozen times against a cap of 20 an hour, so without this the last
   // spec of a second run in the same hour would fail on the limiter.
   patterns.push("solarity:inviteAttempt:*", "solarity:inviteToken:*")
+
+  // `cspReport` is IP-keyed for the same reason and is therefore out of reach
+  // of the per-user patterns too. Its cap is 120 an hour against two POSTs per
+  // run, so this is not a limit anyone is about to trip — it is here because
+  // the invariant is "IP-keyed limits must be listed explicitly", and a list
+  // that is right by accident stops being right the moment the cap changes.
+  patterns.push("solarity:cspReport:*")
 
   await deleteByPattern(patterns)
 }
@@ -557,6 +565,30 @@ export async function unreadNotificationIds(userId: string): Promise<string[]> {
   return (data ?? []).map((n) => n.id)
 }
 
+/**
+ * The unread rows the Notifications tab is responsible for.
+ *
+ * **Separate from `unreadNotificationIds`, and the difference matters.** Since
+ * 11c, `markNotificationsRead` filters by type: a `digest` is a delivery queue
+ * row the tab never renders, so marking it read would claim you had read
+ * something the app deliberately did not show you. It therefore stays `null`
+ * forever, and an assertion that *all* unread rows reach zero can never pass on
+ * an account with any digest history.
+ *
+ * Use this one to assert on the tab's behaviour, and the unfiltered one to
+ * capture and restore a real person's rows around a test.
+ */
+export async function unreadTabNotificationIds(userId: string): Promise<string[]> {
+  const { data, error } = await admin
+    .from("notifications")
+    .select("id")
+    .eq("user_id", userId)
+    .is("read_at", null)
+    .in("type", TAB_NOTIFICATION_TYPES)
+  if (error) throw error
+  return (data ?? []).map((n) => n.id)
+}
+
 export async function markUnread(ids: string[]) {
   if (!ids.length) return
   const { error } = await admin
@@ -822,4 +854,65 @@ export async function recountToday(userId: string) {
     .update({ archived_at: data.archived_at })
     .eq("id", data.id)
   if (error) throw error
+}
+
+/**
+ * Writes digest snapshots directly, for the day boxes on Overview.
+ *
+ * **The job that normally writes these runs once per rollover**, so history is
+ * something a test creates rather than waits a week for. Same reasoning as
+ * `seedCompletedDays`.
+ *
+ * The `summary` shape is `build_daily_digests`' own, roll call included, so a
+ * change to that function fails these tests rather than silently diverging
+ * from them.
+ */
+export async function seedDigests(
+  groupId: string,
+  days: {
+    date: string
+    completed: number
+    members: number
+    groupStreak: number
+    roster?: { userId: string; username: string; completed: boolean; streak: number }[]
+  }[],
+) {
+  const { error } = await admin.from("digest_snapshots").upsert(
+    days.map((d) => ({
+      group_id: groupId,
+      date: d.date,
+      summary: {
+        members: (d.roster ?? []).map((m) => ({
+          user_id: m.userId,
+          username: m.username,
+          completed: m.completed,
+          streak: m.streak,
+        })),
+        completed_count: d.completed,
+        member_count: d.members,
+        group_streak: d.groupStreak,
+      },
+    })),
+  )
+  if (error) throw error
+}
+
+/** Removes every snapshot for a Circle, whatever wrote it. */
+export async function deleteDigests(groupId: string) {
+  const { error } = await admin.from("digest_snapshots").delete().eq("group_id", groupId)
+  if (error) throw error
+}
+
+/**
+ * Dates counting back from a given day, newest first.
+ *
+ * **UTC-pinned**, for the same reason `formatDay` is: these are check-in dates
+ * with a timezone already applied, and parsing one locally shifts it.
+ */
+export function daysBack(from: string, count: number): string[] {
+  return Array.from({ length: count }, (_, i) => {
+    const d = new Date(`${from}T00:00:00Z`)
+    d.setUTCDate(d.getUTCDate() - i)
+    return d.toISOString().slice(0, 10)
+  })
 }

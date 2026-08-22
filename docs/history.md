@@ -1939,3 +1939,223 @@ Google skips its account chooser whenever exactly one account is signed in to th
 **Not `prompt=consent`**, which re-asks for permissions already granted and reads as though something has gone wrong.
 
 A small thing, and worth recording for two reasons: it was invisible to every test, because the suite mints sessions through the admin API and never touches Google; and it would have made the manual pass materially harder at exactly the moment two accounts are needed.
+
+---
+
+### Four notifications, one sentence
+
+The first real finding of the manual pass, and exactly the kind no test could produce: with four Circles, the phone showed four notifications that read identically. Every push title is the literal string `Solarity`, no push body names the Circle, and the `tag` is per Circle — so they do not even collapse into one. A notification nobody can attribute is not a prompt, it is noise.
+
+**The omission was deliberate and the reasoning still holds.** `send-digest-push` keeps Circle names off lock screens because a name is readable by anyone holding the phone, outside every access control the app has. Reversing that outright would trade one real problem for another.
+
+So it becomes a **per-user setting**, defaulting to names on: the person who wants a contentless lock screen can have one, and everyone else gets a notification that says which Circle it is about. Relying on the OS "hide previews" control was the alternative and was rejected — it is all-or-nothing across every app, and it hides the count as well as the name.
+
+**Every string is now inventoried in `notification-copy.md`**, both surfaces, with the variables each type can use, so the copy can be rewritten in one place rather than hunted across an edge function and a panel. Two constraints are written down beside it, because they are easy to breach while wordsmithing: a push may never name a goal — titles are masked per Circle and a lock screen is outside all of it — and the push half holds only the **frozen** `circle_name`, so a renamed Circle pushes its old name while the panel shows its new one.
+
+---
+
+### The manual pass, done
+
+Run on an iPhone against the deployed app. **It found exactly one thing, and it was the thing worth finding**: with four Circles, four notifications arrived reading identically. Everything else held — the Share-sheet steps matched what iOS draws, the permission screen earned its yes, the install nudge and the settings toggle behaved, the safe area was clear of the Dynamic Island, and the category wheel committed what it displayed.
+
+The eight flows are **kept here rather than deleted**. A permission dialog is one-shot per browser, so the procedure is worth more than the result: the next device, the next iOS version, and anyone else who tests this will need it, and reconstructing it from memory is how a step gets half-checked.
+
+#### The procedure, for the next device
+
+**Before you start**
+
+| | |
+|---|---|
+| Deploy | Vercel, on https. Push needs a real origin |
+| Accounts | Two Google accounts. The chooser always appears since `prompt=select_account` |
+| Reachable directly | `/onboarding/install` and `/onboarding/notifications` are gated on sign-in alone |
+| So | You do not need a new account to see them |
+| One-shot | Only flow 2 spends the permission. Do it last |
+
+**Flow 1 — fresh signup, iPhone Safari**
+
+| Do | Expect |
+|---|---|
+| Sign in with the unused Google account | Account chooser appears |
+| Pick it | Username screen |
+| Type a username, Continue | Install screen, Share-sheet steps |
+| Read the three steps against Safari | Wording matches what iOS shows |
+| Tap "I'll do this later" | Notification screen |
+| Tap "Not now" | Dashboard, fully usable |
+
+**Flow 2 — install, then permission, iPhone.** Last: it spends the one ask, and it uses the real onboarding screen rather than the settings toggle.
+
+| Do | Expect |
+|---|---|
+| Safari, Share, Add to Home Screen | Icon on home screen |
+| Open Solarity from the home screen | No Safari chrome |
+| Open `/onboarding/notifications` there | The real ask screen, with a button |
+| Read the explanation before tapping | Does the reason earn a yes |
+| Tap "Turn on notifications" | iOS permission dialog appears |
+| Tap Allow | Heading becomes "Notifications are on" |
+| Check `push_subscriptions` in SQL | One row, your `user_id` |
+| Run `select build_daily_digests();` | Rows in `notifications` |
+| Invoke `send-digest-push` | Notification on the lock screen |
+| Tap the notification | Opens that Circle |
+
+**Flow 3 — layout, a notched iPhone**
+
+| Do | Expect |
+|---|---|
+| Open the installed app | Header clear of the Dynamic Island |
+| Scroll the dashboard to the bottom | Nothing under the home indicator |
+| Rotate to landscape | Nothing under the left or right inset |
+| Repeat in Safari, not installed | Same, allowing for Safari's own bars |
+| Visit `/today` and `/settings` | Same at the top of each |
+
+**Flow 4 — the category picker, iPhone**
+
+| Do | Expect |
+|---|---|
+| Dashboard, Your goals, tap Category | Wheel opens on "Choose a category" |
+| Tap Done without spinning | Still empty; Add goal refuses |
+| Tap Category, spin to Fitness, Done | Field reads Fitness |
+| Type a title, tap Add goal | Goal appears in the list |
+| Archive it | Row leaves the list, no error |
+
+**Flow 5 — the device toggle, both directions**
+
+| Do | Expect |
+|---|---|
+| Settings, tap "Turn off notifications" | "Notifications are off for this device." |
+| Reload the page | Still shows the off state |
+| Tap "Turn on notifications" | On again, no second dialog |
+| Sign in as the other account, same phone | Its settings show off |
+
+**Flow 6 — a blocked browser.** Skip unless you are willing to spend a denial.
+
+| Do | Expect |
+|---|---|
+| Deny the iOS dialog, or block in Safari | Settings shows a sentence, no switch |
+| Read the four help links | Each opens its browser's own page |
+| Dashboard, Notifications tab | No nudge line |
+
+**Flow 7 — Android or desktop Chrome**
+
+| Do | Expect |
+|---|---|
+| Sign in, reach the install screen | A real "Add to home screen" button |
+| Tap it | Chrome's install dialog appears |
+| Dismiss the dialog | Falls back to instructions, no error |
+| Tap "I'll do this later" | Notification screen |
+
+**Flow 8 — the nudge**
+
+| Do | Expect |
+|---|---|
+| A browser that never enabled push | Notifications tab shows one line |
+| Tap "Turn on notifications" | Lands on settings, at the section |
+| Go back, tap "No thanks" | Line disappears |
+| Reload | Still gone |
+
+**Resetting between runs**
+
+| To undo | How |
+|---|---|
+| iOS push permission | Delete the home-screen app, add it again |
+| Safari site permission | Settings, Safari, Advanced, Website Data, remove |
+| Chrome permission | Site settings, Notifications, Reset |
+| The nudge dismissal | Clear cookies, or a private window |
+| A subscription row | `delete from push_subscriptions where user_id = …` |
+
+**What a failure means.** Wording that does not match iOS is a copy fix. A dialog that never appears is a bug in the gesture chain. A notification that never arrives is `send-digest-push` or the subscription row, and both are inspectable in SQL before touching any code.
+
+**Add a flow for 10g when this is next run**: turn the Circle-name setting off, send a digest, and confirm the lock screen says nothing specific.
+
+Two smaller things surfaced on the way and were fixed as they appeared: signing out of Google walked straight back into the same account, and the iPhone 17's Dynamic Island cut off the header.
+
+---
+
+### 10g. Naming the Circle, and letting people decline it
+
+**The fix for the one thing the pass found.** Every push title is the literal `Solarity` and no body named its Circle, so a phone with four Circles showed the same sentence four times, and the `tag` is per Circle so they did not even collapse.
+
+**The omission was deliberate**, and reversing it outright would have traded one real problem for another: a Circle name on a lock screen is readable by anyone holding the phone, outside every access control the app has, and for some Circles the name is the sensitive part. So migration 78 adds `users.push_shows_circle_name`, defaulting to **on**, with a settings control beside — but separate from — the per-device toggle. They answer different questions: that one is "does this browser get notifications", this one is "what may a notification say", and the second is an account fact rather than a device one.
+
+**The copy moved into `teaser.ts`.** It was inline in the edge function, where nothing could test it: the e2e suite cannot deliver a push and the sender runs on Deno. Split out, it imports nothing, so `lib/teaser.test.ts` reaches it directly and covers all four states — named, withheld, missing, unknown — including that a `goal_title` planted in a payload can never reach a body. Copy is exactly the kind of thing that breaks quietly: a lock screen reading "undefined" looks fine in every log.
+
+`kicked` stays vague whether names are on or off. It is the one notification whose subject might be read by the person who removed you, which is what the vagueness is for.
+
+**A deployment trap worth remembering.** The MCP deploy tool defaults `verify_jwt` to **true**, and this function needs it **false**: it is cron-invoked with a shared secret and no JWT. Omitting the flag flipped it, which would have silently broken every scheduled send while the function still looked healthy. Redeployed with it explicit. **Pass it every time**, and check the response rather than assuming.
+
+---
+
+### 11a and 11b. Day boxes, and the roll call that was already there
+
+Shipped together: the roll call is markup inside the Circle line rather than a second render path, so splitting them would have meant writing the `<details>` twice.
+
+**No migration.** `digest_snapshots.summary` has carried `members[]` — user id, username, completed, streak — since `build_daily_digests` was written. The step turned out to be a read and a render.
+
+| File | |
+|---|---|
+| `lib/digest-days.ts` | grouping, ordering, UTC-pinned formatting, streak delta. Pure |
+| `lib/supabase/digests.ts` | the single query, and defensive `summary` parsing |
+| `digest-panel.tsx` | the boxes |
+
+**The runner is now pinned to a non-UTC timezone.** `vitest.config.mts` sets `TZ` to Los Angeles, because in a UTC runner the date-shifting bug and the correct code agree and every date test becomes decoration. `digest-days.test.ts` asserts the runner is not UTC before trusting itself, and pins the trap directly: `new Date("2026-08-18").getDate()` is 17 there.
+
+**Five days, never five rows.** Taking the newest N rows would drop a Circle whose day sorted last and would show fewer days the more Circles someone is in — the panel would mean something different per account. One query, `limit(circles × 5)`, grouped in TypeScript; at most one row exists per Circle per date, so that limit cannot cut into the fifth day while a fifth day exists.
+
+**Ordering is a fact about now, not about the day.** A pending streak decision or an unread notification lifts a Circle to the top of *every* box, including last week's. Written down because it reads as a sorting bug to anyone who has not seen the reasoning.
+
+#### Two test failures, both mine, and one of them a real inversion
+
+**A strict-mode violation of my own making.** The expanded half carries an "Open {name}" link, so `getByText(name)` inside a box matched twice. The name is deliberately in both places — a link needs a meaningful accessible name — so the locator is scoped to `summary`.
+
+**A dashboard test asserted the opposite of the new design.** It required a brand-new Circle to show "no day has finished yet", so that Overview could not disagree with the Circles tab. Boxes are per *day* now: a Circle with no snapshot has nothing to put in any box, and giving it a row would mean inventing a day.
+
+The test was rewritten to assert the new truth **and** keep the old guarantee somewhere real: the Circle is absent from the boxes, *and* the Circles tab still lists it. "Absent" on its own would also pass if the Circle had vanished entirely, which is the failure that guarantee existed to catch.
+
+**The trade to know about:** a Circle you have just made shows nothing under "How it went" until its first day ends.
+
+#### A test I caught before it shipped
+
+The first version asserted that day six and seven were absent by looking for their **ISO dates** in the panel — which renders "Fri 14 Aug" and never "2026-08-14". It would have passed however many boxes rendered. Replaced with a heading count plus a database check that seven days really sit behind five boxes.
+
+---
+
+### 11c. Digests leave the tab, and 11d dies on the way
+
+Digests were 69 of the 70 rows on the Notifications tab, burying the handful that might need a response. They now live only in the day boxes, sourced from `digest_snapshots`.
+
+**11d was planned and then dropped, after a question that took it apart.** The plan was for Overview to mark the digests it rendered as read, keeping "read means shown" true for every type. Two observations killed it:
+
+- Visiting the tab already cleared the badge, so nothing visible would change either way.
+- The badge is `read_at`'s only reader. With digests out of the badge, marking them read is a write nobody reads: a new component, a new action, and a write per dashboard load for nothing.
+
+The fallback idea — have `build_daily_digests` write `read_at` at insert time so digests are "born read" — was worse, and rejected for the reason the original plan existed: a row pushed to a phone nobody picks up would carry a timestamp saying it had been read. Recording a falsehood in the database is worse than recording it in a render.
+
+**So `read_at` stays `null` for digests, permanently.** That is not a gap: the column exists to drive a badge for a list you can open, and digests are not on that list. `null` is the one value that asserts nothing, and the comment says so.
+
+#### What the row is for now
+
+`notifications` became an **outbox** for the four event types and a **delivery queue** for digests: written by the job, read once by the sender, never rendered, deleted at 90 days. With push off, a digest now does nothing at all for that person — they see the boxes next time they open the app, which is the durable copy.
+
+#### A third reader nobody had counted
+
+The tab and the badge were the two known readers. Wiring the filter turned up a third: the "needs attention" ordering added in 11a counts **unread notifications** per Circle. Since digests are never marked read, without the same filter every Circle with a digest would have ranked as needing you forever — the ordering would have been noise, and it would have looked like a sorting bug rather than a missing predicate.
+
+That is the argument for the shared constant in one line: three readers, and the third was found by accident.
+
+#### The residual risk, and what guards it
+
+Someone counts unread rows without naming types and sees roughly `circles × 90` digests. `lib/notification-types.ts` is the guard, which is proportionate rather than absolute. The structural fix — the sender reading `digest_snapshots` so digests stop being rows here at all — is written up in `deferred.md`, along with why it was not done now: `pushed_at` lives on the notification row, and moving it means tracking delivery per member on the snapshot instead.
+
+---
+
+### Step 11 closed
+
+Overview shows five day boxes; the Notifications tab shows four event types; no migration was needed, because `digest_snapshots.summary` had carried the roll call since it was written.
+
+**What step 11 changed about the documents**, beyond its own entries:
+
+- `architecture/app.md` gained a dashboard section, because the boxes have rules a reader needs — five *days* rather than five rows, ordering by a fact about now, UTC-pinned dates — and none of them are guessable from the component.
+- `architecture/schema.md`'s digest section now says what the table is: the record of a day, with the notification row as the envelope. Its line claiming push bodies never name a Circle was **stale from 10g** and is corrected.
+- `patterns.md` gained a twenty-fourth shape, **an assertion that cannot fail**, with all three instances from steps 10 and 11. It is the one this pair of steps produced that generalises.
+
+**Both steps also left a habit worth keeping**: after writing a test, name the edit that ought to turn it red, and check that it would. Every one of those three inert assertions was caught by reading rather than running, which is the only way they *can* be caught.

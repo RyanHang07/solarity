@@ -6,6 +6,14 @@ const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   test: {
+    /**
+     * **Deliberately not UTC.** Check-in dates are `YYYY-MM-DD` strings that
+     * have already had a timezone applied, so parsing one locally re-applies an
+     * offset and shifts the day. In a UTC runner that bug is invisible: the
+     * wrong code and the right code agree. A negative offset makes the tests
+     * able to fail, which is the only reason to have them.
+     */
+    env: { TZ: "America/Los_Angeles" },
     environment: "jsdom",
     globals: true,
     passWithNoTests: true,

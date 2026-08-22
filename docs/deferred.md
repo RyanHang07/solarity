@@ -157,3 +157,11 @@ The invite, join, archive and streak-decision flows are now covered by Playwrigh
 ---
 
 ---
+
+### Digests stop being rows in `notifications`
+
+**Why it is deferred rather than dismissed.** After step 11c a digest row exists only to carry a push: nothing renders it, and `read_at` never applies to it. The clean version is for `send-digest-push` to read `digest_snapshots` directly, leaving `notifications` to the four event types alone.
+
+That would make the separation structural instead of a type filter, and would remove the standing risk that someone counts unread rows without excluding digests.
+
+**The cost** is a rewrite of the sender's query and of how it tracks what it has already delivered — `pushed_at` lives on the notification row, so `digest_snapshots` would need an equivalent, per member rather than per Circle. That is a bigger change than step 11 warranted.

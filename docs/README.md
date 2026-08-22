@@ -6,11 +6,12 @@ Friends in invite-only Circles (max 10) see each other's daily progress.
 
 | You want to… | Go to |
 |---|---|
-| Build the next thing | [`build-plan.md`](build-plan.md) — open work only. **Right now that is step 10's manual pass, on a phone** |
+| Build the next thing | [`build-plan.md`](build-plan.md) — open work only. **Steps 1–12 are done; step 13 is check-in photos** |
 | Understand how something works | [`architecture/`](architecture/README.md) — schema, security, time, app |
-| Avoid a bug this codebase keeps having | [`patterns.md`](patterns.md) — twenty-three shapes, plus the standing checks |
+| Avoid a bug this codebase keeps having | [`patterns.md`](patterns.md) — twenty-six shapes, plus the standing checks |
 | Run it, test it, or verify a release | [`testing.md`](testing.md) |
 | Know what the product is for | [`product-and-design.md`](product-and-design.md) |
+| Change what a notification says | [`notification-copy.md`](notification-copy.md) — every string, both surfaces |
 | Find something designed but not built | [`deferred.md`](deferred.md) |
 | Know why a past decision went that way | [`history.md`](history.md) — append-only |
 

@@ -11,6 +11,7 @@ import {
   setTodayScreenMode,
   todayScreenMode,
   unreadNotificationIds,
+  unreadTabNotificationIds,
   userIdByEmail,
 } from "./db"
 import { storageStateFor } from "./session"
@@ -90,14 +91,17 @@ test("the badge counts unread, opening the tab clears it, and a reload keeps it 
       requireEnv("E2E_OWNER_EMAIL"),
       "notif",
     )
+    // **An event type, not a digest, since 11c.** The badge counts the four
+    // types the tab owns; a digest is a delivery queue row that the tab never
+    // renders and the badge never counts. This test used a digest until step 12
+    // caught it — and it had been passing on the owner's *real* unread rows,
+    // which is the worst way for a test to be wrong, because it is green
+    // whenever the account happens to be untidy.
     mine.push(
-      await insertNotification(ownerId, "digest", {
+      await insertNotification(ownerId, "invite_accepted", {
         group_id: groupId,
         circle_name: name,
-        date: "2026-08-16",
-        completed_count: 1,
-        member_count: 2,
-        group_streak: 3,
+        joined_username: "e2e_joiner",
       }),
     )
 
@@ -106,13 +110,19 @@ test("the badge counts unread, opening the tab clears it, and a reload keeps it 
     await expect(badge, "no unread count on the tab").toBeVisible()
 
     await badge.click()
-    await expect(p.getByText(`${name}: 1 of 2 finished on 2026-08-16`)).toBeVisible()
+    await expect(p.getByText(`e2e_joiner joined ${name}`)).toBeVisible()
 
     // Asserted at the database, not by the badge disappearing. The write is the
     // claim; the label is a rendering of it, and a label that clears because the
     // query broke would pass an assertion about the label.
+    //
+    // **Scoped to the tab's own types, since 11c.** A `digest` is never
+    // rendered here and is never marked read, so it stays unread for the life
+    // of the account. Polling *all* unread rows to zero was an assertion that
+    // could only pass on an account with no digest history at all — which is to
+    // say, briefly, and then never again.
     await expect
-      .poll(async () => (await unreadNotificationIds(ownerId)).length, {
+      .poll(async () => (await unreadTabNotificationIds(ownerId)).length, {
         message: "opening the tab did not mark anything read",
         timeout: 10_000,
       })
@@ -144,14 +154,15 @@ test("a notification renders without its Circle, and an unknown type has a fallb
     // `payload.group_id` is a jsonb value with no foreign key, so deleting a
     // Circle orphans every notification about it. Only the service key can
     // produce this state, since deleting a Circle is not a UI path.
+    //
+    // **`deadline_changed`, not `digest`, since 11c.** The tab filters by type,
+    // so a digest planted here is invisible and the assertion below could only
+    // ever fail. The orphan case is what is being tested, and it belongs to
+    // whichever types the tab actually renders.
     mine.push(
-      await insertNotification(ownerId, "digest", {
+      await insertNotification(ownerId, "deadline_changed", {
         group_id: "00000000-0000-0000-0000-000000000000",
         circle_name: "E2E GHOST CIRCLE",
-        date: "2026-08-16",
-        completed_count: 0,
-        member_count: 1,
-        group_streak: 0,
       }),
     )
 
@@ -203,7 +214,7 @@ test("a notification renders without its Circle, and an unknown type has a fallb
   }
 })
 
-test("Overview names each Circle, and says when no day has finished", async ({
+test("a Circle with no finished day is absent from Overview, not blank in it", async ({
   browser,
 }) => {
   const p = await ownerPage(browser)
@@ -212,20 +223,26 @@ test("Overview names each Circle, and says when no day has finished", async ({
     const { name } = await createCircleViaApi(requireEnv("E2E_OWNER_EMAIL"), "digest")
 
     await p.goto("/dashboard")
-    // Scoped to the digest panel. Overview also renders the goals list, and
-    // every goal's visibility expander names each of your Circles, so an
-    // unscoped `listitem` filter on a Circle name matches one row per goal.
-    const row = p
-      .getByRole("region", { name: "Yesterday" })
-      .getByRole("listitem")
-      .filter({ hasText: name })
 
-    // A brand new Circle gets a row saying so, rather than being omitted or
-    // shown as zeroes. Omitting it makes Overview disagree with the Circles
-    // tab; zeroes would claim nobody finished, when the day has not happened.
-    await expect(row).toBeVisible()
-    await expect(row.getByText("no day has finished yet")).toBeVisible()
-    await expect(row.getByText(/finished$/)).toHaveCount(0)
+    /**
+     * **This assertion inverted in step 11, deliberately.**
+     *
+     * The old panel showed one row per Circle and gave a brand-new one the line
+     * "no day has finished yet", so that Overview could not disagree with the
+     * Circles tab. The panel is now one box per *day*, and a day box lists the
+     * Circles that reported that day — a Circle with no snapshot has nothing to
+     * put in any box, and inventing a row for it would mean inventing a day.
+     *
+     * The guarantee it was protecting still holds, just somewhere else: the
+     * Circles tab is where the full list lives, and the assertion below says so
+     * rather than trusting it.
+     */
+    const panel = p.getByRole("region", { name: "Recent days" })
+    await expect(panel.getByTestId("digest-circle").filter({ hasText: name })).toHaveCount(0)
+
+    // And it is not lost: the tab that owns the list still has it.
+    await p.goto("/dashboard?tab=circles")
+    await expect(p.getByText(name).first()).toBeVisible()
   } finally {
     await deleteE2ECircles()
   }

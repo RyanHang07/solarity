@@ -1,6 +1,80 @@
 # Security model
 
-RLS, grants, the error contract, photo access, and what happens to data when an account ends.
+RLS, grants, the error contract, response headers, photo access, and what happens to data when an account ends.
+
+---
+
+## 3b. Response headers
+
+Step 12. The policy lives in `lib/security-headers.ts`, in one module, so the two mechanisms that ship it cannot drift apart.
+
+**There are two mechanisms, and the split is not stylistic.**
+
+| | Where | Why there |
+|---|---|---|
+| HSTS, `nosniff`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` | `next.config.ts` → `headers()` | Applies to **every** path |
+| The CSP and `Reporting-Endpoints` | `proxy.ts` | Carries a per-request nonce, which a static config cannot mint |
+
+The proxy's matcher deliberately excludes `_next/static`, `sw.js`, the manifest and every image, because a service worker handed a redirect instead of JavaScript fails to register and iOS then gets no push at all. Headers set only there would therefore miss exactly the responses most worth protecting from sniffing and framing. `e2e/headers.spec.ts` fetches `/sw.js` and asserts `nosniff` on it, so deleting the `headers()` block fails a test rather than going unnoticed.
+
+### The nonce
+
+**Next reads it from the *request*, not from anything we return.** `updateSession` sets `Content-Security-Policy` on a copy of the request headers, Next parses the nonce out of it, and stamps it onto the inline `<script>` tags it streams for the RSC payload. It also goes on as `x-nonce`, which the root layout reads for the app's one inline script.
+
+Three consequences worth knowing before debugging anything here:
+
+- **Both copies are needed.** The request copy is what nonces Next's scripts; the response copy is what the browser enforces. Setting only the first protects nothing; setting only the second blocks Next's own bootstrap and the app never hydrates, with nothing in any server log.
+- **The headers object is rebuilt on each `NextResponse.next()`, not captured once.** `request.cookies.set` writes through to the request's `cookie` header, so a copy taken before the session refresh would pin the stale cookie.
+- **The root layout is `async` and reads `headers()`**, which makes every route dynamic. That costs nothing here, because every page already reads cookies through `createClient()`. If a genuinely static page is ever added, the answer is a hash rather than a nonce.
+
+### Dev is not what ships
+
+Production is `'self' 'nonce-…'`. Development is `'unsafe-inline' 'unsafe-eval'` with **no nonce at all**, because Turbopack compiles with `eval` and injects both scripts and stylesheets at runtime.
+
+**A nonce anywhere in `script-src` switches `'unsafe-inline'` off.** That is the rule in every modern browser: the nonce is the more specific instruction and the blanket permission is discarded. A dev policy listing both is therefore not belt-and-braces, it is the strict policy with a decorative string beside it.
+
+The first cut listed both, to keep the nonce plumbing exercised locally. Chromium tolerated it. **WebKit did not**, and the whole `mobile-safari` project failed as four tests reporting missing text and missing padding — the padding because with JavaScript blocked, Turbopack never injected the stylesheets either. Nothing in any failure message said "CSP". `e2e/ios.spec.ts` now opens with a test that says it in those terms, and prints the policy alongside its own result, because this failure shape took three rounds to place.
+
+The suite runs against dev unless `E2E_PROD=1`, **so an ordinary local run is not testing the policy that ships**. `e2e/headers.spec.ts` asserts the invariants always and the strict form only under `E2E_PROD`; that is the run that has to pass before a deploy. The nonce is still minted and still sent as `x-nonce`, so the layout stamps it on the install script and the plumbing is at least present. What it is not, in dev, is *enforced* — which is why the two tests that assert on it skip unless `E2E_PROD` is set, rather than asserting something weaker and looking like coverage.
+
+### `upgrade-insecure-requests` keys on the connection, not the build
+
+It is sent only when the request arrived over https, read from `x-forwarded-proto` first because Vercel terminates TLS and the request reaching the proxy is plain http.
+
+**Over http the directive is not a block, it is a redirect to nowhere.** It rewrites every subresource URL to `https://<host>` before fetching, so on a local production build the page's own bundle and stylesheet point at a port that is not listening. The page loads, raises **no violation**, and runs nothing.
+
+**Chromium hides this; WebKit does not.** Chromium exempts `localhost` as potentially-trustworthy and skips the upgrade. So `E2E_PROD=1` passed the whole Chromium suite and failed every `mobile-safari` test, with the diagnostic reading *12 scripts, all nonced, one stylesheet, no violations, body unstyled* — every element present and none of them fetched.
+
+HSTS already forces https on the deployed origin, so skipping this over a plain connection costs nothing.
+
+### No `strict-dynamic`
+
+It was in the first cut and was removed **on a wrong diagnosis**, which is worth recording plainly: the WebKit failure was `upgrade-insecure-requests`, above, and `strict-dynamic` was innocent. It was removed one step earlier because dropping it was the cheapest way to change a single variable, and the failure it was meant to explain persisted afterwards.
+
+It stays out on its own merits rather than that one. `strict-dynamic` **discards `'self'`** and requires Next to nonce every `<script src>` in the initial HTML — real machinery, worth its weight when an origin serves scripts you do not control.
+
+**Here it would buy nothing, and that is a fact about this app rather than a general claim.** `strict-dynamic` earns its complexity when an origin serves scripts you do not control. This one serves no third-party scripts, uses no CDN, and hosts no user-uploaded content on its own origin: photos live in Supabase storage. So the set of scripts `'self'` admits is exactly the set the build produced. Revisit if any of those three stops being true — restoring it is one array element and the `mobile-safari` project would test it.
+
+### Choices that will look arbitrary later
+
+| | |
+|---|---|
+| `style-src` is **not** nonced | A nonce there switches off `'unsafe-inline'` for styles, and `next/font` injects a `<style>` while every React `style={}` prop is an inline attribute. Scripts are where injection means code execution; styles are defacement at worst |
+| `connect-src` allows `wss:` | No client subscribes to realtime yet, but `notifications` is published to `supabase_realtime`, and a socket blocked by CSP produces **silence**, not an error. That is already the documented failure mode of realtime here, and a header is the last place anyone would look |
+| The Supabase origin is normalised | A CSP source **with a path is a prefix match**, so a stray `/rest/v1` from the environment variable would silently forbid `/auth/v1` and break sign-in |
+| HSTS has no `preload` | Preload is compiled into browser binaries and comes back out over months. This header expires on its own if it stops being sent. Revisit when the custom domain is final |
+| `camera=()` | Step 13 owns the capture-versus-picker decision and must open it in the same commit |
+| `form-action` names **three** origins | `'self'` plus the Supabase auth origin plus `accounts.google.com`. `form-action` is enforced at every **redirect hop**, which Chrome does and Safari and Firefox do not, and sign-in is a form that redirects twice. Hydrated it never applies, because React submits by `fetch`; the exposure is a **click before hydration** on the first page a signed-out visitor sees. Found by audit, not by a test |
+
+### Violation reports
+
+`POST /api/csp-report`, logging only, `console.warn` and nothing else. The body is unauthenticated attacker-controlled JSON arriving at a URL published in every response header, so the cheapest way to stop it becoming a storage problem is to give it nowhere to go.
+
+- **Always answers 204**, on malformed JSON, an oversized body, or a limiter that will not start. The browser discards the response and retries nothing, so any other status is noise nobody can act on.
+- **Rate-limited by IP, and refusal is silent** — it stops logging rather than starting to fail. On localhost there is no `x-forwarded-for`, so every request shares one bucket; a limiter that returned an error would turn one noisy test run into a broken endpoint.
+- **But only a real refusal stops the log.** `Redis.fromEnv()` throws when the Upstash variables are absent, and catching that the same way would mean an environment with no Upstash config silently discarding **every** report while answering 204 and looking healthy: this endpoint's own failure mode, reproduced inside it. Only a `RateLimitError` short-circuits.
+- **The proxy returns before `getUser()` for this path.** A page with a wrong policy emits a report per blocked resource per load, and letting those through the session refresh would spend the project's Supabase **auth** rate limit, whose exhaustion signs people out several requests later. A reporting endpoint must not be able to break the thing it is reporting on.
+- **Both spellings are sent**, `report-to` and the deprecated `report-uri`, because Safari supports only the latter. The two body shapes do not share field names (`blocked-uri` versus `blockedURL`), and `lib/csp-report.ts` reads both. A parser that knew one would log a row of `undefined` for the other, which produces log lines rather than errors and so looks like nothing is wrong.
 
 ---
 

@@ -6,6 +6,7 @@ import {
   updateUsername,
   updateTimezone,
   updateTodayScreenMode,
+  updatePushShowsCircleName,
 } from "@/app/actions/settings"
 import type { ActionResult } from "@/lib/errors"
 
@@ -209,6 +210,56 @@ export function TodayScreenForm({ current }: { current: string }) {
       <p className="text-xs opacity-60">
         Shown only when you still have goals to check off. A finished day always
         goes straight to your dashboard.
+      </p>
+
+      <div>
+        <Submit label="Save" pendingLabel="Saving…" />
+      </div>
+      <Result state={state} done="Saved." />
+    </form>
+  )
+}
+
+/**
+ * 10g-2. Whether a push may name the Circle it is about.
+ *
+ * **Separate from the device toggle next to it, because they answer different
+ * questions.** That one is "does this browser get notifications at all", and it
+ * is per device. This is "what may a notification say", and it is per account:
+ * a lock screen in an open-plan office is not less exposed on your laptop.
+ *
+ * **Default on, and the copy says what off costs.** With it off every push
+ * reads the same, which is the state this whole piece exists to fix, so the
+ * person choosing it should know they are choosing it.
+ */
+export function PushNameForm({ current }: { current: boolean }) {
+  const [state, action] = useActionState<ActionResult | null, FormData>(
+    updatePushShowsCircleName,
+    null,
+  )
+
+  return (
+    <form
+      id="notification-detail"
+      aria-label="Notification detail"
+      action={action}
+      className="flex scroll-mt-6 flex-col gap-2"
+    >
+      <span className="text-sm font-medium">What notifications say</span>
+
+      <label className="flex items-center gap-2 text-sm">
+        {/*
+          A checkbox sends nothing when unticked, which is why the action reads
+          absence as off rather than looking for a "false".
+        */}
+        <input type="checkbox" name="show" defaultChecked={current} />
+        Name the Circle in notifications
+      </label>
+
+      <p className="text-xs opacity-60">
+        On, a notification says which Circle it is about, and that name appears
+        on your lock screen. Off, every notification reads the same and you open
+        the app to find out which one. Goals are never named either way.
       </p>
 
       <div>

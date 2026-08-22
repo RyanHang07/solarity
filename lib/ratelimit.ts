@@ -31,6 +31,13 @@ const LIMITS = {
   // 60, not the 10 the plan originally specified. See the note below: 10 would
   // let a shared link lock out the people it was shared with.
   inviteToken: [60, "1 h"],
+
+  // CSP violation reports, keyed by client IP. Generous on purpose: one broken
+  // page can emit a report per blocked resource per load, and the point of the
+  // endpoint is to hear about exactly that. Refusal is silent — the route
+  // answers 204 either way and simply stops logging, so a flood costs log
+  // volume rather than a wrong answer to a browser that is not listening.
+  cspReport: [120, "1 h"],
 } as const satisfies Record<string, readonly [number, Window]>
 
 export type LimitName = keyof typeof LIMITS

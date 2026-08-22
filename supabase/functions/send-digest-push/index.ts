@@ -6,9 +6,13 @@
 //
 // Teaser payloads only. iOS truncates long bodies, and a detailed body risks
 // surfacing hidden-goal-adjacent information on a lock screen — outside the
-// app's access controls entirely. Circle names are deliberately kept out of
-// push bodies for the same reason, even though the payload carries them for
-// in-app rendering.
+// app's access controls entirely. **A goal is never named here, ever.**
+//
+// Circle names WERE kept out for the same reason, and 10g reversed that with a
+// per-account setting: without a name, four Circles produce four notifications
+// that read identically, which is not a prompt but noise. `users
+// .push_shows_circle_name` decides, defaulting to on. The words themselves live
+// in teaser.ts so they can be unit-tested.
 //
 // AUTH: scheduler-invoked, so verify_jwt is off and it checks a shared secret.
 // Fails closed if the secret is unset.
@@ -16,6 +20,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import webpush from "npm:web-push@3.6.7";
+import { teaser } from "./teaser.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -31,30 +36,6 @@ const json = (body: unknown, status = 200) =>
     status,
     headers: { "Content-Type": "application/json" },
   });
-
-function teaser(type: string, payload: Record<string, unknown>): { title: string; body: string } {
-  switch (type) {
-    case "digest": {
-      const done = Number(payload.completed_count ?? 0);
-      const total = Number(payload.member_count ?? 0);
-      if (done === 0) return { title: "Solarity", body: "Nobody checked in yesterday — tap to see" };
-      if (done === total) return { title: "Solarity", body: "Everyone checked in yesterday — tap to see" };
-      return { title: "Solarity", body: `${done} of ${total} checked in yesterday — tap to see` };
-    }
-    case "deadline_changed":
-      return payload.cleared
-        ? { title: "Solarity", body: "A circle is now open-ended — tap to see" }
-        : { title: "Solarity", body: "A circle's deadline changed — tap to see" };
-    case "kicked":
-      return { title: "Solarity", body: "There's an update about one of your circles" };
-    case "group_locked_renewal":
-      return { title: "Solarity", body: "A circle's cycle has ended — tap to decide what's next" };
-    case "invite_accepted":
-      return { title: "Solarity", body: "Someone joined your circle" };
-    default:
-      return { title: "Solarity", body: "You have a new notification" };
-  }
-}
 
 Deno.serve(async (req: Request) => {
   if (!CRON_SECRET) {
@@ -98,6 +79,24 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Query failed", detail: subsError.message }, 500);
   }
 
+  // One query for the batch, not one per notification. The sender did not read
+  // `users` at all before 10g; this keeps that cost at a single round trip
+  // however many notifications are pending.
+  const { data: prefs, error: prefsError } = await admin
+    .from("users")
+    .select("id, push_shows_circle_name")
+    .in("id", userIds);
+
+  if (prefsError) {
+    console.error("failed to read notification preferences", prefsError.message);
+    return json({ error: "Query failed", detail: prefsError.message }, 500);
+  }
+
+  // Absent means on, matching the column default. A user row that somehow did
+  // not come back should get the useful notification, not the blank one.
+  const showsName = new Map<string, boolean>();
+  for (const u of prefs ?? []) showsName.set(u.id, u.push_shows_circle_name !== false);
+
   const byUser = new Map<string, typeof subs>();
   for (const s of subs ?? []) {
     const list = byUser.get(s.user_id) ?? [];
@@ -120,7 +119,7 @@ Deno.serve(async (req: Request) => {
       continue;
     }
 
-    const { title, body } = teaser(n.type, n.payload ?? {});
+    const { title, body } = teaser(n.type, n.payload ?? {}, showsName.get(n.user_id) ?? true);
     const message = JSON.stringify({
       title,
       body,

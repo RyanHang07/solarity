@@ -2,7 +2,12 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { pendingTimezone } from "@/app/actions/settings"
-import { UsernameForm, TimezoneForm, TodayScreenForm } from "./settings-forms"
+import {
+  UsernameForm,
+  TimezoneForm,
+  TodayScreenForm,
+  PushNameForm,
+} from "./settings-forms"
 import { PushToggle } from "@/components/push-toggle"
 
 export const metadata = { title: "Settings — Solarity" }
@@ -28,7 +33,7 @@ export default async function SettingsPage() {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("username, display_name, checkin_timezone, today_screen_mode")
+    .select("username, display_name, checkin_timezone, today_screen_mode, push_shows_circle_name")
     .eq("id", user.id)
     .maybeSingle()
 
@@ -55,6 +60,9 @@ export default async function SettingsPage() {
         <UsernameForm current={profile.username} />
         <TimezoneForm current={profile.checkin_timezone} pending={pending} />
         <TodayScreenForm current={profile.today_screen_mode} />
+        {/* Per account, unlike the device toggle below: what a notification may
+            say does not change with the phone you are holding. */}
+        <PushNameForm current={profile.push_shows_circle_name} />
       </section>
 
       {/* Client-only: whether this browser is permitted, subscribed, and still

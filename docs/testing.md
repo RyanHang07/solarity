@@ -6,14 +6,29 @@ How to run it, how to verify it, and the rules the suite follows.
 |---|---|
 | `npm run dev` | The app, against the **hosted** Supabase project via `.env.local`. `npx supabase start` is not needed |
 | `npm run typecheck` | `next typegen && tsc --noEmit`. **Use this, not bare `tsc`** |
-| `npm run test:e2e` | 74 Playwright tests in Chromium, 11 spec files, one worker |
-| `npm run test:e2e:ios` | 6 more in WebKit at iPhone size. Needs `npx playwright install webkit` |
+| `npm test -- --run` | 49 Vitest unit tests, **pinned to a non-UTC timezone**. Error hints, push copy, digest grouping, the CSP, and violation-report parsing |
+| `npm run test:e2e` | 89 Playwright tests in Chromium, 13 spec files, one worker. Two of them skip unless `E2E_PROD` |
+| `npm run test:e2e:ios` | 7 more in WebKit at iPhone size. Needs `npx playwright install webkit`. **Both step 12 CSP bugs were WebKit-only and production-only.** Chromium was green through all of it |
 | `npm run test:e2e:clean` | Removes what a crashed run left: Circles, goals, and any parked goals |
-| `E2E_PROD=1 npm run test:e2e` | Against `next build && next start`. Reach for it when a failure looks like infrastructure |
+| `E2E_PROD=1 npm run test:e2e` | Against `next build && next start`. Reach for it when a failure looks like infrastructure, and **always before a deploy since step 12**: the dev CSP is not the one that ships |
 
 **Docker is only needed** for `db diff`, `db reset` and `supabase start`.
 
-**Three things no command here can check**, all of them step 10's and all of them on the checklist in `build-plan.md`: a real permission dialog, a real push delivery, and a safe-area inset. Headless browsers report the permission denied, never draw the dialog, and resolve `env(safe-area-inset-*)` to 0. A green suite is not a verified step 10.
+**Running less than everything.** A full pass is three minutes and a chunk of the auth budget, so narrow it while iterating:
+
+| | |
+|---|---|
+| One spec | `npx playwright test e2e/digests.spec.ts` |
+| One test | `npx playwright test -g "sorts to the top"` |
+| Only last run's failures | `npx playwright test --last-failed` |
+| One vitest file | `npm test -- --run lib/digest-days.test.ts` |
+| The WebKit project alone | `npm run test:e2e:ios` |
+| WebKit against a production build | PowerShell: `$env:E2E_PROD=1; npm run test:e2e:ios`. **The only combination that has caught a CSP bug** |
+| The headers | `npx playwright test e2e/headers.spec.ts` |
+
+The `setup` project always runs first — every spec depends on it for storage states — so a filtered run still mints sessions and `global-teardown` still restores `today_screen_mode`. A narrow run cannot leave your account with the check-in screen switched off.
+
+**Four things no command here can check**: a real permission dialog, a real push delivery, a safe-area inset, and whether HSTS is actually being served (a dev server on plain http will not send it, and a browser would ignore it if it did). Headless browsers report the permission denied, never draw the dialog, and resolve `env(safe-area-inset-*)` to 0. Step 10's manual pass covered the first three once — the eight flows are kept in `build-plan.md`, because a permission dialog is one-shot per browser and the next device will need the same procedure.
 
 **Two things step 9 changed about every run**
 
@@ -85,6 +100,36 @@ The evidence was a session count: 3 for one account against 45 for the other, wi
 `ensureUnfinishedDay` seeds one unchecked goal in a `beforeEach` and returns its undo. A goal nobody has checked off is the entire fixture.
 
 **Deleting a goal recounts nothing**, which is how the row goes stale: `goals_maintain_completion` fires on INSERT and UPDATE only, correctly, because production has no DELETE grant on `goals` and the suite is the only thing that removes them. `recountToday` forces the recount by writing `archived_at` back to itself — `UPDATE OF` fires on assignment, not on change — and both `deleteE2EGoals` and the seeder call it.
+
+### Playwright's text engine cannot see inside a `<script>`
+
+`filter({ hasText })` and `getByText` deliberately skip `<script>` and `<style>` contents. A locator that tries to find the app's inline install script by its source does not fail, it waits out the full timeout and reports the assertion that follows it — so a missing *locator* reads as a missing nonce. Reach for `page.evaluate` and query the DOM directly.
+
+The nonce itself has a second trap on top of that: once a nonced element is inserted, browsers move the value into an internal slot and blank the content attribute, so that a CSS attribute selector cannot exfiltrate it. `getAttribute("nonce")` returns `""`; only the `.nonce` IDL property still holds it.
+
+### Ask what edit would turn a test red
+
+Three assertions in steps 10 and 11 could not fail, and none of them looked wrong:
+
+| | Why it was inert |
+|---|---|
+| "day six is absent" | It searched for the **ISO date**, which the panel never renders |
+| Five install tests | Each planted `beforeinstallprompt` itself, so deleting the root layout's listener would still pass |
+| Any date test in UTC | The correct code and the offset-shifting code agree there |
+
+All three were found by reading, not by running. The habit that catches them: name the edit that should make this red, then check the test would notice.
+
+### The test runner is deliberately not in UTC
+
+`vitest.config.mts` sets `TZ` to `America/Los_Angeles`. Check-in dates are `YYYY-MM-DD` strings that have **already** had a timezone applied by `current_checkin_date()`, so `new Date(date)` re-applies an offset and shifts the day. In a UTC runner the correct code and the broken code agree, and the test becomes decoration.
+
+`lib/digest-days.test.ts` asserts the runner is not UTC before trusting its own date assertions, and pins the trap directly: `new Date("2026-08-18").getDate()` is 17 there.
+
+### Push copy is unit-tested, because nothing else can see it
+
+The e2e suite cannot deliver a push and the sender runs on Deno, so the words that reach a lock screen had no reader at all. Copy fails silently: a body reading "undefined", or one naming a Circle somebody asked to keep private, looks fine in every log.
+
+`teaser()` was split into `supabase/functions/send-digest-push/teaser.ts`, which imports nothing, so `lib/teaser.test.ts` can import it directly. **Without the `.ts` extension**, unlike `index.ts` beside it: Deno requires the extension and `tsc` refuses it, and the two coexist only because `supabase/functions` is excluded from the project's compilation while an import still pulls that one file in.
 
 ### The streak is not in the table the streak tests park
 

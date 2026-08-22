@@ -43,7 +43,7 @@ Live views resolve the current username via FK.
 
 **Enforced, as of migration 73**, by `notifications_payload_names_its_circle`: any payload whose `type` names a Circle must carry both `group_id` and `circle_name`. Keyed on `type` with an `else true` branch, so a sixth notification type is unconstrained until someone designs its shape rather than being unable to insert at all.
 
-**The stored name is for the in-app list, not for push.** `send-digest-push` builds every body from counts alone and keeps Circle names off lock screens deliberately. See its header before putting one there.
+**The stored name reaches lock screens as of 10g, behind a setting.** It used to be in-app only: every push body was built from counts alone, which produced four identical notifications for four Circles and was the one real finding of step 10's manual pass. `users.push_shows_circle_name` decides, defaulting to on, and `teaser.ts` falls back to the old countless wording when a name is withheld or absent. **A goal title still never reaches a body, ever** — those are masked per Circle and a lock screen is outside every one of those checks.
 
 ### `goals`
 User-owned, never group-owned. Goals stay constant across every Circle a user belongs to.
@@ -219,7 +219,9 @@ Jobs fan out to every subscription for a user, covering multi-device installs.
 ### `digest_snapshots`
 - PK `(group_id, date)`, `summary` (jsonb, immutable snapshot), `created_at`
 
-The Overview subtab and the push notification read the same row, so they can't disagree.
+**This is the record of a day; the notification row is only the envelope.** The day boxes on `/dashboard` read `summary` for the last five days — counts, group streak, and the per-member roll call — and `/circles/[id]?tab=overview` reads the same row for one Circle, so the two cannot disagree.
+
+`summary.members` carries `user_id`, `username`, `completed` and `streak`, **frozen at write time**. A rename does not relabel last Tuesday, which is the point: a digest is a record of how a day went, and on that day that was their name. Every reader parses it defensively — it is jsonb written by a scheduled job, so a shape change would otherwise blank a dashboard silently.
 
 ### `content_reports`
 - `id`, `content_type` (enum), `content_reference`, `reason` (≤500), `status` (enum), `created_at`, `reviewed_at`, `reviewed_by`
