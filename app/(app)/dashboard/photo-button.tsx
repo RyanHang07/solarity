@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client"
 import {
   MAX_UPLOAD_BYTES,
   PHOTO_BUCKET,
+  PHOTO_MIME,
   inspect,
   photoKey,
   preparePhoto,
@@ -81,13 +82,25 @@ export function PhotoButton({
     const { error: upErr } = await supabase.storage
       .from(PHOTO_BUCKET)
       .upload(photoKey(userId, goalId, entryId), blob, {
-        contentType: "image/webp",
+        contentType: PHOTO_MIME,
         // Replacing is the ordinary case: pick again and the new one wins,
         // at the same key, so nothing is orphaned by a second attempt.
         upsert: true,
       })
 
-    if (upErr) return setError("Couldn't upload that photo. Try again.")
+    if (upErr) {
+      /**
+       * **Storage's own words, not a fixed sentence.**
+       *
+       * This used to say only "Couldn't upload that photo", which is how a
+       * clear `mime type image/png is not supported` became an afternoon of
+       * guessing. The bucket accepts one MIME type and the part's type comes
+       * from `blob.type` — supabase-js appends the blob to `FormData` bare, so
+       * the `contentType` option above never reaches the check that matters.
+       */
+      console.error("check-in photo upload failed", upErr)
+      return setError(`Couldn't upload that photo. ${upErr.message}`)
+    }
 
     // **Only now does the photo exist as far as anyone else is concerned.** The
     // object has been there since the line above; the column is what

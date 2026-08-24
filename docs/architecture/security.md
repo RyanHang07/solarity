@@ -268,7 +268,7 @@ Pick a file → `inspect` → `preparePhoto` → upload straight to Storage → 
 | | |
 |---|---|
 | Accepts | HEIC, JPG, PNG, GIF, WebP, judged by **magic bytes** rather than the name or the declared type |
-| Normalised to | WebP, longest edge ~1600px, quality 0.8, in the browser |
+| Normalised to | **JPEG**, longest edge ~1600px, quality 0.8, in the browser. Not WebP: **Safari cannot encode it**, and `toBlob` falls back to PNG silently. Migration 82 |
 | Cap | 10MB before compression, checked client-side so a 12MB file fails instantly rather than after the upload |
 | Metered | `photoUpload`, 20/hour, spent by `attachCheckinPhoto` — the step that makes an object visible to other people, not the byte transfer |
 
@@ -291,7 +291,9 @@ The check-in path encodes owner **and** goal so the policy evaluates both the sh
 
 **It also forces the order of operations**, which is the single fact most of step 13's design follows from: the entry must exist before a photo can be addressed. Hence the button appears only once a goal is checked off, and hence `attachCheckinPhoto` is a second step rather than part of the check-in.
 
-Both buckets are private, capped (`checkin-photos` 10MB, `avatars` 2MB), and restricted to `image/webp`.
+Both buckets are private and capped (`checkin-photos` 10MB, `avatars` 2MB). `checkin-photos` is restricted to **`image/jpeg`**.
+
+**The bucket's MIME check reads `blob.type`, not the `contentType` you pass.** `supabase-js` appends the blob to a `FormData` bare, so the option sets a request header the check never looks at. `preparePhoto` therefore asserts the type it produced rather than trusting the encoder.
 
 ### Who sees a photo: two rules, deliberately not identical
 

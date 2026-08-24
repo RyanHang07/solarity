@@ -144,6 +144,12 @@ Run `get_advisors` for `security` after any DDL. Known and deliberate: `rls_enab
 
 **`.upsert()` needs UPDATE on every column in its payload**, because PostgREST compiles it to `ON CONFLICT DO UPDATE SET` all of them. With column-scoped grants that surfaces as a bare `42501` naming the *table*, which sends you to the policies instead of the grants.
 
+**A format the platform cannot produce is not a format.** The design said WebP, the bucket allowed only `image/webp`, and **Safari cannot encode WebP from a canvas** — `toBlob` falls back to PNG silently, with no error. A desktop uploaded WebP and an iPhone uploaded PNG to a bucket that refused it. Ask what every target can actually *make*, not what they can read.
+
+**A declared content type is not necessarily the one that gets checked.** `supabase-js` appends the blob to a `FormData` bare, so the multipart part's type comes from `blob.type` and the `contentType` option never reaches the bucket's MIME check. When a validated value has two possible sources, find out which one the validator reads.
+
+**Never put a raw control byte in a source file.** The image-sniffing fixtures carried literal NUL, `0x18` and `0x90` bytes, because RIFF and ISO-BMFF really do have binary prefixes. `file(1)` and `grep` then call the whole file `data` — the same end state as the UTF-16 gotcha, from a different cause, and the same class of confusion. Write them as `\0` and `\x18` escapes: identical bytes at runtime, plain text on disk.
+
 **`--no-save` protects `package.json`, not `node_modules`.** `npm install --no-save <pkg>` still reconciles the whole tree, so running it from a Linux sandbox against a Windows checkout prunes the platform binaries Windows needs. The failure appears days later as a tool that will not start. Unpack a tarball by hand instead.
 
 **A dependency the tests do not use should not be able to stop them running.** `jsdom` sat in the vitest config from the scaffold while every unit test stayed pure. It pulled in `undici`, which wanted a Node API newer than CI's, and all five files failed to *start* with an error naming `cachestorage.js`. Nothing ran, and nothing pointed at this repository. Check periodically that the test environment is still the one the tests need.

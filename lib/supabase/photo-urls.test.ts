@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { PHOTO_URL_TTL_SECONDS, signPhotos } from "./photo-urls"
 
 /**
@@ -21,6 +21,8 @@ function fakeClient(rows: Row[] | null, error: unknown = null) {
 }
 
 const ok = (path: string): Row => ({ path, signedUrl: `https://x/${path}?t=1`, error: null })
+
+afterEach(() => vi.restoreAllMocks())
 
 describe("signPhotos", () => {
   it("signs in one request, whatever the number of photos", async () => {
@@ -64,11 +66,18 @@ describe("signPhotos", () => {
     expect(urls.get("c")).toContain("c")
   })
 
-  it("returns nothing rather than throwing when the batch fails", async () => {
+  it("returns nothing rather than throwing when the batch fails, and says so", async () => {
+    // **Silenced and asserted, not left to print.** The log is the only trace a
+    // signing failure leaves in production, so it is worth a check rather than
+    // a line of stderr — and noise in test output is how people learn to stop
+    // reading test output.
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {})
     const { client } = fakeClient(null, { message: "network" })
+
     // A photo that will not sign is a missing image. It is not a reason for a
     // whole roster to fail to render.
     await expect(signPhotos(client, ["a"])).resolves.toEqual(new Map())
+    expect(logged, "a signing failure left no trace anywhere").toHaveBeenCalled()
   })
 
   it("expires within the hour", () => {

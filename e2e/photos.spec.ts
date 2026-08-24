@@ -375,16 +375,21 @@ test("a photo picked on the dashboard reaches a circle-mate, and hiding takes it
       timeout: 20_000,
     })
 
-    // **Stored as WebP, whatever was picked.** The bucket accepts nothing else,
-    // so a pipeline that uploaded the original PNG would have been refused by
-    // Storage rather than by anything here — asserted so the conversion is a
-    // tested behaviour and not an accident of the bucket's own rule.
+    /**
+     * **Stored as JPEG, whatever was picked.** The bucket accepts nothing else.
+     *
+     * Asserted on the *downloaded* object rather than on what we asked for,
+     * because that distinction is the whole bug: `supabase-js` appends the blob
+     * to `FormData` bare, so the type Storage validates comes from `blob.type`
+     * and never from the `contentType` option. Asking for JPEG and shipping a
+     * PNG is precisely what Safari did.
+     */
     const key = photoKey(ownerId, goal.data!.id, await entryIdFor(goal.data!.id))
-    expect(key.endsWith(".webp")).toBe(true)
+    expect(key.endsWith(".jpg")).toBe(true)
     const { data: object } = await admin.storage
       .from("checkin-photos")
       .download(key)
-    expect(object?.type, "the object is not WebP").toContain("webp")
+    expect(object?.type, "the stored object is not JPEG").toContain("jpeg")
 
     // ------------------------------------------------------- the friend sees
     await joinerPage.goto(`/circles/${groupId}`)

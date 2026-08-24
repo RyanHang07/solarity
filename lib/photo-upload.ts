@@ -15,6 +15,28 @@
 /** Named once, because the server actions and the client both address it. */
 export const PHOTO_BUCKET = "checkin-photos"
 
+/**
+ * **JPEG, and this is the one decision in the file with a real cost.**
+ *
+ * The design said WebP, and WebP is roughly a quarter smaller for photographs.
+ * **Safari cannot encode it.** `canvas.toBlob(cb, "image/webp")` is unsupported
+ * in WebKit, and the spec says an unsupported type falls back to `image/png` —
+ * silently, with no error and no warning. So an iPhone produced a PNG while a
+ * desktop produced a real WebP, and the bucket, restricted to `image/webp`,
+ * refused the iPhone's upload with a message the UI then threw away.
+ *
+ * JPEG is the only raster format every canvas can encode. One format means one
+ * extension, one allowed MIME type, and no per-browser branch in the part of
+ * this system that is hardest to test — three device-only bugs came out of this
+ * pipeline before this line was written.
+ *
+ * **Changing these two constants is a migration**, not an edit: migration 80's
+ * CHECK pins the extension, the bucket pins the MIME type, and existing objects
+ * would need renaming.
+ */
+export const PHOTO_MIME = "image/jpeg"
+export const PHOTO_EXT = "jpg"
+
 /** The bucket's own cap. Checked here so a 12MB file fails instantly. */
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
@@ -91,7 +113,7 @@ export async function inspect(file: File): Promise<PhotoProblem | null> {
  * rules from the same two segments without joining anything.
  */
 export function photoKey(userId: string, goalId: string, entryId: string) {
-  return `${userId}/${goalId}/${entryId}.webp`
+  return `${userId}/${goalId}/${entryId}.${PHOTO_EXT}`
 }
 
 /**
@@ -109,18 +131,31 @@ export function photoKey(userId: string, goalId: string, entryId: string) {
  * canvas; Chrome on Android does not. So "converted client-side" means
  * "converted by a browser that can", and a failure here is reported rather than
  * hidden behind a claim of support that depends on the reader.
+ *
+ * **The returned type is checked, not assumed.** A canvas asked for a format it
+ * cannot encode returns PNG instead and says nothing — which is exactly how the
+ * WebP attempt failed, as a Storage rejection on a phone and nowhere else. If
+ * the encoder ever substitutes a format again, this throws where the cause is
+ * visible rather than three layers away.
  */
 export async function preparePhoto(file: File): Promise<Blob> {
   const { default: compress } = await import("browser-image-compression")
 
-  return compress(file, {
+  const blob = await compress(file, {
     maxWidthOrHeight: MAX_EDGE,
     maxSizeMB: MAX_UPLOAD_BYTES / (1024 * 1024),
     initialQuality: QUALITY,
-    fileType: "image/webp",
+    fileType: PHOTO_MIME,
     // Read the EXIF flag and rotate the pixels. Without this the re-encode
     // discards the flag and the image is left lying on its side.
     exifOrientation: -1,
     useWebWorker: true,
   })
+
+  if (blob.type !== PHOTO_MIME) {
+    throw new Error(
+      `expected ${PHOTO_MIME}, got ${blob.type || "no type"} — the canvas substituted a format`,
+    )
+  }
+  return blob
 }
