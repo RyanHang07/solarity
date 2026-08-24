@@ -2,13 +2,15 @@
 
 **Open work only.** Finished steps and their reasoning live in `history.md`; this file is read daily and should stay short.
 
-| You want | Read |
-|---|---|
-| How it works now | `architecture/` |
-| What keeps going wrong | `patterns.md` |
-| How to run or verify it | `testing.md` |
-| Designed but not built | `deferred.md` |
-| Why a past decision went that way | `history.md` |
+
+| You want                          | Read            |
+| --------------------------------- | --------------- |
+| How it works now                  | `architecture/` |
+| What keeps going wrong            | `patterns.md`   |
+| How to run or verify it           | `testing.md`    |
+| Designed but not built            | `deferred.md`   |
+| Why a past decision went that way | `history.md`    |
+
 
 ---
 
@@ -16,15 +18,17 @@
 
 **Steps 1 to 13 are built.** Every reason and every bug is in `history.md`; this table is the index.
 
-| # | Step | State |
-|---|---|---|
-| 1–7 | Auth, Circles, goals, check-ins, the Circle page, invites | ✅ 12–14 Aug |
-| 8 | Seeing each other | ✅ 17 Aug, migrations 68–75 |
-| 9 | The daily check-in flow | ✅ 18 Aug, migration 76. `/today`, the gate, the streak header |
-| 10 | Install nudge, then push permission | ✅ migrations 77–78. **Manual pass done on an iPhone**; its eight flows are kept in `history.md`, because a permission dialog is one-shot per browser |
-| 11 | Digest boxes on Overview | ✅ no migration. Five day boxes, a per-Circle roll call, digests out of the Notifications tab |
-| 12 | Security headers | ✅ no migration. Nonce CSP, HSTS, `Permissions-Policy`. **`E2E_PROD=1 npm run test:e2e:ios` before any deploy**: the dev CSP is not the one that ships |
-| 13 | Check-in photos | ✅ migrations 79–81. Upload, roster display, signed URLs, and a sweep for both kinds of orphan. **One manual pass outstanding**, below |
+
+| #   | Step                                                      | State                                                                                                                                                 |
+| --- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1–7 | Auth, Circles, goals, check-ins, the Circle page, invites | ✅ 12–14 Aug                                                                                                                                           |
+| 8   | Seeing each other                                         | ✅ 17 Aug, migrations 68–75                                                                                                                            |
+| 9   | The daily check-in flow                                   | ✅ 18 Aug, migration 76. `/today`, the gate, the streak header                                                                                         |
+| 10  | Install nudge, then push permission                       | ✅ migrations 77–78. **Manual pass done on an iPhone**; its eight flows are kept in `history.md`, because a permission dialog is one-shot per browser  |
+| 11  | Digest boxes on Overview                                  | ✅ no migration. Five day boxes, a per-Circle roll call, digests out of the Notifications tab                                                          |
+| 12  | Security headers                                          | ✅ no migration. Nonce CSP, HSTS, `Permissions-Policy`. `E2E_PROD=1 npm run test:e2e:ios` **before any deploy**: the dev CSP is not the one that ships |
+| 13  | Check-in photos                                           | ✅ migrations 79–81. Upload, roster display, signed URLs, and a sweep for both kinds of orphan. **One manual pass outstanding**, below                 |
+
 
 **What that means.** A person can sign in, set goals, check them off with a note and a photo, invite friends into a Circle, see who finished today, keep a streak, get a push when it matters, and read a five-day digest. **The premise the product exists to test is now testable.**
 
@@ -32,40 +36,48 @@
 
 ---
 
+
+
 ## The one thing owed to a device
 
 Step 13's manual pass. Four things no headless browser can reach: the iOS share sheet, EXIF orientation on a real portrait photo, a HEIC straight from a camera roll, and whether a roster of thumbnails feels fast on mobile data.
 
-| # | Flow |
-|---|---|
-| 1 | iPhone, installed PWA. Check off a goal. |
-| 2 | Tap `+ photo`. **Sheet offers Take Photo, Photo Library, Choose File.** |
-| 3 | Take Photo. Shoot **in portrait**. Confirm. |
-| 4 | **The photo is upright, not sideways.** This is the EXIF check. |
-| 5 | Photo Library. Pick a **HEIC** shot from the camera roll. |
-| 6 | It uploads, or says to try a JPEG. Never a silent nothing. |
-| 7 | Second account, same Circle. Open the Circle, open the member's row. |
-| 8 | Thumbnail appears. Tap it. It grows to the full image. |
-| 9 | Scroll a roster with several photos. **Does it feel fast on mobile data?** |
-| 10 | Owner: hide the goal in that Circle. Reload the other account. Photo gone. |
-| 11 | Owner: `Remove photo`. Check-in survives, day still counts. |
-| 12 | Owner: add a photo, then `Undo`. **Dialog warns before deleting it.** |
-| 13 | Undo a goal with **no** photo. **No dialog.** |
 
-**Step 4 is the one to be careful about**, because a sideways photo looks like a working feature and nothing will report it. **Step 2 is where `Permissions-Policy: camera=()` would surface** if the reasoning about `capture` versus `getUserMedia` is wrong.
+| #   | Flow                                                                       |
+| --- | -------------------------------------------------------------------------- |
+| 1   | iPhone, installed PWA. Check off a goal.                                   |
+| 2   | Tap `+ photo`. **Sheet offers Take Photo, Photo Library, Choose File.**    |
+| 3   | Take Photo. Shoot **in portrait**. Confirm.                                |
+| 4   | **The photo is upright, not sideways.** This is the EXIF check.            |
+| 5   | Photo Library. Pick a **HEIC** shot from the camera roll.                  |
+| 6   | It uploads, or says to try a JPEG. Never a silent nothing.                 |
+| 7   | Second account, same Circle. Open the Circle, open the member's row.       |
+| 8   | Thumbnail appears. Tap it. It grows to the full image.                     |
+| 9   | Scroll a roster with several photos. **Does it feel fast on mobile data?** |
+| 10  | Owner: hide the goal in that Circle. Reload the other account. Photo gone. |
+| 11  | Owner: `Remove photo`. Check-in survives, day still counts.                |
+| 12  | Owner: add a photo, then `Undo`. **Dialog warns before deleting it.**      |
+| 13  | Undo a goal with **no** photo. **No dialog.**                              |
+
+
+**Step 4 is the one to be careful about**, because a sideways photo looks like a working feature and nothing will report it. **Step 2 is where** `Permissions-Policy: camera=()` **would surface** if the reasoning about `capture` versus `getUserMedia` is wrong.
 
 ---
+
+
 
 ## The public surface ✅ **done**
 
 `/privacy`, `/terms`, `robots.txt`, `sitemap.xml`, and links from `/`, `/auth/sign-in` and `/settings`. **This was the gate on the Google OAuth consent screen** — until a privacy URL was publicly reachable, nobody outside the test accounts could sign in.
 
-| | |
-|---|---|
-| `lib/legal.ts` | Every number the pages assert, annotated with the job that enforces it. `TERMS_VERSION` is a dated constant; **nothing records acceptance**, because Google sign-in never shows a checkbox and a column now would be declared with no writer |
-| `components/policy-page.tsx` | One frame, so the two pages cannot drift apart |
-| `lib/site-url.ts` | The only place in the app that needs to know its own hostname. `NEXT_PUBLIC_SITE_URL`, then Vercel's, then localhost — the fallback is what keeps CI's **env-less** build working |
-| `PUBLIC_PREFIXES` | Extracted from the inline boolean in `proxy.ts`, matched as whole segments so `/termsomething` does not become public because `/terms` is |
+
+|                              |                                                                                                                                                                                                                                              |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/legal.ts`               | Every number the pages assert, annotated with the job that enforces it. `TERMS_VERSION` is a dated constant; **nothing records acceptance**, because Google sign-in never shows a checkbox and a column now would be declared with no writer |
+| `components/policy-page.tsx` | One frame, so the two pages cannot drift apart                                                                                                                                                                                               |
+| `lib/site-url.ts`            | The only place in the app that needs to know its own hostname. `NEXT_PUBLIC_SITE_URL`, then Vercel's, then localhost — the fallback is what keeps CI's **env-less** build working                                                            |
+| `PUBLIC_PREFIXES`            | Extracted from the inline boolean in `proxy.ts`, matched as whole segments so `/termsomething` does not become public because `/terms` is                                                                                                    |
+
 
 **The copy describes only what exists.** Account deletion is a deployed Edge Function with no UI, so the page gives an address rather than promising a button. That sentence becomes a link when `/settings/account` ships.
 
@@ -76,6 +88,8 @@ Step 13's manual pass. Four things no headless browser can reach: the iOS share 
 **Still open here:** the copy has not been reviewed by a lawyer, and it says so.
 
 ---
+
+
 
 ## Deferred inside the loop
 
@@ -102,9 +116,11 @@ Cheap: zero rows today, and `export_user_data` is the only reader. Should land b
 **Two design notes when it is built:**
 
 - **Do not default to today.** The column is nullable on purpose; most daily goals have no end date. Defaulting turns an opt-in field into an opt-out one and produces goals that look overdue tomorrow.
-- **No `min` attribute.** Architecture section 3 keeps this deliberately unconstrained, since recording a missed or historical deadline is legitimate.
+- **No** `min` **attribute.** Architecture section 3 keeps this deliberately unconstrained, since recording a missed or historical deadline is legitimate.
 
 ---
+
+
 
 ## Route map
 
@@ -112,36 +128,44 @@ Every route the app will have, and where each stands. **Orphaned** means the bac
 
 ### Public
 
-| Route | Status | Notes |
-|---|---|---|
-| `/` | built, placeholder | Landing. Redirects signed-in visitors to `/dashboard`. Also renders `Notice`, since a signed-out visitor with a dead invite link lands here. Needs real content; see Deferred. |
-| `/auth/sign-in` | built | Google only so far. Gains a password form. |
-| `/auth/callback` | built | OAuth code exchange. |
-| `/auth/error` | built | Gains cases for expired and reused confirmation links. |
-| `/auth/sign-up` | deferred | Email, password, username, name, terms, Turnstile. |
-| `/auth/check-email` | deferred | Post-signup holding screen. Resend, spam-folder line, and a route back to sign-in. |
-| `/auth/confirm` | deferred | Route handler calling `verifyOtp`. |
-| `/auth/forgot-password` | deferred | Always reports success. |
-| `/auth/reset-password` | deferred | Reached only with a recovery session. |
-| `/privacy` | built | Reachable signed out, which is what the consent screen requires. |
-| `/terms` | built | Versioned by `TERMS_VERSION`; nothing records acceptance until signup exists. |
-| `/support` | deferred | FAQ plus contact form. |
-| `/join/[token]` | built | Preview works **signed out**; join requires sign-in. A dead link redirects with a notice rather than 404ing. `robots: noindex`, `Disallow: /join/`, and never in the sitemap. |
-| `robots.txt`, `sitemap.xml` | built | `/join/` disallowed and absent from the sitemap, asserted by `e2e/legal.spec.ts`. |
+
+| Route                       | Status             | Notes                                                                                                                                                                          |
+| --------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/`                         | built, placeholder | Landing. Redirects signed-in visitors to `/dashboard`. Also renders `Notice`, since a signed-out visitor with a dead invite link lands here. Needs real content; see Deferred. |
+| `/auth/sign-in`             | built              | Google only so far. Gains a password form.                                                                                                                                     |
+| `/auth/callback`            | built              | OAuth code exchange.                                                                                                                                                           |
+| `/auth/error`               | built              | Gains cases for expired and reused confirmation links.                                                                                                                         |
+| `/auth/sign-up`             | deferred           | Email, password, username, name, terms, Turnstile.                                                                                                                             |
+| `/auth/check-email`         | deferred           | Post-signup holding screen. Resend, spam-folder line, and a route back to sign-in.                                                                                             |
+| `/auth/confirm`             | deferred           | Route handler calling `verifyOtp`.                                                                                                                                             |
+| `/auth/forgot-password`     | deferred           | Always reports success.                                                                                                                                                        |
+| `/auth/reset-password`      | deferred           | Reached only with a recovery session.                                                                                                                                          |
+| `/privacy`                  | built              | Reachable signed out, which is what the consent screen requires.                                                                                                               |
+| `/terms`                    | built              | Versioned by `TERMS_VERSION`; nothing records acceptance until signup exists.                                                                                                  |
+| `/support`                  | deferred           | FAQ plus contact form.                                                                                                                                                         |
+| `/join/[token]`             | built              | Preview works **signed out**; join requires sign-in. A dead link redirects with a notice rather than 404ing. `robots: noindex`, `Disallow: /join/`, and never in the sitemap.  |
+| `robots.txt`, `sitemap.xml` | built              | `/join/` disallowed and absent from the sitemap, asserted by `e2e/legal.spec.ts`.                                                                                              |
+
+
+
 
 ### Signed in
 
-| Route | Status | Backed by |
-|---|---|---|
-| `/onboarding` | built | `complete_onboarding`, then the install nudge and the one push prompt. Gains the terms checkbox with signup. |
-| `/dashboard` | built | Three tabs: Overview with five day boxes, Circles, Notifications. Check-in panel with photos. |
-| `/circles/[id]` | built | Header, deadline, group streak, Members and Overview tabs, owner streak-decision banner. Closes the `sw.js` deep link. |
-| `/circles/[id]/settings` | built | Invite link, revoke, regenerate, archive. Still to gain: deadline, roles, and the kick flow's "also block?" step. |
-| `/notifications` | orphaned | `notifications`. The durable channel; push is best-effort. |
-| `/profile/[username]` | orphaned | `user_lifetime_stats.visible_on_profile`. Where blocking lives. |
-| `/settings/profile` | orphaned | Rename path. Must surface *when* the next rename is allowed, not just refuse. |
-| `/settings/notifications` | **partly absorbed** | The per-device push toggle and the Circle-name setting live on `/settings`. A per-device *list* is still unbuilt. |
-| `/settings/account` | orphaned | `export-data` and `delete-account` Edge Functions. Both deployed and verified, neither has UI. Self-serve deletion is an Apple requirement for any future store submission. |
+
+| Route                     | Status              | Backed by                                                                                                                                                                   |
+| ------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/onboarding`             | built               | `complete_onboarding`, then the install nudge and the one push prompt. Gains the terms checkbox with signup.                                                                |
+| `/dashboard`              | built               | Three tabs: Overview with five day boxes, Circles, Notifications. Check-in panel with photos.                                                                               |
+| `/circles/[id]`           | built               | Header, deadline, group streak, Members and Overview tabs, owner streak-decision banner. Closes the `sw.js` deep link.                                                      |
+| `/circles/[id]/settings`  | built               | Invite link, revoke, regenerate, archive. Still to gain: deadline, roles, and the kick flow's "also block?" step.                                                           |
+| `/notifications`          | orphaned            | `notifications`. The durable channel; push is best-effort.                                                                                                                  |
+| `/profile/[username]`     | orphaned            | `user_lifetime_stats.visible_on_profile`. Where blocking lives.                                                                                                             |
+| `/settings/profile`       | orphaned            | Rename path. Must surface *when* the next rename is allowed, not just refuse.                                                                                               |
+| `/settings/notifications` | **partly absorbed** | The per-device push toggle and the Circle-name setting live on `/settings`. A per-device *list* is still unbuilt.                                                           |
+| `/settings/account`       | orphaned            | `export-data` and `delete-account` Edge Functions. Both deployed and verified, neither has UI. Self-serve deletion is an Apple requirement for any future store submission. |
+
+
+
 
 ### Protection
 
@@ -153,7 +177,11 @@ Keep the posture deny-by-default: enumerate what is *public*, so a forgotten rou
 
 ---
 
+
+
 ## Open items
+
+
 
 ### Blocking
 
@@ -161,51 +189,20 @@ Keep the posture deny-by-default: enumerate what is *public*, so a forgotten rou
 
 > Apply through the Supabase MCP, then **write the file under the version the server recorded** and prove `md5(prosrc)` matches. Migration 77 was applied and never committed; 79 and 81 were both recorded under a timestamp different from the filename I chose. The verification is the workflow.
 
+
+
 ### Before launch
 
 - ~~Security headers~~ — step 12.
-- ~~`pushsubscriptionchange` handler~~ — step 10f. `sw.js` listens and `resubscribeIfPermitted` repairs a rotated endpoint without ever prompting.
-- Wire rate limits into each new action as it is written. **Every limit now has a caller except `report`**, which waits on the content-reporting UI.
+- `pushsubscriptionchange` ~~handler~~ — step 10f. `sw.js` listens and `resubscribeIfPermitted` repairs a rotated endpoint without ever prompting.
+- Wire rate limits into each new action as it is written. **Every limit now has a caller except** `report`, which waits on the content-reporting UI.
 - A custom domain, if email deliverability from a personal sender proves to be a problem.
-- **Regenerate `graphify-out/`.** It was built at `e69212e` and is missing 13 tracked files: all of steps 11 and 12, and everything step 13 added.
+- **Regenerate** `graphify-out/`**.** It was built at `e69212e` and is missing 13 tracked files: all of steps 11 and 12, and everything step 13 added.
+
+
 
 ### Deferred to v2
 
 - Replace the placeholder icons.
 - All visual design. See `product-and-design.md`.
 
-### Undecided copy
-
-- Digest wording per Circle size.
-- "Digest" versus "Daily Recap", the Group Streak label, the leaderboard label. Better decided against real screens.
-
-### Carry into the UI
-
-- Show the current deadline on the Circle page. `deadline_changed` covers the moment of change; a persistent display is what stops "when is this due again?" being a question.
-- Invite failures return machine codes (`INVITE_EXPIRED`, `CIRCLE_FULL`, and so on). Branch on those, not message text. `architecture/app.md` section 10.
-- Streaks lag a day by design. Display `current_streak + (1 if today complete)`.
-
----
-
----
-
-## Gotchas
-
-**Write `"now"`, never `new Date()`.** Postgres reads the literal string `now` in a PostgREST payload as the current transaction time, so the clock that judges a `<= now()` CHECK is the clock that minted the value. Sending a client timestamp cost an afternoon in step 10: `archiveGoal` was refused with a bare `23514` that `toMessage` renders as "That value isn't allowed", about a button that takes no value from anyone. **A trigger was considered and rejected** — rewriting a caller's timestamp removes the error and keeps the lie.
-
-- `.rpc()` is lint-banned outside `app/actions/`. A direct call skips rate limiting and the profanity filter. Three deliberate exemptions: `current_checkin_date`, `circle_preview`, `circle_roster`.
-- Never hand-trim `lib/database.types.ts`. Dropping the `Relationships` arrays makes every embedded join a type error.
-- **Regenerate the types with `Out-File -Encoding utf8`, not `>`.** PowerShell's redirect writes UTF-16LE. `tsc` accepts it silently; ESLint stops dead on `Parsing error: File appears to be binary`, and the header comment at the top of the file disappears without trace. Encoding is the first thing to check when a generated file lints as binary.
-- Rollover runs hourly and takes **no argument**. An explicit date bypasses the idempotency guards and double-counts streaks.
-- A new notification type needs three things: the enum value in its own migration, a writer, and a teaser case in `send-digest-push`.
-- A new table needs an explicit `enable row level security` in the same migration. The dashboard setting does it live; no migration does.
-- A new enum value and its first use must be separate migrations.
-- Adding a parameter to a Postgres function creates an overload rather than replacing it. Drop first.
-- Never order by or compare an enum. Postgres uses declaration order, an accident of how the type was written.
-- Reference `goal_categories` by `slug`, never by hardcoded id. The UUIDs are per-environment.
-- Regenerate types after any schema change.
-- The root file is `proxy.ts` exporting `proxy`. Next.js 16 deprecated the `middleware` name; do not recreate it.
-- Never request notification permission on page load. Browsers allow one ask and a denial is permanent.
-- Brevo's SMTP login is `xxxxxx@smtp-brevo.com`, not your account email, and the SMTP key is not an API key.
-
----

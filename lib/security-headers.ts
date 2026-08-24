@@ -191,11 +191,24 @@ export function contentSecurityPolicy(opts: {
       ...(dev ? ["ws://localhost:*", "ws://127.0.0.1:*"] : []),
     ],
 
-    // The service worker. `sw.js` is served from /public, so `'self'` covers
-    // it; naming the directive stops a future `worker-src` falling back to
-    // `script-src`'s `'strict-dynamic'`, which does not mean anything sensible
-    // for workers.
-    "worker-src": ["'self'"],
+    /**
+     * `'self'` for `sw.js`, which is served from /public.
+     *
+     * **`blob:` for the photo compressor**, and it is not optional.
+     * `browser-image-compression` builds its worker with
+     * `URL.createObjectURL(new Blob([...]))`, so `'self'` alone forbids it. The
+     * failure is quiet in the worst way: the library catches the refusal on
+     * some engines and silently falls back to the main thread, so it works on a
+     * desktop and does nothing on a phone.
+     *
+     * **This is a real widening, and worth being clear about.** A `blob:`
+     * worker runs script assembled at runtime, which is exactly what a nonce
+     * exists to prevent elsewhere. It is accepted here because the blob is
+     * built by a library in our own bundle from its own source — an attacker
+     * who could plant a blob worker already has script execution, at which
+     * point this directive is not the thing standing between them and the page.
+     */
+    "worker-src": ["'self'", "blob:"],
     "manifest-src": ["'self'"],
 
     // Sign-in is a full-page redirect, not a popup or an iframe. Nothing in

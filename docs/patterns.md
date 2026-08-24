@@ -144,6 +144,8 @@ Run `get_advisors` for `security` after any DDL. Known and deliberate: `rls_enab
 
 **`.upsert()` needs UPDATE on every column in its payload**, because PostgREST compiles it to `ON CONFLICT DO UPDATE SET` all of them. With column-scoped grants that surfaces as a bare `42501` naming the *table*, which sends you to the policies instead of the grants.
 
+**`--no-save` protects `package.json`, not `node_modules`.** `npm install --no-save <pkg>` still reconciles the whole tree, so running it from a Linux sandbox against a Windows checkout prunes the platform binaries Windows needs. The failure appears days later as a tool that will not start. Unpack a tarball by hand instead.
+
 **A dependency the tests do not use should not be able to stop them running.** `jsdom` sat in the vitest config from the scaffold while every unit test stayed pure. It pulled in `undici`, which wanted a Node API newer than CI's, and all five files failed to *start* with an error naming `cachestorage.js`. Nothing ran, and nothing pointed at this repository. Check periodically that the test environment is still the one the tests need.
 
 **A test that plants its own fixture can still be passing on someone else's data.** `dashboard.spec.ts` inserted a `digest` and asserted an unread badge; 11c stopped the badge counting digests, and the test kept passing on the owner account's *real* unread rows. It failed the day that account was tidy. When a test asserts a count or a presence, plant the thing **and** assert on wording only its own fixture produces.

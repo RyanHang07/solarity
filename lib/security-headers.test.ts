@@ -131,6 +131,20 @@ describe("contentSecurityPolicy", () => {
     expect(directive(csp, "script-src")).not.toContain("google")
   })
 
+  it("lets the photo compressor build its worker", () => {
+    /**
+     * `browser-image-compression` creates its worker with
+     * `URL.createObjectURL(new Blob([...]))`. With `worker-src 'self'` the
+     * browser refuses it, and the library falls back to the main thread on some
+     * engines and does nothing on others — so the upload works on a desktop and
+     * silently fails on a phone. Found on a real iPhone.
+     */
+    expect(directive(policy(), "worker-src")).toContain("blob:")
+    // Still not a free-for-all: `'self'` stays for `sw.js`, and nothing else
+    // joins the list without a reason written beside it.
+    expect(directive(policy(), "worker-src")).toBe("worker-src 'self' blob:")
+  })
+
   it("sends both report spellings", () => {
     const csp = policy()
     // Safari has never supported `report-to`. Sending only it collects nothing

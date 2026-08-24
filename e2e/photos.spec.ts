@@ -346,14 +346,28 @@ test("a photo picked on the dashboard reaches a circle-mate, and hiding takes it
     const row = ownerPage.getByRole("listitem").filter({ hasText: title })
 
     await row.getByRole("button", { name: "Check in" }).click()
-    // The button only exists once the entry does: the object key is
-    // `{user_id}/{goal_id}/{entry_id}`, so there is nothing to address before.
-    await expect(row.getByRole("button", { name: "+ photo" })).toBeVisible()
+
+    /**
+     * **The control is a `<label>`, and the input is off-screen rather than
+     * `display:none`.** iOS Safari can open the sheet from a hidden input and
+     * then hand nothing back when a source is chosen; a label opens the picker
+     * natively with no script. Found on a real iPhone, where every headless
+     * browser had accepted the old version.
+     *
+     * Asserted structurally, because a Playwright `setInputFiles` succeeds on a
+     * `display:none` input and would never have caught this.
+     */
+    const picker = row.getByLabel(`Add photo for ${title}`)
+    await expect(picker, "no labelled file input for this goal").toBeAttached()
+    expect(
+      await picker.evaluate((el) => getComputedStyle(el).display),
+      "the file input is display:none, which iOS will not hand a file back from",
+    ).not.toBe("none")
 
     // Checked rather than assumed. A wrong path makes `setInputFiles` fail
     // with a message about the locator, which sends you looking at the DOM.
     expect(fs.existsSync(FIXTURE), `fixture missing at ${FIXTURE}`).toBe(true)
-    await row.getByLabel(`Photo for ${title}`).setInputFiles(FIXTURE)
+    await picker.setInputFiles(FIXTURE)
 
     // `Remove photo` appears only when `photo_url` is set, so waiting for it
     // waits for the whole chain: decode, re-encode, upload, and the action.

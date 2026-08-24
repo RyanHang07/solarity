@@ -126,6 +126,21 @@ It compiles every spec and runs nothing, in about two seconds. That is the only 
 
 The one that cost a run: `import.meta.url` in `photos.spec.ts`. There is no `"type": "module"` here, so Playwright compiles specs to CommonJS and `import.meta` is a syntax error before any test starts. `tsc` and ESLint both pass on it. **`env.ts` and `auth-state.ts` already resolve paths from `process.cwd()`**, which is the convention — Playwright's cwd is the directory holding the config.
 
+### Never run `npm install` against this `node_modules` from a different OS
+
+Native bindings are **optional dependencies chosen by platform**. `npm install` reconciles the entire tree, so running it from Linux against a Windows checkout prunes the `win32` binaries it thinks are unnecessary. The symptom lands later and elsewhere:
+
+```
+Error: Cannot find native binding.
+Cannot find module '@rolldown/binding-wasm32-wasi'
+```
+
+which is `vitest` failing to start with an error naming a package nobody installed on purpose. `@tailwindcss/oxide`, `@next/swc`, `lightningcss` and `@rolldown/binding` all have the same shape.
+
+**The fix is `npm ci`**, which wipes `node_modules` and installs exactly the lockfile. **Not** what npm's own error message suggests — deleting `package-lock.json` re-resolves every version in the project to work around one missing binary.
+
+**To run the build or the tests from a Linux sandbox**, fetch the binary with `npm pack` and unpack it into `node_modules/` by hand. That adds a directory without touching the tree. `npm install --no-save` is *not* safe here: `--no-save` only protects `package.json`, not `node_modules`.
+
 ### `npm run build` is not optional, and neither typecheck nor lint replaces it
 
 A `"use client"` component importing a **value** from a module puts that whole module in the browser bundle. If the module later grows `server-only`, the build fails — correctly, and with an error naming a file nobody edited. `tsc --noEmit` and `npx eslint .` both pass on it, before and after, because it is a bundler constraint rather than a type one.

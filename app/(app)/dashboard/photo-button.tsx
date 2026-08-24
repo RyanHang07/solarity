@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState, useTransition } from "react"
+import { useState, useTransition } from "react"
 import { createClient } from "@/lib/supabase/client"
 import {
   MAX_UPLOAD_BYTES,
@@ -25,6 +25,13 @@ import { attachCheckinPhoto, removeCheckinPhoto } from "@/app/actions/check-ins"
  * They agree because `photoKey` is the only implementation. If they ever
  * disagreed the upload would land somewhere `attachCheckinPhoto` never names,
  * and 13e's sweep would remove it — a slow failure rather than a wrong one.
+ *
+ * **The picker is opened by a `<label>`, never by `input.click()`.** iOS Safari
+ * is stricter than desktop about programmatic clicks on a file input: with the
+ * input `display:none` the sheet can open and then do nothing when a source is
+ * chosen. A label is the native mechanism and needs no script at all, so there
+ * is no user-activation question to get wrong. Found on a real iPhone during
+ * the step 13 manual pass; every headless browser accepted the old version.
  */
 
 /** What each refusal says. Wording is the whole point of this map. */
@@ -49,7 +56,8 @@ export function PhotoButton({
   title: string
   hasPhoto: boolean
 }) {
-  const input = useRef<HTMLInputElement>(null)
+  // Unique per row: ten goals means ten inputs, and `htmlFor` has to name one.
+  const inputId = `photo-${entryId}`
   const [busy, start] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
@@ -118,15 +126,17 @@ export function PhotoButton({
         and nothing legitimate is blocked. `capture` is ignored on desktop, so
         forcing it would apply the rule to some people and not others.
 
-        Hidden rather than styled, because a file input cannot be styled
-        reliably and the button beside it is the real control.
+        **Moved off-screen rather than `display:none`.** A file input that is
+        not displayed is one iOS Safari may refuse to hand a file back from,
+        which looks exactly like the picker being broken. Off-screen keeps it in
+        the layout, where the label can reach it.
       */}
       <input
-        ref={input}
+        id={inputId}
         type="file"
         accept="image/*"
-        className="hidden"
-        aria-label={`Photo for ${title}`}
+        disabled={busy}
+        className="absolute left-[-9999px] size-px opacity-0"
         onChange={(e) => {
           const file = e.target.files?.[0]
           // Reset first, so picking the *same* file again still fires `change`.
@@ -135,14 +145,18 @@ export function PhotoButton({
         }}
       />
 
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => input.current?.click()}
-        className="text-xs underline opacity-70 disabled:opacity-40"
+      {/*
+        The label *is* the button. Clicking it opens the picker natively, with
+        no `input.click()` and therefore no user-activation rule to satisfy.
+        `htmlFor` supplies the accessible name, so the input needs no
+        `aria-label` of its own.
+      */}
+      <label
+        htmlFor={inputId}
+        className={`cursor-pointer text-xs underline ${busy ? "opacity-40" : "opacity-70"}`}
       >
-        {busy ? "…" : hasPhoto ? "Replace photo" : "+ photo"}
-      </button>
+        {busy ? "…" : hasPhoto ? `Replace photo for ${title}` : `Add photo for ${title}`}
+      </label>
 
       {hasPhoto ? (
         <button
