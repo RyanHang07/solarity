@@ -1,39 +1,18 @@
+import "server-only"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database } from "@/lib/database.types"
+import type { RosterGoal, RosterMember } from "@/lib/roster"
+import { signPhotos } from "./photo-urls"
 
-/** One goal on a member's row. `title` is null when hidden in this Circle. */
-export type RosterGoal = {
-  id: string
-  title: string | null
-  hidden: boolean
-  checked: boolean
-  note: string | null
-  /**
-   * Yours only; null on everyone else's rows.
-   *
-   * A viewer who cannot act on a row has no use for its primary key, and
-   * `note_shared` for someone else would leak the existence of a note they
-   * chose to keep private.
-   */
-  entry_id: string | null
-  note_shared: boolean
-}
+/**
+ * **`server-only` since step 13, and its absence was the bug.** Nothing stopped
+ * a client component importing this module, so one did, and the day it grew a
+ * Supabase Storage call the build broke somewhere else entirely. The types and
+ * `formatProgress` now live in `lib/roster.ts`, which is safe to import from
+ * anywhere.
+ */
 
-export type RosterMember = {
-  user_id: string
-  username: string
-  display_name: string | null
-  role: string
-  is_self: boolean
-  streak_grace: boolean
-  circle_status: string
-  /** Null while the Circle is live; the closing instant once it is not. */
-  as_of: string | null
-  checkin_date: string
-  checked_count: number
-  total_count: number
-  goals: RosterGoal[]
-}
+export type { RosterGoal, RosterMember } from "@/lib/roster"
 
 /**
  * Every member of a Circle with their counts for **their own** check-in date.
@@ -70,13 +49,27 @@ export async function getCircleRoster(
     return null
   }
 
-  return (data ?? []) as unknown as RosterMember[]
-}
+  /**
+   * The RPC's own shape: `photo_url` is the Storage object key, not a URL.
+   * Named separately so the swap below is visible rather than a cast.
+   */
+  type RawGoal = Omit<RosterGoal, "photoUrl"> & { photo_url: string | null }
+  const raw = (data ?? []) as unknown as (Omit<RosterMember, "goals"> & {
+    goals: RawGoal[]
+  })[]
 
-/** "3 of 5", or a sentence when there is nothing to count. */
-export function formatProgress(member: RosterMember): string {
-  // Not "0 of 0". The day still counts as incomplete for streak purposes, but
-  // rendering a meaningless fraction says nothing and looks broken.
-  if (member.total_count === 0) return "No goals yet"
-  return `${member.checked_count} of ${member.total_count}`
+  // One request for every photo on the page, signed as the caller. See
+  // `photo-urls.ts` for why it is not the service key and not per photo.
+  const urls = await signPhotos(
+    supabase,
+    raw.flatMap((m) => m.goals.map((g) => g.photo_url)),
+  )
+
+  return raw.map((m) => ({
+    ...m,
+    goals: m.goals.map(({ photo_url, ...g }) => ({
+      ...g,
+      photoUrl: photo_url ? (urls.get(photo_url) ?? null) : null,
+    })),
+  }))
 }

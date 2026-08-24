@@ -80,6 +80,7 @@ export default async function TodayPage() {
 
       <TodayPanel
         goals={data.goals}
+        userId={user.id}
         completedToday={data.completedToday}
         streak={data.streak}
         streakIncludesToday={data.streakIncludesToday}

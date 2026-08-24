@@ -63,7 +63,7 @@ It stays out on its own merits rather than that one. `strict-dynamic` **discards
 | `connect-src` allows `wss:` | No client subscribes to realtime yet, but `notifications` is published to `supabase_realtime`, and a socket blocked by CSP produces **silence**, not an error. That is already the documented failure mode of realtime here, and a header is the last place anyone would look |
 | The Supabase origin is normalised | A CSP source **with a path is a prefix match**, so a stray `/rest/v1` from the environment variable would silently forbid `/auth/v1` and break sign-in |
 | HSTS has no `preload` | Preload is compiled into browser binaries and comes back out over months. This header expires on its own if it stops being sent. Revisit when the custom domain is final |
-| `camera=()` | Step 13 owns the capture-versus-picker decision and must open it in the same commit |
+| `camera=()` | Step 13 uses a plain file input, which hands off to the OS camera app rather than `getUserMedia`, so this most likely stays shut. If Take Photo does nothing on a real device, suspect this first |
 | `form-action` names **three** origins | `'self'` plus the Supabase auth origin plus `accounts.google.com`. `form-action` is enforced at every **redirect hop**, which Chrome does and Safari and Firefox do not, and sign-in is a form that redirects twice. Hydrated it never applies, because React submits by `fetch`; the exposure is a **click before hydration** on the first page a signed-out visitor sees. Found by audit, not by a test |
 
 ### Violation reports
@@ -161,7 +161,7 @@ Not client-granted (jobs and triggers only): `checkin_date_for`, `recompute_dail
 
 **An overload is a new object, and inherits nothing.** `private.current_checkin_date(uuid)` was added in migration 64 beside an existing no-argument version and came out `anon`-executable, because `create or replace` on a *different signature* creates a fresh function with Postgres's default grant to `PUBLIC`. The original's revoke did not apply to it. Revoke in the same migration that creates a function, every time. Found by the standing check, fixed in migration 67.
 
-**`ALTER DEFAULT PRIVILEGES` is a convenience, not a guarantee.** A default revoking `EXECUTE` from `PUBLIC` in `private` was set early, yet five helpers created afterwards still came out `anon`-executable. The linter did not flag it because `anon` lacked schema `USAGE`, so one barrier stood where two were intended. Currently **0 anon-executable, 0 with a mutable `search_path`**. The function count was 41 at migration 57 and rises with each migration that adds one, so `build-plan.md` carries the query rather than a number worth trusting. Re-run it after any migration that adds a function.
+**`ALTER DEFAULT PRIVILEGES` is a convenience, not a guarantee.** A default revoking `EXECUTE` from `PUBLIC` in `private` was set early, yet five helpers created afterwards still came out `anon`-executable. The linter did not flag it because `anon` lacked schema `USAGE`, so one barrier stood where two were intended. Currently **one anon-executable function and zero with a mutable `search_path`**. The one is `public.circle_preview`, which is deliberate — an invite link has to render before sign-in — and `patterns.md`'s standing check says to expect exactly that row. **This sentence used to claim zero**, which would have read as a regression to the next person who ran the query. The function count was 41 at migration 57 and rises with each migration that adds one, so `patterns.md` carries the query rather than a number worth trusting. Re-run it after any migration that adds a function.
 
 ### Notable policy decisions
 
@@ -250,7 +250,7 @@ Anything beyond this list is a real finding.
 - `authenticated_security_definer_function_executable` on the 12 client-callable `public` RPCs: deliberately callable; `anon` is excluded.
 - `unused_index` on everything, until there's real traffic.
 
-**A replay into a shadow database is its own category of test.** `supabase db diff` builds a fresh Postgres and runs all 67 migrations, which is the only way to catch a history that depends on state it never creates. The recurring bug patterns this schema has produced, and the checks that find them, are catalogued in `build-plan.md`.
+**A replay into a shadow database is its own category of test.** `supabase db diff` builds a fresh Postgres and runs every migration in order, which is the only way to catch a history that depends on state it never creates. The recurring bug patterns this schema has produced, and the checks that find them, are catalogued in `patterns.md`.
 
 ---
 
@@ -258,11 +258,24 @@ Anything beyond this list is a real finding.
 
 ## 9. Photo check-ins
 
-- Accepts HEIC, JPG, PNG. HEIC is converted client-side; nothing stores raw HEIC since it doesn't render reliably outside Safari.
-- Normalized to **WebP**, max ~1600px, 75–80% quality, compressed in-browser before upload.
-- Max pre-compression upload: 10MB.
-- Upload endpoint rate-limited via Upstash (~20/hour).
-- **Validate magic bytes, not the extension or MIME type**: stops a renamed executable posing as a `.jpg`. Cap decompression dimensions against decompression bombs. **Strip EXIF during re-encode** as an explicit requirement, or a check-in photo leaks the poster's GPS location to the Circle.
+**Built in step 13.** Everything below was designed in migrations 40–72 and unexercised until then; where the built thing differs from the design, the difference is marked.
+
+### The pipeline
+
+Pick a file → `inspect` → `preparePhoto` → upload straight to Storage → `attachCheckinPhoto`. Only the last step is a server action; the bytes never cross our runtime.
+
+| | |
+|---|---|
+| Accepts | HEIC, JPG, PNG, GIF, WebP, judged by **magic bytes** rather than the name or the declared type |
+| Normalised to | WebP, longest edge ~1600px, quality 0.8, in the browser |
+| Cap | 10MB before compression, checked client-side so a 12MB file fails instantly rather than after the upload |
+| Metered | `photoUpload`, 20/hour, spent by `attachCheckinPhoto` — the step that makes an object visible to other people, not the byte transfer |
+
+**HEIC decoding belongs to the browser.** Safari decodes it to a canvas; Chrome on Android does not. "Converted client-side" therefore means "converted by a browser that can", and a failure says so rather than claiming support that depends on the reader.
+
+**EXIF orientation and EXIF stripping are two concerns that look like one.** The canvas re-encode drops metadata for free, which is the privacy requirement — a check-in photo must not carry the poster's GPS to their Circle. It also drops the *orientation flag*, so `exifOrientation: -1` bakes the rotation into the pixels first. Without it every portrait photo arrives sideways, which looks like a working feature.
+
+**The magic-byte check stops mistakes, not attackers**, and the docs should not imply otherwise. Nothing of ours sees the bytes, and the bucket's `image/webp` restriction checks the *declared* content type. The real containment is that the object is private, reached only through a signed URL, and rendered in an `<img>`.
 
 ### Storage buckets
 
@@ -275,19 +288,53 @@ avatars        : {user_id}/{filename}
 
 The check-in path encodes owner **and** goal so the policy evaluates both the shared-Circle rule and the not-hidden rule from the path alone, without joining `progress_entries` on every object read.
 
-Both buckets are private, capped (`checkin-photos` 10MB, `avatars` 2MB), and restricted to `image/webp`. Since everything is normalized to WebP client-side, that restriction means a client skipping conversion is rejected by Storage rather than silently storing an unrenderable HEIC.
+**It also forces the order of operations**, which is the single fact most of step 13's design follows from: the entry must exist before a photo can be addressed. Hence the button appears only once a goal is checked off, and hence `attachCheckinPhoto` is a second step rather than part of the check-in.
 
-**The read rule is "at least one", not "this Circle".** Hiding is per-Circle and a viewer may share several Circles with the owner, so a photo is readable if **there exists at least one shared Circle where the goal isn't hidden**. Evaluating a single Circle would hide a photo that's legitimately visible elsewhere: verified by test: a user sharing two Circles with the owner, with the goal hidden in one, still sees it.
+Both buckets are private, capped (`checkin-photos` 10MB, `avatars` 2MB), and restricted to `image/webp`.
 
-Enforced as a Storage policy rather than only API-layer masking, so the restriction holds even against a direct object URL. Writes are owner-only, scoped by the first path folder.
+### Who sees a photo: two rules, deliberately not identical
 
-**Retention: fixed 90 days**, via the `purge-expired-photos` Edge Function. The row and all derived statistics survive; only the image goes.
+| | Question it answers | Rule |
+|---|---|---|
+| `checkin_photos_select` | May this person fetch this object? | **At least one** shared Circle where the goal is not hidden |
+| `circle_roster` (migration 79) | Should this Circle be *offered* the photo? | Not hidden **in this Circle** |
 
-*Not cycle-based, as originally specified*: a check-in belongs to a user-owned goal visible in every Circle that user is in, so "the cycle this photo belongs to" is not a question the schema can answer. A fixed age is predictable and unaffected by membership churn.
+Storage cannot answer "which Circle is this request about", so it cannot mask per Circle; a Circle where you hid a goal should not show its photo, so the roster must. **The same photo can therefore be withheld by the roster and served by a direct signed URL.** Both are right for their own job. Do not re-implement either inside the other: migration 71 had to undo exactly that.
 
-*Ordering matters*: objects are removed from Storage **before** `photo_url` is nulled. Reversed, a crash between the steps leaves rows claiming no photo while the objects linger unreferenced.
+**`photo_url` is the object key, not a URL.** A boolean would not have worked, because the key contains `entry_id` and migration 72 returns that for your own rows only, so a viewer told `has_photo: true` could not name the object. A key is a name and not a door: the bucket is private and signing still has to pass the policy.
 
----
+**Migration 80 stops the key being forged.** `authenticated` holds `update (photo_url)` and the only WITH CHECK is `user_id = auth.uid()`, so the column was free text on a row you own — a client could point it at someone else's object and the roster would present that as their proof. `attachCheckinPhoto` derives the key and never accepts one; the constraint says the same where PostgREST cannot route around it. Its null escapes matter: both foreign keys are `ON DELETE SET NULL`, a `SET NULL` is an UPDATE, and a CHECK is evaluated on it, so a stricter constraint would make deleting a goal fail.
+
+### Signed URLs
+
+**One hour, minted during the server render, signed as the caller** — never with the service key. `createSignedUrl` evaluates `checkin_photos_select` for whoever asked, so Storage stays the only place the access rule lives and a key the roster offers but Storage refuses simply arrives as null. The alternative, a route handler that checks access itself, would re-implement `can_view_checkin_photo`.
+
+**Batched, and matched by key rather than position.** `createSignedUrls` reports a per-path error rather than failing the batch, so matching by index would put one person's photo on another person's row the moment one key was refused.
+
+The object key never leaves `lib/supabase/`. A component holding one would be a component that could build a URL.
+
+### Retention, and two kinds of garbage
+
+**Retention: fixed 90 days**, via `purge-expired-photos`. The row and all derived statistics survive; only the image goes.
+
+*Not cycle-based, as originally specified*: a check-in belongs to a user-owned goal visible in every Circle that user is in, so "the cycle this photo belongs to" is not a question the schema can answer.
+
+*Ordering matters*: objects are removed from Storage **before** `photo_url` is nulled. Reversed, a crash between the steps leaves rows claiming no photo while the objects linger unreferenced. `undoCheckIn` and `removeCheckinPhoto` follow the same order.
+
+**Step 13 made two more states reachable, and migration 81 sweeps both**, in the same job:
+
+| | Why it happens | What the sweep does |
+|---|---|---|
+| **An object no row names** | Upload and attach are separate on purpose, and `undoCheckIn` deletes the object first and continues if the row delete fails | Removes it, **after a 24-hour grace window** |
+| **A row naming a missing object** | The mirror image, same path | Nulls the column. Deletes nothing |
+
+Retention alone could never have found the first: it finds objects **through** `photo_url`, so a file nothing points at is invisible to the only job meant to clean it up.
+
+**The grace window is the safety-critical parameter**, not a tuning knob. An object is only an orphan if nothing *will* reference it either, and there is a real gap between upload and attach on a slow connection. The two mistakes are not symmetrical: an unreferenced object is invisible and costs only storage, while deleting a live photo is silent and permanent.
+
+**Both helpers are SQL, not a Storage listing.** `storage.objects` is an ordinary table, so "which files does no row reference" is a join. They live in `public` with EXECUTE for `service_role` alone, for the reason migration 50 records.
+
+**`storage.protect_delete()` refuses direct deletes from `storage.objects`**, which is worth knowing before writing a test: objects can be inserted from SQL but only removed through the Storage API. The proof for migration 81 works around it by omission rather than deletion.
 
 ---
 

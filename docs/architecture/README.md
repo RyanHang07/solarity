@@ -9,7 +9,7 @@ Friends in invite-only Circles see each other's daily progress. The database enf
 | [`time-and-streaks.md`](time-and-streaks.md) | Check-in dates, the 2 AM boundary, rollover, streaks, digests, scheduled jobs |
 | [`app.md`](app.md) | Premise, stack, route and directory structure, Circles and invites, PWA and push, environment |
 
-Sibling documents: `../build-plan.md` (open work), `../patterns.md` (the twenty-six bug shapes), `../testing.md` (how to run and verify), `../history.md` (why past decisions went that way).
+Sibling documents: `../build-plan.md` (what is left), `../patterns.md` (the twenty-six bug shapes), `../testing.md` (how to run and verify), `../history.md` (why past decisions went that way).
 
 ---
 
@@ -17,9 +17,9 @@ Sibling documents: `../build-plan.md` (open work), `../patterns.md` (the twenty-
 
 **Live and proven.** Google OAuth, onboarding, goals with a 10-active cap, check-ins with notes and photos-in-schema, Circles with invite links and roles, per-member and per-group streaks, daily digests, a notifications feed, per-Circle and global goal hiding, and a settings page.
 
-**Since then**: the `/today` check-in flow (step 9), the install nudge and push permission with a per-device toggle (step 10), day boxes on Overview with a per-Circle roll call (step 11), and the security headers (step 12).
+**Since then**: the `/today` check-in flow (step 9), the install nudge and push permission with a per-device toggle (step 10), day boxes on Overview with a per-Circle roll call (step 11), the security headers (step 12), and check-in photos (step 13).
 
-**78 migrations.** The database is the source of truth for every rule: caps, dates, visibility, streaks. The app cannot bypass one by mistake, because RLS and grants are checked before any query it writes.
+**81 migrations.** The database is the source of truth for every rule: caps, dates, visibility, streaks. The app cannot bypass one by mistake, because RLS and grants are checked before any query it writes.
 
 ---
 
@@ -34,7 +34,7 @@ These hold everywhere. Breaking one is a bug even if nothing fails.
 | Goal titles and notes reach only their owner, unless shared | `goals`/`progress_entries` scoped to `user_id = auth.uid()`; `circle_roster` is the only cross-member reader |
 | Masking never applies to yourself | `is_self` exemptions in `circle_roster` and `can_view_checkin_photo` |
 | Hiding conceals the title, never the commitment | Hidden goals still count in `total_count` and `daily_completion` |
-| Every refusal carries a `HINT`, and the app branches on that | 24 hints, all resolved in `lib/errors.ts` |
+| Every refusal carries a `HINT`, and the app branches on that | **24 raised by the deployed database, 24 resolved in `lib/errors.ts`, verified against `pg_proc` rather than against the migrations** |
 | A notification naming a Circle carries `group_id` **and** `circle_name` | `notifications_payload_names_its_circle` |
 | Grants are checked **before** RLS | So no policy rescues a missing grant, and a new column needs one deliberately |
 
@@ -43,7 +43,7 @@ These hold everywhere. Breaking one is a bug even if nothing fails.
 ## Caveats on what is built
 
 - **`user_blocks`, `content_reports` and `user_lifetime_stats.visible_on_profile`** are schema with no UI. They are moderation and profile surfaces that arrive with `/profile/[username]`.
-- **Check-in photos are schema with no upload path.** The buckets, the policies and `private.can_view_checkin_photo` all exist; nothing writes to them. Step 13, which also has to open `Permissions-Policy: camera=()`.
+- **Check-in photos are built but unverified on a device.** The camera sheet, EXIF orientation on a real portrait shot, and HEIC from a camera roll are all unreachable from a headless browser. The flows are in `build-plan.md`.
 - **A dev run does not test the CSP that ships.** Development relaxes `script-src` so Turbopack works. `E2E_PROD=1` is the run that sees the real policy, and both CSP bugs found so far were production-only *and* WebKit-only. See `security.md` section 3b.
 
 **Resolved since this list was written**

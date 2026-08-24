@@ -6,9 +6,9 @@ How to run it, how to verify it, and the rules the suite follows.
 |---|---|
 | `npm run dev` | The app, against the **hosted** Supabase project via `.env.local`. `npx supabase start` is not needed |
 | `npm run typecheck` | `next typegen && tsc --noEmit`. **Use this, not bare `tsc`** |
-| `npm test -- --run` | 49 Vitest unit tests, **pinned to a non-UTC timezone**. Error hints, push copy, digest grouping, the CSP, and violation-report parsing |
-| `npm run test:e2e` | 89 Playwright tests in Chromium, 13 spec files, one worker. Two of them skip unless `E2E_PROD` |
-| `npm run test:e2e:ios` | 7 more in WebKit at iPhone size. Needs `npx playwright install webkit`. **Both step 12 CSP bugs were WebKit-only and production-only.** Chromium was green through all of it |
+| `npm test -- --run` | 66 Vitest unit tests, in the **`node`** environment and **pinned to a non-UTC timezone**. Error hints, push copy, digest grouping, the CSP, violation-report parsing, image sniffing and photo URL signing |
+| `npm run test:e2e` | 96 Playwright tests in Chromium, 15 spec files, one worker. Two of them skip unless `E2E_PROD` |
+| `npm run test:e2e:ios` | 7 more in WebKit at iPhone size (10 listed, 3 of them the shared setup). Needs `npx playwright install webkit`. **Both step 12 CSP bugs were WebKit-only and production-only.** Chromium was green through all of it |
 | `npm run test:e2e:clean` | Removes what a crashed run left: Circles, goals, and any parked goals |
 | `E2E_PROD=1 npm run test:e2e` | Against `next build && next start`. Reach for it when a failure looks like infrastructure, and **always before a deploy since step 12**: the dev CSP is not the one that ships |
 
@@ -22,13 +22,14 @@ How to run it, how to verify it, and the rules the suite follows.
 | One test | `npx playwright test -g "sorts to the top"` |
 | Only last run's failures | `npx playwright test --last-failed` |
 | One vitest file | `npm test -- --run lib/digest-days.test.ts` |
+| Compile every spec, run none | `npx playwright test --list` |
 | The WebKit project alone | `npm run test:e2e:ios` |
 | WebKit against a production build | PowerShell: `$env:E2E_PROD=1; npm run test:e2e:ios`. **The only combination that has caught a CSP bug** |
 | The headers | `npx playwright test e2e/headers.spec.ts` |
 
 The `setup` project always runs first — every spec depends on it for storage states — so a filtered run still mints sessions and `global-teardown` still restores `today_screen_mode`. A narrow run cannot leave your account with the check-in screen switched off.
 
-**Four things no command here can check**: a real permission dialog, a real push delivery, a safe-area inset, and whether HSTS is actually being served (a dev server on plain http will not send it, and a browser would ignore it if it did). Headless browsers report the permission denied, never draw the dialog, and resolve `env(safe-area-inset-*)` to 0. Step 10's manual pass covered the first three once — the eight flows are kept in `build-plan.md`, because a permission dialog is one-shot per browser and the next device will need the same procedure.
+**Four things no command here can check**: a real permission dialog, a real push delivery, a safe-area inset, and whether HSTS is actually being served (a dev server on plain http will not send it, and a browser would ignore it if it did). Headless browsers report the permission denied, never draw the dialog, and resolve `env(safe-area-inset-*)` to 0. Step 10's manual pass covered the first three once — the eight flows are kept in `history.md`, because a permission dialog is one-shot per browser and the next device will need the same procedure.
 
 **Two things step 9 changed about every run**
 
@@ -100,6 +101,53 @@ The evidence was a session count: 3 for one account against 45 for the other, wi
 `ensureUnfinishedDay` seeds one unchecked goal in a `beforeEach` and returns its undo. A goal nobody has checked off is the entire fixture.
 
 **Deleting a goal recounts nothing**, which is how the row goes stale: `goals_maintain_completion` fires on INSERT and UPDATE only, correctly, because production has no DELETE grant on `goals` and the suite is the only thing that removes them. `recountToday` forces the recount by writing `archived_at` back to itself — `UPDATE OF` fires on assignment, not on change — and both `deleteE2EGoals` and the seeder call it.
+
+### The roster's goals are conditionally rendered, not collapsed
+
+`today-roster.tsx` draws a member's goals as `{open ? … : null}`, so a **closed row has no goals in the DOM at all**. A photo, a title or a note asserted against a shut row reports "element(s) not found", which reads like the feature is broken rather than like the row is shut.
+
+Open it first, and after any `reload()`, which closes it again. Asserting `toHaveCount(0)` on a shut row passes whatever the masking rule does — so pair every absence assertion with a presence assertion that proves the row is open.
+
+### `assertOk` needs a `.select()`, and a write without one proves nothing
+
+A bare `.update()` or `.insert()` through PostgREST returns `data: null`, and `assertOk` treats that as a failure — so the first symptom is a test dying on a line that worked.
+
+The deeper reason to add `.select("id")` anyway: **RLS filters silently**. A write that matched no rows succeeds, so without asking for the affected rows there is nothing to tell it apart from one that landed. `setNoteSharing` in `app/actions/` has always done it this way; specs should too.
+
+### `.upsert()` needs UPDATE on every column in the payload
+
+PostgREST compiles it to `ON CONFLICT DO UPDATE SET <every column you sent>`. `goal_group_visibility` grants `authenticated` UPDATE on `hidden` alone, so `.upsert({ goal_id, group_id, hidden })` fails with a bare **`42501` naming the table** — which reads like a missing policy and is really a missing *column* grant.
+
+Use `.insert()` when the row cannot already exist, which in a test that creates its own fixture is always.
+
+### `npx playwright test --list` before a run, when a spec is new
+
+It compiles every spec and runs nothing, in about two seconds. That is the only cheap check for a **load-time** error, which takes a whole file out of the run rather than failing one test.
+
+The one that cost a run: `import.meta.url` in `photos.spec.ts`. There is no `"type": "module"` here, so Playwright compiles specs to CommonJS and `import.meta` is a syntax error before any test starts. `tsc` and ESLint both pass on it. **`env.ts` and `auth-state.ts` already resolve paths from `process.cwd()`**, which is the convention — Playwright's cwd is the directory holding the config.
+
+### `npm run build` is not optional, and neither typecheck nor lint replaces it
+
+A `"use client"` component importing a **value** from a module puts that whole module in the browser bundle. If the module later grows `server-only`, the build fails — correctly, and with an error naming a file nobody edited. `tsc --noEmit` and `npx eslint .` both pass on it, before and after, because it is a bundler constraint rather than a type one.
+
+CI runs the build for exactly this reason, **with no environment variables**: every page is server-rendered on demand and the Upstash client is built lazily, so a build that needs a secret is a bug worth failing on there rather than discovering on Vercel.
+
+### The unit tests run in `node`, not `jsdom`
+
+Not one of them touches the DOM: error hints, push copy, digest grouping, the CSP, violation-report parsing, all pure functions. `jsdom` was in the scaffold on the assumption that component tests would follow, and they did not — anything needing a real browser is a Playwright spec, because that is where a real browser is.
+
+It stopped being free. `jsdom` 30 pulls in `undici`, which calls a Node API newer than the runtime CI was pinned to, and **all five test files failed to start**. Not one assertion ran, and the error named `cachestorage.js`. A dependency the tests do not use should not be able to stop them running.
+
+CI now runs Node 22 and `.nvmrc` says the same, so the next dependency wanting a newer runtime says so at install time rather than as five unhandled worker errors.
+
+**If a component test is ever written**, it opts in per file:
+
+```ts
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest"
+```
+
+Both packages are still installed. There is no longer a global setup file.
 
 ### Playwright's text engine cannot see inside a `<script>`
 

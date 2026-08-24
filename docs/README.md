@@ -6,9 +6,9 @@ Friends in invite-only Circles (max 10) see each other's daily progress.
 
 | You want to… | Go to |
 |---|---|
-| Build the next thing | [`build-plan.md`](build-plan.md) — open work only. **Steps 1–12 are done; step 13 is check-in photos** |
+| Build the next thing | [`build-plan.md`](build-plan.md) — open work only. **The core loop is closed and the public surface is up. What remains is the deferred auth routes, five orphaned routes, and one manual pass** |
 | Understand how something works | [`architecture/`](architecture/README.md) — schema, security, time, app |
-| Avoid a bug this codebase keeps having | [`patterns.md`](patterns.md) — twenty-six shapes, plus the standing checks |
+| Avoid a bug this codebase keeps having | [`patterns.md`](patterns.md) — twenty-seven shapes, plus the standing checks |
 | Run it, test it, or verify a release | [`testing.md`](testing.md) |
 | Know what the product is for | [`product-and-design.md`](product-and-design.md) |
 | Change what a notification says | [`notification-copy.md`](notification-copy.md) — every string, both surfaces |

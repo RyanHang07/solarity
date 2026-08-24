@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation"
+import { LegalFooter } from "@/components/legal-footer"
 import { createClient } from "@/lib/supabase/server"
 import { signInWithGoogle } from "@/app/actions/auth"
 import { safeRedirect } from "@/lib/safe-redirect"
@@ -35,6 +36,8 @@ export default async function SignInPage({
           Continue with Google
         </button>
       </form>
+
+      <LegalFooter />
     </main>
   )
 }

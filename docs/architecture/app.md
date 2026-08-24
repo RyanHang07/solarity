@@ -262,7 +262,7 @@ Turning it off unsubscribes the browser **first**, then deletes the row: a half-
 
 **Icons are in place**, with sizes and constraints tabulated in section 14. They are load-bearing rather than decorative: without at least 192 and 512 a phone will not offer installation, and on iOS no installation means no notifications at all. The current set is a generated placeholder mark, correct in dimensions and replaceable in v2.
 
-**Outstanding, and it is now one thing rather than a list:** none of this has been seen on a real device. The permission dialog, an actual push delivery, and the safe-area inset are all unreachable from a headless browser, so step 10 is built and unverified until the manual pass in `build-plan.md` is done.
+**Verified on a real iPhone.** The permission dialog, an actual push delivery, and the safe-area inset are all unreachable from a headless browser, so step 10 was built and unverified until a manual pass covered them. It found the four-identical-notifications problem that became 10g; everything else held. **The eight flows are kept in `history.md`** rather than deleted: a permission dialog is one-shot per browser, so the next device and the next iOS version need the same procedure.
 
 **Resolved:**
 
@@ -299,7 +299,7 @@ Server-only: never `NEXT_PUBLIC_`, never imported into a component:
 
 Vercel needs all of them under Project Settings → Environment Variables. `.env*` is gitignored.
 
-**`supabase/config.toml` is committed and holds no secrets.** It is the only version-controlled record of which Supabase project this checkout points at, since the link state lives in the gitignored `supabase/.temp/`. It configures the local stack only; its `[auth]` block is stock and does **not** describe the hosted project. `supabase config push` would therefore reset the dashboard's auth settings: see `build-plan.md`, "config.toml".
+**`supabase/config.toml` is committed and holds no secrets.** It is the only version-controlled record of which Supabase project this checkout points at, since the link state lives in the gitignored `supabase/.temp/`. It configures the local stack only; its `[auth]` block is stock and does **not** describe the hosted project. `supabase config push` would therefore reset the dashboard's auth settings: see `testing.md`, "config.toml".
 
 ### Google OAuth
 

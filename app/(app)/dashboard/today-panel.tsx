@@ -3,24 +3,41 @@
 import { useActionState, useState } from "react"
 import { useFormStatus } from "react-dom"
 import { checkIn, undoCheckIn } from "@/app/actions/check-ins"
+import { PhotoButton } from "./photo-button"
+import { CheckinPhoto } from "@/components/checkin-photo"
 
 /** Mirrors the NOTE_MAX in `app/actions/check-ins.ts`. */
 const NOTE_MAX = 500
 import type { ActionResult } from "@/lib/errors"
+// One declaration, shared with the server reader. It used to be re-declared
+// here, so every field added to one had to be remembered into the other.
+import type { TodayGoal } from "@/lib/today-shape"
 
-type TodayGoal = {
-  id: string
-  title: string
-  checkedIn: boolean
-  color: string | null
-}
-
-function RowButton({ label, done }: { label: string; done: boolean }) {
+function RowButton({
+  label,
+  done,
+  confirm,
+}: {
+  label: string
+  done: boolean
+  /**
+   * Shown before the submit goes through, or absent for no dialog at all.
+   *
+   * **Conditional on purpose.** A confirmation people meet every time is one
+   * they stop reading, and a check-in with no photo is trivially redone. This
+   * appears only when Undo is about to destroy something that cannot be got
+   * back.
+   */
+  confirm?: string
+}) {
   const { pending } = useFormStatus()
   return (
     <button
       type="submit"
       disabled={pending}
+      onClick={(e) => {
+        if (confirm && !window.confirm(confirm)) e.preventDefault()
+      }}
       className={`rounded border px-3 py-1 text-xs font-medium disabled:opacity-50 ${
         done ? "opacity-70" : ""
       }`}
@@ -32,12 +49,21 @@ function RowButton({ label, done }: { label: string; done: boolean }) {
 
 export function TodayPanel({
   goals,
+  userId,
   completedToday,
   streak,
   streakIncludesToday,
   hideStreak = false,
 }: {
   goals: TodayGoal[]
+  /**
+   * The signed-in user, passed down rather than fetched here.
+   *
+   * `photoKey` needs it, and a client component asking Supabase who it is would
+   * be a round trip to learn something the server already knew when it rendered
+   * this.
+   */
+  userId: string
   completedToday: boolean
   /** Settled days plus today, computed at display time. Never stored. */
   streak: number
@@ -151,12 +177,39 @@ export function TodayPanel({
                       </button>
                     ) : null}
 
+                    {/*
+                      Only once checked in: the object key is
+                      `{user_id}/{goal_id}/{entry_id}`, so there is nothing to
+                      address until the entry exists. Checking in and then
+                      tapping this is the same two taps as picking a file inside
+                      the form would have been, because picking a file is itself
+                      a tap and a sheet.
+                    */}
+                    {g.checkedIn && g.entryId ? (
+                      <PhotoButton
+                        entryId={g.entryId}
+                        goalId={g.id}
+                        userId={userId}
+                        title={g.title}
+                        hasPhoto={Boolean(g.photoUrl)}
+                      />
+                    ) : null}
+
                     <RowButton
                       label={g.checkedIn ? "Undo" : "Check in"}
                       done={g.checkedIn}
+                      confirm={
+                        g.checkedIn && g.photoUrl
+                          ? "Undoing also deletes your photo for this goal. Continue?"
+                          : undefined
+                      }
                     />
                   </span>
                 </div>
+
+                {g.photoUrl ? (
+                  <CheckinPhoto url={g.photoUrl} alt={`Your check-in photo for ${g.title}`} />
+                ) : null}
 
                 {noteFor === g.id && !g.checkedIn ? (
                   <div className="flex flex-col gap-1">

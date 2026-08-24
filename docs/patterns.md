@@ -1,10 +1,10 @@
 # Solarity: Bug Patterns & Standing Checks
 
-Every real bug found so far fell into one of **twenty-six shapes**. Probe for these after any change. The list earns its keep: three of the last five bugs were found by walking it deliberately rather than by a test failing.
+Every real bug found so far fell into one of **twenty-seven shapes**. Probe for these after any change. The list earns its keep: three of the last five bugs were found by walking it deliberately rather than by a test failing.
 
 ---
 
-## The twenty-six shapes
+## The twenty-seven shapes
 
 ### Schema-shaped — all found in SQL
 
@@ -40,6 +40,7 @@ Every real bug found so far fell into one of **twenty-six shapes**. Probe for th
 | **Asking to draw under the hardware and never paying it back** | the root layout sets `viewport-fit=cover` and a translucent status bar — a deliberate request to extend under the camera housing — and no CSS ever consumed `env(safe-area-inset-*)`. On every notched iPhone the header lost its top. The request and the compensation live in different files, which is why it survived so long |
 | **A permissive setting cancelled by the stricter one beside it** | `script-src` listed a nonce *and* `'unsafe-inline'`, on the theory that the dev policy kept both doors open. It does the opposite: a nonce anywhere in the directive discards `'unsafe-inline'` entirely, so the permissive-looking policy was the strict one and every un-nonced Turbopack script was blocked. Chromium tolerated it, **WebKit ran no client JavaScript at all**, and the failures named four missing pieces of text and a missing padding value. Nothing said "CSP". When two values in one setting pull opposite ways, one of them is being ignored: find out which before assuming it is additive. `'strict-dynamic'` has the same shape and is worth knowing for the same reason: it does not *add* trust for dynamically loaded scripts, it **discards `'self'`** |
 | **A protection that fails as absence rather than as refusal** | `upgrade-insecure-requests` over http rewrites the page's own bundle to `https://localhost`, which nothing answers. No error, no violation, no console message: the elements are all in the DOM, correctly nonced, and simply never fetched. The first two diagnoses were about `script-src`, because a page that runs no JavaScript *looks* blocked. Chromium exempts localhost and hid it entirely; WebKit did not. **When something is missing and nothing was refused, stop reading the allowlist and ask what rewrote the URL** |
+| **A boundary only the bundler enforces** | `today-roster.tsx` is `"use client"` and imported `formatProgress` — a *value* — from `lib/supabase/circle-roster.ts`, so that module was in the browser bundle. Harmless for months. The day it grew a Storage call it pulled in `server-only`, and **the build failed naming a file nobody had touched**. `tsc --noEmit` and ESLint both passed, before and after: this is a bundler constraint, not a type one, so `next build` is the only thing that can see it. Types and pure functions belong in a module with no server imports; anything that talks to Supabase keeps `server-only` on it, which is what makes the boundary fail loudly instead of silently shipping |
 | **A writer that exists but does not mean what the caller means** | `sync_checkin_timezone` is a deliberate no-op mid-day, because it exists for automatic travel sync. Wired to a settings form it reported "Timezone updated." and wrote nothing. "Only build controls whose backend exists" is not enough — the writer's *semantics* must match the control's promise |
 
 ### Test-shaped — the e2e suite is a different lens, and its own failures find product bugs
@@ -136,5 +137,13 @@ Run `get_advisors` for `security` after any DDL. Known and deliberate: `rls_enab
 **Postgres rule:** adding an enum value and *using* it must be separate migrations.
 
 **A freeze test has to mutate afterwards**, or it is only testing a label.
+
+**`ON DELETE SET NULL` keeps the child row, so cleaning up the parent is not cleaning up.** `progress_entries` survives its goal on purpose — the day it proves already happened — so deleting a goal nulls `goal_id` and leaves the entry, `photo_url` and all. Eight such rows accumulated in the real database from `photos.spec.ts` before the step 13 audit found them. Delete children first; `boundaries.spec.ts` always did.
+
+**A write with no `.select()` cannot tell you it happened.** RLS filters silently, so an update matching zero rows returns success. Ask for the affected rows and check them. In the e2e suite this is doubly true: `assertOk` reads `data === null` as a failure, so a bare `.update()` fails on a line that is otherwise correct.
+
+**`.upsert()` needs UPDATE on every column in its payload**, because PostgREST compiles it to `ON CONFLICT DO UPDATE SET` all of them. With column-scoped grants that surfaces as a bare `42501` naming the *table*, which sends you to the policies instead of the grants.
+
+**A dependency the tests do not use should not be able to stop them running.** `jsdom` sat in the vitest config from the scaffold while every unit test stayed pure. It pulled in `undici`, which wanted a Node API newer than CI's, and all five files failed to *start* with an error naming `cachestorage.js`. Nothing ran, and nothing pointed at this repository. Check periodically that the test environment is still the one the tests need.
 
 **A test that plants its own fixture can still be passing on someone else's data.** `dashboard.spec.ts` inserted a `digest` and asserted an unread badge; 11c stopped the badge counting digests, and the test kept passing on the owner account's *real* unread rows. It failed the day that account was tidy. When a test asserts a count or a presence, plant the thing **and** assert on wording only its own fixture produces.

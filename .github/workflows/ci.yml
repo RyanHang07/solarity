@@ -16,7 +16,13 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22, not 20. `jsdom` -> `undici` needed a Node API that 20 did not
+          # have, and every vitest file failed to *start* with an error naming
+          # `cachestorage.js`. The environment is now `node`, which removes that
+          # chain from the test path entirely, but the version stays current so
+          # the next dependency to want a newer runtime says so at install time
+          # rather than as five unhandled worker errors.
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -53,7 +59,13 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22, not 20. `jsdom` -> `undici` needed a Node API that 20 did not
+          # have, and every vitest file failed to *start* with an error naming
+          # `cachestorage.js`. The environment is now `node`, which removes that
+          # chain from the test path entirely, but the version stays current so
+          # the next dependency to want a newer runtime says so at install time
+          # rather than as five unhandled worker errors.
+          node-version: 22
           cache: npm
 
       - name: Install dependencies

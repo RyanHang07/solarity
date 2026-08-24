@@ -119,17 +119,7 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const path = request.nextUrl.pathname
-  const isPublic =
-    path.startsWith("/auth") ||
-    path.startsWith("/_next") ||
-    path === "/" ||
-    path.startsWith("/join") // invite links resolve before sign-in
-  // `/api/csp-report` is not listed, because it returned above and never gets
-  // here. Were that early return removed, it would have to be added: the
-  // browser POSTs reports with no credentials, so the redirect would discard
-  // every one of them and the endpoint would look healthy while collecting
-  // nothing — worse than having none, since the silence reads as a clean
-  // policy.
+  const isPublic = PUBLIC_PREFIXES.some((p) => path === p || path.startsWith(p + "/"))
 
   if (!user && !isPublic) {
     // Path *and* query. `sw.js` deep-links to `/circles/<id>?tab=overview`, so
@@ -149,6 +139,29 @@ export async function updateSession(request: NextRequest) {
 
   return withPolicy(response, csp)
 }
+
+/**
+ * Everything reachable without signing in. **Deny by default**: this enumerates
+ * what is *public*, so a route nobody thought about fails closed as a redirect
+ * rather than open as a leak.
+ *
+ * Matched as a whole path or a path segment — `startsWith(p)` alone would make
+ * `/termsomething` public because `/terms` is.
+ *
+ * | | |
+ * |---|---|
+ * | `/` | The landing page, which also carries the notice a dead invite link produces |
+ * | `/auth` | Sign-in, the OAuth callback, and the error screen |
+ * | `/join` | An invite has to *preview* before sign-in, or the link is useless to someone who has never heard of Solarity |
+ * | `/privacy`, `/terms` | **Google's OAuth consent screen will not publish without a reachable privacy URL.** A page behind a redirect does not qualify |
+ * | `/_next` | Framework assets |
+ *
+ * `/api/csp-report` is deliberately absent: it returns above and never reaches
+ * this check. Were that early return removed it would have to be added here,
+ * because browsers POST violation reports with no credentials and the redirect
+ * would discard every one of them while the endpoint looked healthy.
+ */
+const PUBLIC_PREFIXES = ["/", "/auth", "/join", "/privacy", "/terms", "/_next"]
 
 /**
  * Stamps the enforcing policy onto a response.

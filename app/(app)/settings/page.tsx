@@ -86,6 +86,24 @@ export default async function SettingsPage() {
         </Link>
       </section>
 
+      <section aria-label="Legal" className="flex flex-col gap-2">
+        <h2 className="text-lg font-semibold">Legal</h2>
+        {/*
+          Also linked from `/` and `/auth/sign-in`. Here as well because this is
+          where someone looks when they want to know what happens to their
+          photos, and a policy nobody can find from inside the app is a policy
+          written for a consent-screen reviewer rather than for a user.
+        */}
+        <div className="flex gap-4">
+          <Link href="/privacy" className="text-sm underline">
+            Privacy
+          </Link>
+          <Link href="/terms" className="text-sm underline">
+            Terms
+          </Link>
+        </div>
+      </section>
+
       {/*
         Still deliberately absent: deleting your account needs a confirmation
         flow, and nobody has written one. A control over a function that does

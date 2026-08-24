@@ -3,9 +3,10 @@
 import { useActionState, useState } from "react"
 import { useFormStatus } from "react-dom"
 import { setNoteSharing } from "@/app/actions/check-ins"
+import { CheckinPhoto } from "@/components/checkin-photo"
 import type { ActionResult } from "@/lib/errors"
-import type { RosterMember } from "@/lib/supabase/circle-roster"
-import { formatProgress } from "@/lib/supabase/circle-roster"
+import type { RosterMember } from "@/lib/roster"
+import { formatProgress } from "@/lib/roster"
 
 function ShareToggle({ shared }: { shared: boolean }) {
   const { pending } = useFormStatus()
@@ -136,6 +137,27 @@ export function TodayRoster({
                             {g.checked ? "✓" : "✗"}
                           </span>
                         </span>
+
+                        {/*
+                          `photoUrl` is already masked by `circle_roster` and
+                          already signed as this viewer, so there is nothing to
+                          decide here: if it is null there is no photo to draw.
+
+                          The alt text never repeats a hidden goal's title —
+                          `g.title` is null on someone else's hidden goal, and
+                          the masked branch above is the only place that word
+                          appears.
+                        */}
+                        {g.photoUrl ? (
+                          <CheckinPhoto
+                            url={g.photoUrl}
+                            alt={
+                              g.hidden && !m.is_self
+                                ? `Check-in photo from ${m.username}`
+                                : `Check-in photo for ${g.title}`
+                            }
+                          />
+                        ) : null}
 
                         {g.note ? (
                           <span className="flex flex-wrap items-baseline gap-2">

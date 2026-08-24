@@ -343,6 +343,7 @@ export default async function DashboardPage({
           {today ? (
             <TodayPanel
               goals={todayData.goals}
+              userId={user.id}
               completedToday={completedToday}
               streak={displayStreak}
               streakIncludesToday={completedToday}

@@ -124,6 +124,8 @@ hidden(goal, circle) := goals.hidden_everywhere
                         OR coalesce(goal_group_visibility.hidden, false)
 ```
 
+`circle_roster` returns `photo_url` since **migration 79**, masked like `note` but with no `photo_shared` term, because there is no such flag and there deliberately is not one: a note is a sentence you might not want read, a photo is the proof. **The value is the Storage object key, not a URL** — a boolean would not have worked, since the key is `{user_id}/{goal_id}/{entry_id}` and `entry_id` is returned for your own rows only. A key is a name, not a door: the bucket is private and `checkin_photos_select` still governs every read.
+
 `circle_roster` used to re-implement the sparse join inline. Two copies agreed only while each was one line; adding a term to a rule that lives twice is how a title gets masked on the roster and served with the photo. Do not inline it again.
 
 **`goals.hidden_everywhere` is a column and not a set of rows, and that is forced.** The table is sparse, so "hidden from everyone" written as one row per Circle is only true of the Circles that existed when you said it. Join a new Circle and the goal is visible there, silently, because no row says otherwise.

@@ -42,11 +42,12 @@ export const TAB_NOTIFICATION_TYPES = [
 ] as const satisfies readonly NotificationType[]
 
 /**
- * Guards the list against the enum growing without anyone deciding.
+ * **There was a `TabNotificationType` alias here, and it had no reader.**
  *
- * A new `notification_type` lands in a migration; its renderer and its place in
- * this list land later, or not at all. Until someone chooses, a new type is
- * simply absent here — which is the safe direction, and this type makes the
- * omission visible to anyone reading rather than silent.
+ * Its stated job — making it visible when the enum grows and this list does not
+ * — is already done by `satisfies readonly NotificationType[]` above, which is
+ * checked by the compiler rather than by someone reading. The alias was the same
+ * claim a second time, with nothing consuming it, so it went in the step 13
+ * audit. Removed rather than kept: a symbol with no reader is the shape
+ * `patterns.md` opens with.
  */
-export type TabNotificationType = (typeof TAB_NOTIFICATION_TYPES)[number]

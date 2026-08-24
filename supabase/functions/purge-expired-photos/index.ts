@@ -1,8 +1,27 @@
-// Solarity — check-in photo retention (architecture doc section 9).
+// Solarity — check-in photo retention and garbage collection (security.md
+// section 9).
 //
-// Deletes check-in photos older than 90 days. The check-in row and every
-// statistic derived from it SURVIVE; only the image is removed and photo_url is
-// nulled.
+// THREE SWEEPS, one job.
+//
+// 1. RETENTION. Photos older than 90 days. The check-in row and every statistic
+//    derived from it SURVIVE; only the image goes and photo_url is nulled.
+//
+// 2. ORPHANS (step 13e). Objects no progress_entries row references. Sweep 1
+//    cannot see these: it finds objects THROUGH photo_url, so a file nothing
+//    points at is invisible to the only job meant to remove it, and would sit
+//    in a private bucket forever. Reachable because the upload and the attach
+//    are separate steps on purpose — the check-in wins and the photo is best
+//    effort — and because undoCheckIn deletes the object first and continues
+//    even if the row delete then fails.
+//
+//    THE GRACE WINDOW IS THE SAFETY-CRITICAL PARAMETER. An object is only an
+//    orphan if nothing WILL reference it either, and there is a real gap
+//    between upload and attach on a slow connection. 24 hours, because the two
+//    mistakes are not symmetrical: an unreferenced object is invisible and
+//    costs only storage, while deleting a live photo is silent and permanent.
+//
+// 3. MISSING (step 13e). The mirror image: rows naming an object that is gone.
+//    Deletes nothing; it stops rows claiming a photo that cannot be served.
 //
 // WHY AN EDGE FUNCTION. Postgres can null photo_url but cannot delete the
 // underlying Storage object — that needs the Storage API.
@@ -25,6 +44,10 @@ const CRON_SECRET = Deno.env.get("CRON_SECRET");
 const RETENTION_DAYS = 90;
 const BATCH_SIZE = 500;
 const MAX_BATCHES = 40;
+
+// See the header. Not a tuning knob: shortening this deletes photos people
+// just took.
+const ORPHAN_GRACE_HOURS = 24;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -83,9 +106,76 @@ Deno.serve(async (req: Request) => {
       if (expired.length < BATCH_SIZE) break;
     }
 
-    return json({ purged, batches, retention_days: RETENTION_DAYS });
+    // Sweeps 2 and 3 run after retention and are reported separately, so a
+    // number that starts climbing is attributable. A rising orphan count means
+    // the attach step is failing for real users; a rising missing count means
+    // row deletes are.
+    const swept = await sweepOrphans(admin);
+    const cleared = await clearMissing(admin);
+
+    return json({
+      purged,
+      batches,
+      retention_days: RETENTION_DAYS,
+      orphans_removed: swept,
+      missing_cleared: cleared,
+    });
   } catch (err) {
     console.error("purge-expired-photos failed", { purged, batches, err: String(err) });
     return json({ error: "Purge failed", detail: String(err), purged, batches }, 500);
   }
 });
+
+/** Objects nothing references, older than the grace window. */
+async function sweepOrphans(admin: ReturnType<typeof createClient>): Promise<number> {
+  let removed = 0;
+
+  for (let i = 0; i < MAX_BATCHES; i++) {
+    const { data, error } = await admin.rpc("job_list_orphan_photos", {
+      p_grace_hours: ORPHAN_GRACE_HOURS,
+      p_limit: BATCH_SIZE,
+    });
+    if (error) throw new Error(`orphan list failed: ${error.message}`);
+
+    const names = (data ?? []).map((r: { name: string }) => r.name).filter(Boolean);
+    if (names.length === 0) break;
+
+    const { error: removeError } = await admin.storage
+      .from("checkin-photos")
+      .remove(names);
+    // Same rule as the retention sweep: a missing object is the desired end
+    // state, not a failure. Logged so one bad path cannot stall the loop.
+    if (removeError) {
+      console.warn("orphan remove reported an error", removeError.message);
+    }
+
+    removed += names.length;
+    if (names.length < BATCH_SIZE) break;
+  }
+
+  return removed;
+}
+
+/**
+ * Rows naming an object that is not there.
+ *
+ * No Storage call at all, which is why it is a single RPC rather than a loop
+ * with a remove in it. The helper is limited per call, so it is repeated until
+ * it stops finding rows.
+ */
+async function clearMissing(admin: ReturnType<typeof createClient>): Promise<number> {
+  let cleared = 0;
+
+  for (let i = 0; i < MAX_BATCHES; i++) {
+    const { data, error } = await admin.rpc("job_null_missing_photos", {
+      p_limit: BATCH_SIZE,
+    });
+    if (error) throw new Error(`missing sweep failed: ${error.message}`);
+
+    const n = Number(data ?? 0);
+    cleared += n;
+    if (n < BATCH_SIZE) break;
+  }
+
+  return cleared;
+}

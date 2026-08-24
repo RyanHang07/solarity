@@ -1,6 +1,8 @@
 import "server-only"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database } from "@/lib/database.types"
+import { signPhotos } from "./photo-urls"
+import type { TodayData } from "@/lib/today-shape"
 
 /**
  * Everything `TodayPanel` needs, read once and shared by both screens that show
@@ -12,20 +14,7 @@ import type { Database } from "@/lib/database.types"
  * See `patterns.md`.
  */
 
-export type TodayGoal = {
-  id: string
-  title: string
-  checkedIn: boolean
-  color: string | null
-}
-
-export type TodayData = {
-  goals: TodayGoal[]
-  completedToday: boolean
-  /** Settled days plus today, computed at display time. Never stored. */
-  streak: number
-  streakIncludesToday: boolean
-}
+export type { TodayGoal, TodayData } from "@/lib/today-shape"
 
 export async function getTodayData(
   supabase: SupabaseClient<Database>,
@@ -46,7 +35,7 @@ export async function getTodayData(
       // rather than filtering on null and returning every row ever.
       supabase
         .from("progress_entries")
-        .select("goal_id")
+        .select("id, goal_id, photo_url")
         .eq("user_id", userId)
         .eq("check_in_date", checkinDate ?? ""),
 
@@ -64,16 +53,32 @@ export async function getTodayData(
         .maybeSingle(),
     ])
 
-  const checkedIn = new Set((entries ?? []).map((e) => e.goal_id))
+  // Keyed by goal, because a goal has at most one entry per day: the unique
+  // constraint on (goal_id, check_in_date) is what makes that safe to assume.
+  const today = new Map((entries ?? []).map((e) => [e.goal_id, e]))
   const completedToday = completion?.all_completed ?? false
 
+  // Your own photos still go through `createSignedUrl` as you, rather than
+  // being trusted because they are yours. Migration 72 is the reason to be
+  // careful here: `can_view_checkin_photo` once hid a user's own photo from
+  // them, and a path that skipped the check would have hidden that bug too.
+  const urls = await signPhotos(
+    supabase,
+    [...today.values()].map((e) => e.photo_url),
+  )
+
   return {
-    goals: (goals ?? []).map((g) => ({
-      id: g.id,
-      title: g.title,
-      checkedIn: checkedIn.has(g.id),
-      color: g.goal_categories?.color_hex ?? null,
-    })),
+    goals: (goals ?? []).map((g) => {
+      const entry = today.get(g.id)
+      return {
+        id: g.id,
+        title: g.title,
+        checkedIn: Boolean(entry),
+        color: g.goal_categories?.color_hex ?? null,
+        entryId: entry?.id ?? null,
+        photoUrl: entry?.photo_url ? (urls.get(entry.photo_url) ?? null) : null,
+      }
+    }),
     completedToday,
     /**
      * `current_streak` holds settled days only. Today is added here rather than

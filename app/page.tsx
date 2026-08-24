@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { LegalFooter } from "@/components/legal-footer"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { Notice } from "@/components/notice"
@@ -38,6 +39,8 @@ export default async function Home({
       <Link href="/auth/sign-in" className="rounded border px-4 py-2 text-sm font-medium">
         Sign in
       </Link>
+
+      <LegalFooter />
     </main>
   )
 }

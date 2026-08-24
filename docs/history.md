@@ -2159,3 +2159,340 @@ Overview shows five day boxes; the Notifications tab shows four event types; no 
 - `patterns.md` gained a twenty-fourth shape, **an assertion that cannot fail**, with all three instances from steps 10 and 11. It is the one this pair of steps produced that generalises.
 
 **Both steps also left a habit worth keeping**: after writing a test, name the edit that ought to turn it red, and check that it would. Every one of those three inert assertions was caught by reading rather than running, which is the only way they *can* be caught.
+
+---
+
+## Step 12: security headers
+
+A CSP with a per-request nonce, HSTS, `nosniff`, `Referrer-Policy`, `X-Frame-Options` and a `Permissions-Policy` that grants nothing. Full reasoning in `architecture/security.md` section 3b.
+
+| Piece | |
+|---|---|
+| 12a | The fixed headers, in `next.config.ts`, because the proxy's matcher skips `sw.js` and the static assets |
+| 12b | Nonce CSP in `proxy.ts`, dev and prod branched; the layout reads `x-nonce` |
+| 12c | `/api/csp-report`, logging only; `Reporting-Endpoints` **and** `report-uri`, since Safari supports only the latter |
+| 12d | Header assertions on real responses, plus loading every route and asserting **zero CSP violations** |
+| 12e | The headers section in `architecture/security.md` |
+
+**Four bugs, and the shape of all four was the same.** Not one raised an error, and not one failure message named a header.
+
+| | |
+|---|---|
+| A nonce beside `'unsafe-inline'` | The nonce wins and `'unsafe-inline'` is discarded, so the permissive-looking dev policy was the strict one. Chromium tolerated it; **WebKit ran no client JavaScript at all** |
+| `upgrade-insecure-requests` over http | Rewrote the bundle and stylesheet to `https://localhost:3000`, which nothing answers. No block, no violation — every element in the DOM and none of them fetched. Chromium exempts localhost and hid it entirely. It now keys on the **connection**, not the build |
+| `form-action 'self'` | **Found by audit, never by a test.** `form-action` is enforced at every redirect hop, and sign-in is a form that redirects twice before reaching Google. Hydrated it never applies; a **click before hydration**, on the first page a signed-out visitor sees, would have been refused |
+| The report route swallowed a broken limiter | `Redis.fromEnv()` throws with no Upstash config, and the catch treated it as a refusal. An environment without those variables would have discarded every report while answering 204 and looking healthy — this endpoint's own failure mode, reproduced inside it |
+
+**What that cost, and the lesson worth keeping:** three rounds went into `script-src`, because a page that runs no JavaScript *looks* blocked. It is now `patterns.md`'s twenty-sixth shape — **a protection that fails as absence rather than as refusal**. When something is missing and nothing was refused, stop reading the allowlist and ask what rewrote the URL.
+
+**Two stale tests fell out of it**, both left over from 11c and both worth more than the bugs they hid: one planted a `digest` and asserted an unread badge, which had been passing on the owner account's real unread rows; the other polled *all* unread notifications to zero, which since 11c can never happen on an account with any digest history.
+
+**`E2E_PROD=1` on the WebKit project is the run that matters.** Both browser bugs were production-only and WebKit-only, and Chromium was green through all of it.
+
+**One thing still owed to a real device.** A dev server on plain http never sends HSTS, and no headless browser can show whether an installed PWA still receives push under the policy. Both want a look on the phone once this is deployed.
+
+
+---
+
+## Steps 9 to 12, as the build plan carried them
+
+Moved here when step 13 began. `build-plan.md` is read daily and holds open work only; these are the summaries it carried while each step was current, kept because each names the pieces in the order they were built and that ordering is the part hardest to reconstruct later.
+
+### 9. The daily check-in flow ✅ **done** — migration 76
+
+`/today` greets an unfinished day with your streak, the goals still open, and nothing else. Detail and reasoning in `history.md`.
+
+| Piece | |
+|---|---|
+| 9a | `users.today_screen_mode`, and the settings control |
+| 9b | The route, the gate on `/dashboard`, and the two cookies |
+| 9c | Streak header, including a broken run |
+| 9d | Check off goals, reusing `TodayPanel` |
+| 9e | Hand-off, and the skip link |
+
+**Audited against every pattern as the list stood then, twenty of them.** Every symbol the step added has both a reader and a writer; `anon` still reaches only `circle_preview`; no orphaned notifications, stray Circles or stray goals. Two things it changed about the suite are recorded in `testing.md`.
+
+### 10. Install nudge, then push permission ✅ **done** — migrations 77, 78
+
+Onboarding gained two screens after the username, settings gained two controls, the worker repairs a rotated subscription, and push bodies now name their Circle. Detail, and the eight bugs found on the way, in `history.md`.
+
+| Piece | |
+|---|---|
+| 10a | `subscribe_push`, the writer `push_subscriptions` never had |
+| 10b–10c | Install nudge, then the one permission ask |
+| 10d–10f | Device toggle, `RESUBSCRIBE_PUSH`, the dismissible nudge |
+| 10g | Circle names in push, behind a per-account setting |
+
+**Manual pass done on an iPhone.** It found the identical-notifications problem that became 10g; everything else held. **The eight flows are kept in `history.md`** rather than deleted: a permission dialog is one-shot per browser, so the next device and the next iOS version will need the same procedure.
+
+### 11. Digest boxes on Overview ✅ **done** — no migration
+
+Overview shows one box per day, five days, each naming the Circles that reported and — folded away — who finished and who did not. Digests left the Notifications tab entirely.
+
+| Piece | |
+|---|---|
+| 11a–11b | The five-day read, the boxes, and the roll call in a `<details>` |
+| 11c | Digests out of the tab, its badge, and mark-read |
+| ~~11d~~ | Dropped: both ways of writing `read_at` for a digest record something untrue |
+
+**No migration.** `digest_snapshots.summary` had carried the roll call since it was first written, so the step was a read and a render.
+
+**Two rules it established**, both in `history.md`: `notifications` is an outbox for four event types and a **delivery queue** for digests, and the test runner is pinned to a non-UTC timezone because a UTC runner cannot fail a date test.
+
+### 12. Security headers ✅ **done** — no migration
+
+A CSP with a per-request nonce, HSTS, `nosniff`, `Referrer-Policy`, `X-Frame-Options`, and a `Permissions-Policy` that grants nothing. How it works: `architecture/security.md` section 3b. What went wrong on the way: `history.md`.
+
+| Piece | |
+|---|---|
+| 12a | The fixed headers, in `next.config.ts`, because the proxy's matcher skips `sw.js` and the static assets |
+| 12b | Nonce CSP in `proxy.ts`, dev and prod branched; the layout reads `x-nonce` |
+| 12c | `/api/csp-report`, logging only, reading both report body shapes |
+| 12d–12e | Header tests, and the `security.md` section |
+
+**Four bugs, and not one of them raised an error.** A nonce cancelling the `'unsafe-inline'` beside it; `upgrade-insecure-requests` rewriting subresources to a dead port; `form-action 'self'` refusing a pre-hydration sign-in click; and the report route treating a missing Upstash config as a rate-limit refusal. Two were WebKit-only *and* production-only, so **`E2E_PROD=1 npm run test:e2e:ios` is the run that matters here**.
+
+**It left `patterns.md` a twenty-sixth shape**, which is the part worth carrying forward: **a protection that fails as absence rather than as refusal**. Three rounds went into `script-src` because a page running no JavaScript *looks* blocked.
+
+
+---
+
+## Step 13: check-in photos
+
+Moved here when the core loop closed. Migrations 79, 80 and 81; the build plan keeps only the manual pass, which is the part still owed to a device.
+
+Attach a photo to a check-in, and let the people in your Circles see it.
+
+**Split out of step 9** because it is a subsystem rather than a field, and bundling it would have meant `/today` shipping only when the hardest part did.
+
+#### What is already built, and it is most of the hard part
+
+From migrations 40, 45, 48, 64, 71 and 72, all deployed and none of it ever exercised by a real client:
+
+| | |
+|---|---|
+| Both buckets | Private, `checkin-photos` capped at 10MB, `image/webp` only |
+| `checkin_photos_select` | Via `private.can_view_checkin_photo`, which since **72** stops hiding your own photo from you and since **71** reads `goals.hidden_everywhere` |
+| `checkin_photos_insert` | **64** tightened it to `private.owns_active_goal`, so a fabricated or archived goal id is no longer an acceptable upload target |
+| `purge-expired-photos` | Deployed and scheduled. Objects go at 90 days; the row and every statistic derived from it stay |
+| `grant update (note, photo_url)` | Already held by `authenticated`, so filling the column after the insert needs **no** migration |
+| `photoUpload` rate limit | 20 an hour, declared in `lib/ratelimit.ts` since the start with **no caller**. This step is its writer |
+
+**What does not exist: anything that uploads.** `browser-image-compression` has been a dependency since day one and has never been imported.
+
+#### Two things the old plan did not mention
+
+1. **The storage path forces the order of operations.** It is `{user_id}/{goal_id}/{entry_id}.webp`, so the check-in row has to exist before the upload can be addressed. Every design below is downstream of that.
+2. **`circle_roster` does not return `photo_url`.** It returns `id`, `title`, `hidden`, `checked`, `note`, `entry_id`, `note_shared`. A Circle member currently has no way to know a photo exists, which is why showing them needs a migration.
+
+**A boolean would not have been enough, which is worth writing down because it looks like it would.** The path is `{user_id}/{goal_id}/{entry_id}.webp`, and **`entry_id` is returned only for your own rows** — migration 72 scoped it that way. So a viewer handed `has_photo: true` could not name the object it refers to. The roster returns the masked `photo_url` instead, which is the object key the column already stores and the same value `purge-expired-photos` hands to Storage.
+
+**That is not a capability.** The bucket is private, so holding a key gets you nothing without a signed URL, and signing one still has to pass `checkin_photos_select`. The key is a name, not a door.
+
+#### Decisions
+
+| | |
+|---|---|
+| **Upload and display together** | A photo nobody can see is not a feature. Migration 79 adds a photo field to the roster |
+| **A plain file input**, `accept="image/*"`, no `capture` | iOS draws its own sheet — Take Photo, Photo Library, Choose File — so the camera is one tap away and nothing legitimate is blocked. `capture` is ignored on desktop anyway, so forcing it would apply the rule to some people and not others |
+| **The check-in wins; the photo is best effort** | Check in, upload, then patch `photo_url`. A failed upload leaves an ordinary check-in, which is a state the app already handles everywhere |
+| **Removing a photo and undoing a check-in are two different things** | `removeCheckinPhoto` deletes the image and keeps the day. Undo removes both, and says so first. See below |
+| **Photos are shared by default; notes are not** | Deliberate, and the one asymmetry in this step. See below |
+| **Signed URLs, one hour, minted at render** | The roster is a server component, so they are already in the HTML |
+| **Lazy thumbnails, one stored size** | `loading="lazy"` on a small `img`, full image on tap. No second object and no thumbnail pipeline |
+| **Attachable any time today** | Check off the run now, add the photo when you get home. Not backfillable to a past day |
+| **Hidden here means hidden here** | The roster already withholds the *note* from a Circle where the goal is hidden. The photo follows the same rule, so one Circle's view is internally consistent |
+
+**That last one deserves care, because the two rules are deliberately not identical.** The Storage policy serves a photo if **at least one** shared Circle can see the goal; the roster masks per Circle. Both are right for their own job — Storage cannot answer "which Circle is this request about", and a Circle where you hid a goal should not show its photo. But it means the same photo is withheld by the roster and served by a direct signed URL. **Write it down in `security.md` rather than trying to make one rule serve both**, and do not re-implement either inside the other: migration 71 already had to undo exactly that mistake with `is_goal_hidden_in_group`.
+
+#### Pieces
+
+| Piece | |
+|---|---|
+| 13a | ✅ **Migration 79.** `photo_url` in `circle_roster`'s goals jsonb, masked exactly like `note`. Proved in a rolled-back transaction in four directions, with a negative control |
+| 13b | ✅ `lib/photo-upload.ts`. `sniff`, `inspect` and `photoKey` are pure and unit-tested; `preparePhoto` needs a canvas and is Playwright's, so `browser-image-compression` is imported dynamically |
+| 13c | ✅ The button on `/today` and in `TodayPanel`, the direct-to-Storage upload, and `attachCheckinPhoto` — which **derives the key rather than accepting one**, and finally spends the `photoUpload` limit |
+| 13c-2 | ✅ `removeCheckinPhoto`, the confirmation on undo, and **migration 80** from the audit |
+| 13d | ✅ `signPhotos` (batched, signed **as the caller**), `CheckinPhoto` on the roster and in `TodayPanel`. The object key never leaves `lib/supabase/` |
+| 13e | ✅ **Migration 81** and the sweep, folded into `purge-expired-photos` (version 8, `verify_jwt` still off). `security.md` section 9 rewritten from designed to built |
+
+#### Things that will go wrong, listed before they do
+
+#### The one asymmetry: photos share, notes do not
+
+`note_shared` exists because a note is a sentence you might not want read. **A photo is the proof**, so a photo nobody can see is a photo nobody asked for, and `can_view_checkin_photo` has served them to Circle members since migration 45 with no opt-in flag anywhere.
+
+So the rule is: **hiding the goal is the control.** Hide it in a Circle and the photo goes with the title and the note; there is no second switch.
+
+**Two fields on one row behaving differently is exactly the thing that gets "fixed" by someone who does not know why**, so it is stated here, in `security.md` section 9, and in the code comment on whatever renders it. If photos ever do need an opt-in, it is a column, a grant, a change to `can_view_checkin_photo`, and a second tick box on a form whose whole job is to be fast — not a small change.
+
+#### Signed URLs
+
+**One hour, minted during the server render.** The roster is a server component, so the URLs are in the HTML before the browser asks for anything.
+
+**The alternative was a route handler** that checks access and redirects to a fresh URL per request. Rejected for a specific reason rather than cost: that endpoint would have to re-derive the access rule the Storage policy already enforces, and **the rule living in two places is the mistake migration 71 had to undo**. Storage is the single reader of `can_view_checkin_photo` and it stays that way.
+
+**What an hour costs, honestly:** a tab left open overnight gets 403s on scroll, and a refresh fixes it. A URL copied out of the page works for an hour. Both are acceptable for a screen people open and close; neither would be at 24 hours.
+
+#### Weight on the roster
+
+A Circle holds ten people, each with up to ten goals. **One stored size (~1600px), displayed as a small `loading="lazy"` thumbnail, full image on tap.**
+
+**No thumbnail pipeline**, because a second object doubles the paths, the policies and the purge logic for a product with ten people per Circle. The honest cost of that: a phone may pull a few hundred KB per *visible* photo even though it is drawn small. `loading="lazy"` is what keeps that bounded to what is actually on screen, so it is load-bearing rather than decorative.
+
+#### When a photo can be attached
+
+**Any time today, until rollover.** Check off the run now, add the photo when you get home. The entry is the anchor and `attachCheckinPhoto` exists anyway, so this is nearly free.
+
+**Not backfillable to a past day**, though nothing in the schema stops it. A photo attached to last week's check-in is evidence for a day it was not taken on, which quietly removes the only thing a check-in photo is for. The restriction is the app declining to offer time travel, the same posture `undoCheckIn` already takes with its date filter — not a security boundary, and it should say so where it is written.
+
+#### What 13d settled
+
+**Keys stop at `lib/supabase/`.** `circle_roster` returns the object key,
+`getCircleRoster` and `getTodayData` exchange it for a signed URL, and no
+component ever holds a path. A component that held one would be a component that
+could build a URL.
+
+**Signed as the caller, never the service key.** `createSignedUrl` evaluates
+`checkin_photos_select` for whoever asked, so Storage stays the only place the
+access rule lives, and a key the roster offers but Storage refuses simply
+arrives as null. That is also the **second gate** behind migration 80: two
+independent things would have to be wrong for a photo to reach the wrong person.
+
+**Batched, and matched by key rather than position.** A Circle of ten with ten
+goals each is a hundred photos on one render. `createSignedUrls` reports a
+*per-path* error rather than failing the batch, so matching by index would put
+one person's photo on another person's row the moment a single key was refused —
+a bug that reads as a privacy leak and is really an off-by-one.
+
+**A plain `<img>`, not `next/image`.** The source expires within the hour and
+differs per request, which is exactly the input an optimiser cannot cache.
+
+#### One more bug, found by the build
+
+`E2E_PROD=1` never got as far as running a test: `next build` refused, because `lib/supabase/circle-roster.ts` had gained `server-only` behind `signPhotos` while `today-roster.tsx` — a client component — imported `formatProgress` from it.
+
+**It had been importing that for months.** The value import put the whole module in the browser bundle; nothing minded until the module started talking to Storage. The error named `photo-urls.ts`, which was correct and unhelpful.
+
+The types and `formatProgress` now live in **`lib/roster.ts`**, importable from anywhere, and `circle-roster.ts` carries `server-only` — **whose absence was the actual defect**, since it is the thing that would have made this fail on day one instead of on the day it mattered.
+
+**Neither `tsc --noEmit` nor ESLint sees this**, before or after. It is `patterns.md`'s twenty-seventh shape.
+
+**And then a second one of the same family.** `photos.spec.ts` used `import.meta.url` to find its fixture. There is no `"type": "module"` here, so Playwright compiles specs to CommonJS and that is a syntax error **at load time** — the whole file leaves the run before a test starts, and typecheck and lint both pass on it. `env.ts` and `auth-state.ts` had already settled the convention: resolve from `process.cwd()`. **`npx playwright test --list` compiles every spec and runs nothing**, which is the two-second check that catches this, and it is now in `testing.md`.
+
+#### Three rounds of test-only bugs, and what they have in common
+
+None of them were product bugs, and **none were visible to `tsc` or ESLint**:
+
+| | Caught by | The lesson |
+|---|---|---|
+| `server-only` reaching a client bundle | `next build` | A value import from a client component drags the whole module. `circle-roster.ts` lacked `server-only`, which is what would have failed on day one |
+| `import.meta` in a spec | `playwright test --list` | Specs compile to CommonJS. `env.ts` and `auth-state.ts` had already settled on `process.cwd()` |
+| Bare `.update()` and `.upsert()` | the run itself | `assertOk` reads `data: null` as failure, and PostgREST's upsert needs UPDATE on **every** payload column |
+| Asserting against a shut roster row | the run itself | The goals list is `{open ? … : null}`, so a closed row has no goals in the DOM. **`today-roster.tsx` says this in its own header comment** |
+| One picture, two `<img>` | the run itself | A thumbnail plus a full copy sharing an `alt`. **This one was a real defect, not a test bug**: a screen reader announces it twice. `CheckinPhoto` is now a single image that changes size on `group-open` |
+
+**The common thread is that each convention already existed somewhere in the repo**, and in the last case it was written at the top of the very file being tested. The first thing to do in a new spec is read a neighbouring one, and the component it drives.
+
+**Every absence assertion now has a presence assertion beside it.** `toHaveCount(0)` on a row that never opened passes whatever the masking rule does — which would have made the most important assertion in the file the one least able to fail.
+
+**All three were verified by running the real thing**, not by reasoning: a real `next build`, a real `--list`, and the corrected statements replayed as `authenticated` in a rolled-back transaction.
+
+#### The whole-project audit, after 13e
+
+Walked with `patterns.md` in hand, plus a symbol-level pass over every `.ts`/`.tsx` with the TypeScript compiler API, plus the standing SQL checks against the **deployed** database rather than the migrations.
+
+**Clean, and worth recording as clean:**
+
+| | |
+|---|---|
+| The error contract | **24 hints raised by `pg_proc`, 24 resolved in `lib/errors.ts`, zero drift either way.** `errors.test.ts` already guards the retired `CIRCLE_NOT_ACTIVE` |
+| `.rpc()` outside `app/actions/` | Exactly the three documented exemptions: `current_checkin_date`, `circle_preview`, `circle_roster` |
+| Notification types | Five in the enum; four owned by the tab and rendered; `digest` deliberately neither, since 11c |
+| Stray fixtures | 0 `E2E ` goals, 0 `E2E ` Circles, 0 orphaned notifications |
+| `SECURITY DEFINER` | 0 with a mutable `search_path` |
+
+**Four findings, all fixed:**
+
+| | |
+|---|---|
+| `TodayGoal` was declared **twice** | `lib/supabase/today.ts` exported it and `today-panel.tsx` re-declared an identical copy, so step 13 added `entryId` and `photoUrl` to both by hand. Now one declaration in `lib/today-shape.ts` — which cannot live in the `server-only` module, for the reason the build already taught us |
+| `TabNotificationType` had no reader | Its stated job is done by `satisfies readonly NotificationType[]`, which the compiler checks. Removed |
+| `security.md` claimed **0 anon-executable** | It is 1, `circle_preview`, deliberately — and `patterns.md`'s standing check says to expect exactly that row. The two documents contradicted each other, and the query would have read as a regression |
+| **Eight real rows claiming a photo that never existed** | Left in the production database by earlier runs of `photos.spec.ts`. `progress_entries_goal_id_fkey` is `ON DELETE SET NULL`, so deleting the goal kept the entry and its `photo_url`. Cleared by `job_null_missing_photos` — **migration 81 doing its job on real garbage rather than a fixture** — and the spec now deletes entries before goals, as `boundaries.spec.ts` always has |
+
+**One thing left stale on purpose to report rather than fix:** `graphify-out/graph.json` was built at `e69212e` and HEAD is `b1d37e8`. **13 tracked files are missing from it**, all of steps 11–12, plus every file step 13 added. The CLI is not installed in this environment, so it wants a regenerate where graphify lives.
+
+#### The manual pass, when the build is deployed
+
+**Four things no headless browser can reach.** Under ten words a step, same format as step 10's, and moved to `history.md` once done.
+
+| # | Flow |
+|---|---|
+| 1 | iPhone, installed PWA. Check off a goal. |
+| 2 | Tap `+ photo`. **Sheet offers Take Photo, Photo Library, Choose File.** |
+| 3 | Take Photo. Shoot **in portrait**. Confirm. |
+| 4 | **The photo is upright, not sideways.** This is the EXIF check. |
+| 5 | Photo Library. Pick a **HEIC** shot from the camera roll. |
+| 6 | It uploads, or says to try a JPEG. Never a silent nothing. |
+| 7 | Second account, same Circle. Open the Circle. |
+| 8 | Thumbnail appears. Tap it. Full image opens. |
+| 9 | Scroll a roster with several photos. **Does it feel fast on mobile data?** |
+| 10 | Owner: hide the goal in that Circle. Reload the other account. Photo gone. |
+| 11 | Owner: `Remove photo`. Check-in survives, day still counts. |
+| 12 | Owner: add a photo, then `Undo`. **Dialog warns before deleting it.** |
+| 13 | Undo a goal with **no** photo. **No dialog.** |
+
+**Step 4 is the one to be careful about**, because a sideways photo looks like a working feature and nothing will report it. **Step 2 is where `Permissions-Policy: camera=()` would show up** if the reasoning about `capture` versus `getUserMedia` is wrong.
+
+#### The audit after 13c
+
+**One real hole, and it was one 13a opened.** `authenticated` holds `update (photo_url)`, the only WITH CHECK on the table is `user_id = auth.uid()`, and since 79 `circle_roster` hands that column's value to your Circle. So a hand-crafted PostgREST call could point `photo_url` at **someone else's object key**, and circle-mates would be shown a stranger's photo as your proof of a day.
+
+Bounded rather than catastrophic: signing a forged key still has to pass `checkin_photos_select`, so a viewer only ever reached a photo they could already see. What it bought was **misattribution**, which an accountability product cannot be casual about. **Migration 80** states the rule as a CHECK, where PostgREST cannot route around it.
+
+**Its null escapes are load-bearing.** Both foreign keys are `ON DELETE SET NULL` (migration 12), a `SET NULL` is an UPDATE, and a CHECK is evaluated on it — so a constraint demanding `goal_id is not null` whenever a photo exists would make **deleting a goal fail** on a row nobody touched. Proved in a rolled-back transaction: own key accepted, foreign owner refused, wrong entry refused, and the goal still deletable.
+
+**Three smaller findings, all fixed**
+
+| | |
+|---|---|
+| A throwing action leaves the button stuck | The transition never settles and the control is disabled with no explanation. **The same bug step 10 shipped in the push toggle.** Both handlers now catch as well as check |
+| `lib/supabase/client.ts` said "reads only" | No longer true: the upload writes to Storage from the browser, and it has to — the bytes would otherwise cross our runtime to reach a bucket the browser can already address. Now documented as a deliberate exception, with the note that the write which *matters*, `attachCheckinPhoto`, is still an action and still metered |
+| The attach flow needed a test from a real client | The migration's proof runs as the table owner. `e2e/photos.spec.ts` now asserts the constraint through PostgREST, including the subtle half: **your own folder, a different entry**, which a constraint checking only the owner would accept |
+
+**One refinement to the plan.** The photo button appears once a goal is checked off, rather than sitting inside the check-in form. The object key is `{user_id}/{goal_id}/{entry_id}`, so there is nothing to address until the row exists — and it costs no taps, because picking a file is itself a tap and a sheet either way.
+
+#### Removing a photo, and undoing a check-in
+
+**These are two different intentions and they get two different controls.** The case people actually hit is a blurry or wrong photo, and making them undo the whole check-in to fix it would put a streak calculation in the path of a cosmetic mistake.
+
+| Control | What it does |
+|---|---|
+| **Remove photo** | Deletes the object, nulls `photo_url`, **keeps the check-in**. The day still counts |
+| **Undo check-in** | Removes both. When a photo exists it says so and asks first; with no photo it stays one tap |
+
+**The confirmation cannot offer to keep the photo, and that is not a UI choice.** The path is `{user_id}/{goal_id}/{entry_id}.webp` and the purge job finds objects *through* `photo_url`, so a photo whose row is gone is unreachable by its owner and invisible to the job that is supposed to clean it up. The dialog's job is to warn, not to offer a third option that would leak.
+
+**The confirmation is conditional on purpose.** A dialog people meet every time is a dialog they stop reading, and a check-in with no photo is trivially redone. It appears when it has something real to say.
+
+**Both paths delete the object before the row.** The rule is already in `security.md` section 9 and it is the same one the purge job follows: a crash between the two steps should leave a row claiming a photo that is gone, not a file nothing references. The first is a wrong pixel on a screen; the second is a private object nobody can ever reach or remove.
+
+**And `removeCheckinPhoto` must not spend the `photoUpload` limit.** Deleting is not uploading, and metering it would mean a run of bad photos locks you out of fixing them — a limiter punishing the correction rather than the abuse.
+
+**The same hole, one step earlier.** An upload that succeeds and then fails to patch `photo_url` is an orphan for the same reason. That is the accepted cost of "the check-in wins", so **13e owes the purge job a second sweep**: objects under `checkin-photos` that no `progress_entries` row points at, older than some grace window. Without it, choosing the simple write path quietly chooses a slow leak.
+
+**EXIF orientation is not the same problem as EXIF stripping.** Re-encoding through a canvas drops metadata for free, which is the privacy requirement — a check-in photo must not carry the poster's GPS to the Circle. But it also drops the *orientation* flag, and if the flag is not applied before the re-encode, every photo taken in portrait on a phone arrives sideways. `browser-image-compression` has an option for this. It has to be on.
+
+**HEIC decoding is the browser's, not ours.** Safari decodes HEIC to a canvas; Chrome on Android does not. "Converted client-side" means "converted by a browser that can", so the honest behaviour is to attempt it and say something clear when it fails, rather than to claim support that depends on the reader.
+
+**A client-side magic-byte check stops mistakes, not attackers.** The upload goes straight to Storage, so nothing of ours ever sees the bytes, and the bucket's `image/webp` restriction checks the *declared* content type. Worth doing for the renamed-`.jpg` case, but the real containment is that the object is private, reached only through a signed URL, and rendered in an `<img>` from an origin our CSP already allows. **Say this plainly in the docs** instead of letting "validate magic bytes" read as a guarantee.
+
+**Step 12 owes this step less than it thought.** The old note here said `Permissions-Policy: camera=()` would have to be opened. With a plain file input that is probably wrong: `capture` hands off to the operating system's camera app, not `getUserMedia`, and the header governs the latter. **Leave the header shut**, and if Take Photo does nothing on a real device, it is the first thing to suspect.
+
+**Two questions the old plan asked, now answered by what exists.** Compression runs in the browser, because the client is the only party that ever holds the original. And archiving a goal does nothing to its photos: retention is a flat 90 days by design, since a photo belongs to a user-owned goal visible in every Circle that user is in, so "the cycle this photo belongs to" is not a question the schema can answer. `owns_active_goal` separately means you cannot upload under an archived goal in the first place.
+
+#### What the tests have to cover
+
+A real image fixture through `setInputFiles`, so the path is exercised end to end rather than mocked. A check-in whose upload fails, ending as an ordinary check-in. An undo that removes both the row and the object. And the masking case that migration 71 was written for: **two Circles, one goal, hidden in the first** — the roster must withhold it there and show it in the second, and the assertion has to name the Circle, because a test that only checks "hidden somewhere" passes under both rules.
+
