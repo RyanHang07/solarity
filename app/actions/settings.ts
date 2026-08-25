@@ -5,6 +5,7 @@ import { redirect } from "next/navigation"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { enforce } from "@/lib/ratelimit"
 import { containsProfanity } from "@/lib/profanity"
+import { AVATAR_BUCKET, AVATAR_URL_TTL_SECONDS, avatarKey } from "@/lib/avatar"
 import { toMessage, type ActionResult } from "@/lib/errors"
 
 /** Mirrors users_username_format, so a refusal is a sentence and not a 23514. */
@@ -263,6 +264,157 @@ export async function updatePushShowsCircleName(
   if (!data?.length) return { ok: false, error: "Couldn't save that." }
 
   return { ok: true, data: undefined }
+}
+
+/**
+ * Step 15c. Whether your lifetime stats appear on your profile.
+ *
+ * **The narrowest write in the app, and that is not an accident.**
+ * `authenticated` holds `update (visible_on_profile)` on `user_lifetime_stats`
+ * and nothing else on that table — the four counters are maintained by triggers
+ * and no client may touch them. This action is therefore the whole of what a
+ * person can change about their own stats, which is exactly the intent.
+ *
+ * **No RPC.** `user_lifetime_stats_update_own` is `user_id = auth.uid()` on
+ * both sides, and the column grant does the rest. A `SECURITY DEFINER` function
+ * would restate a rule the schema already states, and become a second place to
+ * get it wrong.
+ *
+ * **Identity is not covered by this.** Username, display name, avatar and join
+ * date are visible to any signed-in user whatever this says; the toggle governs
+ * the four numbers. The copy on the form has to be precise about that, or
+ * someone will read "hidden" as "invisible" and be wrong about who can see
+ * what.
+ */
+export async function updateStatsVisibility(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  // A checkbox sends its value only when ticked, so absence is off. The same
+  // convention as `updatePushShowsCircleName` above, and the safer of the two
+  // outcomes is the one a missing field produces.
+  const visible = formData.get("visible") === "on"
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: "Please sign in again." }
+
+  const { data, error } = await supabase
+    .from("user_lifetime_stats")
+    .update({ visible_on_profile: visible })
+    .eq("user_id", user.id)
+    // RLS filters silently, so the affected-row count is the only evidence.
+    .select("user_id")
+
+  if (error) return { ok: false, error: toMessage(error) }
+  if (!data?.length) return { ok: false, error: "Couldn't save that." }
+
+  // `/profile` reads this, and it is a sibling segment rather than a child of
+  // this page — so revalidating `/settings` alone would leave the profile
+  // showing the old answer until something else forced a load.
+  revalidatePath("/profile")
+  revalidatePath("/settings")
+  return { ok: true, data: undefined }
+}
+
+/**
+ * Step 15f. Records that your avatar exists, or that it no longer does.
+ *
+ * **The bytes never pass through this server**, exactly as with check-in
+ * photos: the browser uploads straight to Storage under `avatars_insert`, and
+ * this action writes the column afterwards. Storage is the thing enforcing who
+ * may write where.
+ *
+ * **The key is derived here, never accepted.** `avatarKey(user.id)` is the only
+ * value this will ever write. That is belt to migration 85's braces — the CHECK
+ * refuses a key outside your own folder at the database — and it means a
+ * request cannot even propose one.
+ *
+ * **Clearing does not delete the object**, and that is deliberate rather than
+ * lazy. The key is fixed, so the next upload overwrites the same object and
+ * there is never more than one; and `job_scrub_and_list_user_media` removes it
+ * on account deletion. A delete here would add a Storage round trip that can
+ * fail on a path whose only job is to stop rendering a picture.
+ */
+export async function setAvatar(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  // A checkbox-style flag: the form sends this only when clearing, matching the
+  // convention in `setCircleVisibility` and `checkIn` — the safer outcome is
+  // what a missing field produces.
+  const clearing = formData.get("clear") === "on"
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: "Please sign in again." }
+
+  if (!clearing) {
+    /**
+     * **Metered with `photoUpload`**, the same limit `attachCheckinPhoto` uses,
+     * and for the same reason: this is the action that *records* an upload the
+     * browser made directly to Storage.
+     *
+     * **It bounds recorded writes, not bytes.** Someone determined can push
+     * objects at Storage without ever calling this, exactly as they can for
+     * check-in photos; the real bounds there are the bucket's 2MB cap and the
+     * `avatars_insert` policy confining them to their own folder. Reused rather
+     * than given its own limit because an avatar and a check-in photo are the
+     * same act against the same budget.
+     *
+     * Clearing is not metered: it writes a null and touches no storage.
+     */
+    try {
+      await enforce("photoUpload", user.id)
+    } catch (e) {
+      return { ok: false, error: toMessage(e) }
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("users")
+    .update({ avatar_url: clearing ? null : avatarKey(user.id) })
+    .eq("id", user.id)
+    .select("id")
+
+  if (error) return { ok: false, error: toMessage(error) }
+  if (!data?.length) return { ok: false, error: "Couldn't save that." }
+
+  // The header on every signed-in screen reads this row, so the whole tree has
+  // to re-render rather than one page. Same breadth, and same reason, as the
+  // username and timezone writers above.
+  revalidatePath("/", "layout")
+  return { ok: true, data: undefined }
+}
+
+/**
+ * A signed URL for one avatar, or null.
+ *
+ * **The bucket is private and stays private.** A public bucket would make every
+ * avatar a permanent, guessable, unauthenticated URL — worse than the profile
+ * itself, which at least requires signing in. `avatars_select` allows any
+ * authenticated reader, which is what profiles being open to any signed-in user
+ * requires, and the signature is what carries that decision to the browser.
+ */
+export async function signedAvatarUrl(key: string | null): Promise<string | null> {
+  if (!key) return null
+
+  const supabase = await createClient()
+  const { data, error } = await supabase.storage
+    .from(AVATAR_BUCKET)
+    .createSignedUrl(key, AVATAR_URL_TTL_SECONDS)
+
+  if (error) {
+    // Logged, not thrown. A missing avatar is a missing picture, and a profile
+    // that fails to render because of one is a worse answer than initials.
+    console.error("signing avatar failed", error)
+    return null
+  }
+  return data?.signedUrl ?? null
 }
 
 /**

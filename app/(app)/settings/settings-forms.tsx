@@ -7,6 +7,7 @@ import {
   updateTimezone,
   updateTodayScreenMode,
   updatePushShowsCircleName,
+  updateStatsVisibility,
 } from "@/app/actions/settings"
 import type { ActionResult } from "@/lib/errors"
 
@@ -260,6 +261,55 @@ export function PushNameForm({ current }: { current: boolean }) {
         On, a notification says which Circle it is about, and that name appears
         on your lock screen. Off, every notification reads the same and you open
         the app to find out which one. Goals are never named either way.
+      </p>
+
+      <div>
+        <Submit label="Save" pendingLabel="Saving…" />
+      </div>
+      <Result state={state} done="Saved." />
+    </form>
+  )
+}
+
+/**
+ * Step 15c. Whether your four lifetime numbers appear on your profile.
+ *
+ * **Default off**, which is why the copy leads with what turning it *on* does
+ * rather than what turning it off costs — the opposite of `PushNameForm` above,
+ * because the default is the opposite.
+ *
+ * **The copy has to be exact about what this does not cover.** Your username,
+ * display name, picture and join month are visible to any signed-in user
+ * whatever this says; the toggle governs the four numbers. Someone who reads
+ * "hidden" as "invisible" has been misled by omission, and this is the one
+ * screen where that is correctable.
+ */
+export function StatsVisibilityForm({ current }: { current: boolean }) {
+  const [state, action] = useActionState<ActionResult | null, FormData>(
+    updateStatsVisibility,
+    null,
+  )
+
+  return (
+    <form
+      id="profile-stats"
+      aria-label="Profile stats"
+      action={action}
+      className="flex scroll-mt-6 flex-col gap-2"
+    >
+      <span className="text-sm font-medium">Stats on your profile</span>
+
+      <label className="flex items-center gap-2 text-sm">
+        {/* Unticked sends nothing, which the action reads as off. */}
+        <input type="checkbox" name="visible" defaultChecked={current} />
+        Show my streaks and totals
+      </label>
+
+      <p className="text-xs opacity-60">
+        On, anyone signed in who opens your profile sees your current streak,
+        longest streak, days completed and goals achieved. Off, they see nothing
+        about your numbers. Either way your username, picture and the month you
+        joined are visible — this covers the four numbers only.
       </p>
 
       <div>

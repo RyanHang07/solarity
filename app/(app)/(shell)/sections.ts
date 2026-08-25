@@ -29,12 +29,32 @@ export type Section = {
   label: string
   /** Absolute path. **Also how the active section is chosen**; see `tab-bar`. */
   href: string
+  /**
+   * Match this href exactly, ignoring anything below it.
+   *
+   * **One entry needs this and it is not a special case for its own sake.**
+   * Every other section owns everything under its path. `/profile` does not:
+   * `/profile/[username]` is somebody else's profile, and highlighting *your*
+   * Profile tab while you look at a stranger is a small lie the bar would tell
+   * on every visit.
+   */
+  exact?: boolean
 }
 
 export const SECTIONS: readonly Section[] = [
   { key: "overview", label: "Overview", href: "/dashboard" },
   { key: "circles", label: "Circles", href: "/dashboard/circles" },
   { key: "notifications", label: "Notifications", href: "/dashboard/notifications" },
+  /**
+   * **`/profile`, not `/dashboard/profile`.**
+   *
+   * The hrefs here are absolute and this list does not care where a section's
+   * files live — which is what let Profile sit outside `/dashboard` without the
+   * bar unmounting. `dashboard/` and `profile/` are both inside the `(shell)`
+   * route group, and a route group contributes nothing to the URL, so all four
+   * share one layout and one never-remounted bar.
+   */
+  { key: "profile", label: "Profile", href: "/profile", exact: true },
 ]
 
 /**
@@ -46,14 +66,15 @@ export const SECTIONS: readonly Section[] = [
  * thing for a section added a year from now to get wrong.
  *
  * Returns `null` rather than falling back to the first section, so a page in
- * this group that is not a section (there are none today) draws no highlight
- * instead of a wrong one.
+ * this group that is not a section — `/profile/[username]` is the one that
+ * exists — draws no highlight instead of a wrong one.
  */
 export function activeSection(pathname: string): Section | null {
   let best: Section | null = null
   for (const section of SECTIONS) {
-    const matches =
-      pathname === section.href || pathname.startsWith(`${section.href}/`)
+    const matches = section.exact
+      ? pathname === section.href
+      : pathname === section.href || pathname.startsWith(`${section.href}/`)
     if (matches && (!best || section.href.length > best.href.length)) {
       best = section
     }

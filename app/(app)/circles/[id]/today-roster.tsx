@@ -2,8 +2,10 @@
 
 import { useActionState, useState } from "react"
 import { useFormStatus } from "react-dom"
+import Link from "next/link"
 import { setNoteSharing } from "@/app/actions/check-ins"
 import { CheckinPhoto } from "@/components/checkin-photo"
+import { ReportCheckin } from "./report-checkin"
 import type { ActionResult } from "@/lib/errors"
 import type { RosterMember } from "@/lib/roster"
 import { formatProgress } from "@/lib/roster"
@@ -99,6 +101,26 @@ export function TodayRoster({
 
             {open ? (
               <div className="border-t px-3 py-2">
+                {/*
+                  Step 15b. **Inside the expanded panel, not on the row.**
+                  The row is a `<button>` that toggles this open, and an anchor
+                  nested in a button is invalid HTML that breaks both controls —
+                  the link swallows the toggle on some engines and the button
+                  swallows the link on others.
+
+                  **Not on your own row.** `/profile/<you>` redirects to
+                  `/profile`, so the link would work — it would just be a longer
+                  way to reach the tab already in the bar.
+                */}
+                {!m.is_self ? (
+                  <Link
+                    href={`/profile/${encodeURIComponent(m.username)}`}
+                    className="mb-2 inline-block text-xs underline opacity-70"
+                  >
+                    View {m.username}&apos;s profile
+                  </Link>
+                ) : null}
+
                 {m.goals.length === 0 ? (
                   <p className="text-xs opacity-60">
                     {m.is_self
@@ -149,14 +171,28 @@ export function TodayRoster({
                           appears.
                         */}
                         {g.photoUrl ? (
-                          <CheckinPhoto
-                            url={g.photoUrl}
-                            alt={
-                              g.hidden && !m.is_self
-                                ? `Check-in photo from ${m.username}`
-                                : `Check-in photo for ${g.title}`
-                            }
-                          />
+                          <>
+                            <CheckinPhoto
+                              url={g.photoUrl}
+                              alt={
+                                g.hidden && !m.is_self
+                                  ? `Check-in photo from ${m.username}`
+                                  : `Check-in photo for ${g.title}`
+                              }
+                            />
+                            {/* 15e. Never on your own row: reporting yourself
+                                is refused by a CHECK and by the action, and
+                                offering it would be a control that only fails. */}
+                            {!m.is_self ? (
+                              <ReportCheckin
+                                userId={m.user_id}
+                                goalId={g.id}
+                                checkinDate={m.checkin_date}
+                                contentType="checkin_photo"
+                                label="photo"
+                              />
+                            ) : null}
+                          </>
                         ) : null}
 
                         {g.note ? (
@@ -186,6 +222,20 @@ export function TodayRoster({
                               <span className="text-xs opacity-50">
                                 (only you can see this)
                               </span>
+                            ) : null}
+
+                            {/* 15e. A note you can read is a note you can
+                                report. `circle_roster` has already withheld
+                                every note that was not shared, so anything
+                                rendered here was meant to be seen. */}
+                            {!m.is_self ? (
+                              <ReportCheckin
+                                userId={m.user_id}
+                                goalId={g.id}
+                                checkinDate={m.checkin_date}
+                                contentType="checkin_note"
+                                label="note"
+                              />
                             ) : null}
                           </span>
                         ) : null}

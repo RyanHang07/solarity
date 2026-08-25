@@ -24,7 +24,13 @@ Populated by the `on_auth_user_created` trigger off `auth.users`.
 
   Profanity screening happens in the app layer, as it does for username, since this appears in other people's rosters.
 - `username` (nullable, **case-insensitively unique** via a unique index on `lower(username)`): the public identity everywhere. Case-insensitive because a plain constraint would allow both `Ryan` and `ryan`, a cheaper impersonation route than unicode lookalikes. **Lookups must query `lower(username) = lower($1)` to hit the index.** Nullable because OAuth can't supply one; onboarding sets it.
-- `avatar_url`
+- `avatar_url` (nullable, CHECK `users_avatar_url_is_own_key`): **a Storage key in the `avatars` bucket, never a URL.** Always `<your id>/avatar.jpg`, so the object has exactly one version and nothing is ever orphaned. Written by `setAvatar`; the key is derived server-side and never accepted from a request.
+
+  **The CHECK is migration 80's hole in a second column.** `authenticated` holds `update (avatar_url)`, and without it a client could point the column at `<someone else's id>/avatar.jpg` — the storage policies stop you *writing* into another person's folder, and nothing stopped you *naming* it. With profiles readable by any signed-in user, that renders their face as yours.
+
+  **It held Google profile-picture URLs until migration 85.** `handle_new_user` copied `raw_user_meta_data ->> 'avatar_url'` at signup, and every one of them was unrenderable: `img-src` is `'self' data: blob:` plus Supabase, so `lh3.googleusercontent.com` was blocked. They were also never chosen for publication. The trigger no longer seeds it, and the values were nulled.
+
+  The bucket is **private**, 2MB, `{image/jpeg}`, and read through signed URLs with an hour's TTL. `avatars_select` allows any authenticated reader, which is broader than `checkin_photos_select` and is exactly right now that profiles are open to any signed-in user.
 - `checkin_timezone` (IANA name), `checkin_day_started_at`: frozen at each 2 AM rollover, not read live. See check-in dates below.
 - `pending_checkin_timezone` (nullable): a zone chosen **deliberately**, adopted by the next rollover.
 

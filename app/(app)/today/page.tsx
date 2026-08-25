@@ -5,7 +5,7 @@ import { getCheckinDate } from "@/lib/supabase/checkin-date"
 import { getTodayData, lastStreak } from "@/lib/supabase/today"
 import { hasUnfinishedDay } from "@/lib/today-gate"
 import { leaveToday } from "@/app/actions/today"
-import { TodayPanel } from "@/app/(app)/dashboard/today-panel"
+import { TodayPanel } from "@/app/(app)/(shell)/dashboard/today-panel"
 import { StreakHeader } from "./streak-header"
 import { MarkSeen } from "./mark-seen"
 

@@ -1,18 +1,3 @@
-// Generated from the live Supabase schema. Do not edit by hand.
-//
-// Regenerate after any migration:
-//   npx supabase gen types typescript --project-id wyuadcnrxisqmzygzhzd > lib/database.types.ts
-//
-// **Redirect with care on Windows.** PowerShell's `>` writes UTF-16LE, which
-// `tsc` tolerates and ESLint rejects outright as "File appears to be binary",
-// and which silently drops this header. If that happens, re-encode as UTF-8:
-//   npx supabase gen types typescript --project-id wyuadcnrxisqmzygzhzd `
-//     | Out-File -Encoding utf8 lib/database.types.ts
-//
-// Note: job_* functions appear here because they exist in the public schema, but
-// EXECUTE is granted to service_role only — calling them from the client will be
-// refused by Postgres regardless of what the types allow.
-
 export type Json =
   | string
   | number
@@ -889,6 +874,15 @@ export type Database = {
     }
     Functions: {
       archive_circle: { Args: { p_group_id: string }; Returns: undefined }
+      blocked_accounts: {
+        Args: never
+        Returns: {
+          blocked_at: string
+          display_name: string
+          user_id: string
+          username: string
+        }[]
+      }
       build_daily_digests: { Args: { p_date?: string }; Returns: number }
       circle_preview: {
         Args: { p_token: string }
@@ -942,7 +936,6 @@ export type Database = {
         Returns: string
       }
       export_user_data: { Args: never; Returns: Json }
-      my_pending_checkin_timezone: { Args: never; Returns: string }
       job_list_expired_photos: {
         Args: { p_days?: number; p_limit?: number }
         Returns: {
@@ -950,10 +943,17 @@ export type Database = {
           path: string
         }[]
       }
+      job_list_orphan_photos: {
+        Args: { p_grace_hours?: number; p_limit?: number }
+        Returns: {
+          name: string
+        }[]
+      }
       job_mark_photos_purged: {
         Args: { p_entry_ids: string[] }
         Returns: number
       }
+      job_null_missing_photos: { Args: { p_limit?: number }; Returns: number }
       job_scrub_and_list_user_media: {
         Args: { p_user_id: string }
         Returns: {
@@ -962,6 +962,23 @@ export type Database = {
         }[]
       }
       join_circle: { Args: { p_token: string }; Returns: string }
+      my_pending_checkin_timezone: { Args: never; Returns: string }
+      profile_by_username: {
+        Args: { p_username: string }
+        Returns: {
+          avatar_url: string
+          current_streak: number
+          display_name: string
+          is_self: boolean
+          longest_streak_ever: number
+          member_since: string
+          stats_visible: boolean
+          total_days_completed: number
+          total_goals_achieved: number
+          user_id: string
+          username: string
+        }[]
+      }
       resolve_streak_decision: {
         Args: { p_continue: boolean; p_group_id: string }
         Returns: undefined
@@ -1021,17 +1038,21 @@ export type Database = {
         | "member_left"
         | "group_archived"
       content_report_status: "pending" | "reviewed" | "actioned" | "dismissed"
-      content_report_type: "checkin_photo" | "checkin_note" | "planet_avatar"
+      content_report_type:
+        | "checkin_photo"
+        | "checkin_note"
+        | "planet_avatar"
+        | "user_profile"
       default_stats_view: "cycle_stats" | "leaderboard"
       group_member_role: "owner" | "admin" | "member"
       group_status: "active" | "locked" | "archived"
-      today_screen_mode: "every_open" | "once_daily" | "never"
       notification_type:
         | "digest"
         | "kicked"
         | "invite_accepted"
         | "group_locked_renewal"
         | "deadline_changed"
+      today_screen_mode: "every_open" | "once_daily" | "never"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1179,11 +1200,15 @@ export const Constants = {
         "group_archived",
       ],
       content_report_status: ["pending", "reviewed", "actioned", "dismissed"],
-      content_report_type: ["checkin_photo", "checkin_note", "planet_avatar"],
+      content_report_type: [
+        "checkin_photo",
+        "checkin_note",
+        "planet_avatar",
+        "user_profile",
+      ],
       default_stats_view: ["cycle_stats", "leaderboard"],
       group_member_role: ["owner", "admin", "member"],
       group_status: ["active", "locked", "archived"],
-      today_screen_mode: ["every_open", "once_daily", "never"],
       notification_type: [
         "digest",
         "kicked",
@@ -1191,6 +1216,7 @@ export const Constants = {
         "group_locked_renewal",
         "deadline_changed",
       ],
+      today_screen_mode: ["every_open", "once_daily", "never"],
     },
   },
 } as const

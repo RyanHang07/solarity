@@ -1,14 +1,18 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
-import { pendingTimezone } from "@/app/actions/settings"
+import { pendingTimezone, signedAvatarUrl } from "@/app/actions/settings"
 import {
   UsernameForm,
   TimezoneForm,
   TodayScreenForm,
   PushNameForm,
+  StatsVisibilityForm,
 } from "./settings-forms"
+import { AvatarForm } from "./avatar-form"
+import { BlockedList } from "./blocked-list"
 import { DeleteAccountPanel } from "./delete-account-panel"
+import { blockedAccounts } from "@/app/actions/moderation"
 import { PushToggle } from "@/components/push-toggle"
 
 export const metadata = { title: "Settings — Solarity" }
@@ -39,7 +43,9 @@ export default async function SettingsPage() {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("username, display_name, checkin_timezone, today_screen_mode, push_shows_circle_name")
+    .select(
+      "username, display_name, avatar_url, checkin_timezone, today_screen_mode, push_shows_circle_name",
+    )
     .eq("id", user.id)
     .maybeSingle()
 
@@ -52,6 +58,23 @@ export default async function SettingsPage() {
   // `pending_checkin_timezone` at all, because a grant that let you see your own
   // would have let every circle-mate see it too.
   const pending = await pendingTimezone()
+
+  // Signed on the server, so the object key never reaches the browser and the
+  // bucket stays private. Null when there is no avatar, which is the default.
+  const avatarUrl = await signedAvatarUrl(profile.avatar_url)
+
+  // 15c. One column, and the only one on this table a client may write.
+  // `user_lifetime_stats_select_visible`'s first clause is `user_id =
+  // auth.uid()`, so reading your own row needs nothing special.
+  const { data: stats } = await supabase
+    .from("user_lifetime_stats")
+    .select("visible_on_profile")
+    .eq("user_id", user.id)
+    .maybeSingle()
+
+  // 15d. Through the RPC, because a blocked account's username is not readable
+  // through `users` once you share no Circle. See migration 87.
+  const blocked = await blockedAccounts()
 
   /**
    * Active Circles this account owns, for the deletion warning.
@@ -84,7 +107,17 @@ export default async function SettingsPage() {
       </header>
 
       <section aria-label="Your account" className="flex flex-col gap-6">
+        {/* First, because it is the only identity control anyone else sees
+            without reading a word. */}
+        <AvatarForm
+          userId={user.id}
+          currentUrl={avatarUrl}
+          displayName={profile.display_name ?? profile.username}
+        />
         <UsernameForm current={profile.username} />
+        {/* Beside the other identity controls, because it governs what the
+            profile those controls describe actually shows. */}
+        <StatsVisibilityForm current={stats?.visible_on_profile ?? false} />
         <TimezoneForm current={profile.checkin_timezone} pending={pending} />
         <TodayScreenForm current={profile.today_screen_mode} />
         {/* Per account, unlike the device toggle below: what a notification may
@@ -112,6 +145,8 @@ export default async function SettingsPage() {
           Download your data
         </Link>
       </section>
+
+      <BlockedList blocked={blocked} />
 
       <section aria-label="Legal" className="flex flex-col gap-2">
         <h2 className="text-lg font-semibold">Legal</h2>

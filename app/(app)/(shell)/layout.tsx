@@ -6,7 +6,7 @@ import { TAB_NOTIFICATION_TYPES } from "@/lib/notification-types"
 import { TabBar } from "./tab-bar"
 
 /**
- * Step 14a. **The dashboard shell: everything that must not move.**
+ * Steps 14a and 15b. **The app shell: everything that must not move.**
  *
  * Before this existed, each section was `?tab=` on a single page, so switching
  * re-rendered the whole thing — the bar included — and re-ran every read whether
@@ -14,6 +14,14 @@ import { TabBar } from "./tab-bar"
  * rendering**: a navigation between siblings re-renders only the child, and this
  * layout is reused from the router cache. The bar is the same DOM across every
  * switch, and these reads happen once per visit rather than once per tap.
+ *
+ * **`(shell)` is a route group, so it contributes nothing to any URL.** That is
+ * the whole reason it exists: `/dashboard`, `/dashboard/circles`,
+ * `/dashboard/notifications` and `/profile` are four siblings under one layout
+ * without `/profile` having to live at `/dashboard/profile` to get there. When
+ * the mobile shape arrives, this layout is what grows a bottom bar, and
+ * `/today`, `/settings` and `/circles/[id]` stay deliberately outside it —
+ * `/today` in particular is a full-screen gate that a nav bar would undermine.
  *
  * **Three things live here, and the test for admission is "does it belong to
  * the shell rather than to a section".**
@@ -32,7 +40,7 @@ import { TabBar } from "./tab-bar"
  * layout being cached. That is the right behaviour: the gate is about where an
  * arrival lands, and by the second tap you have already arrived.
  */
-export default async function DashboardLayout({
+export default async function ShellLayout({
   children,
 }: {
   children: React.ReactNode

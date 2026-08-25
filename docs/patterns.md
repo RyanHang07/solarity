@@ -55,6 +55,22 @@ Every real bug found so far fell into one of **twenty-seven shapes**. Probe for 
 | **An assertion that cannot fail** | **Three instances, all caught by reading the test rather than running it.** A check that day six was absent looked for its *ISO date*, which the panel never renders — it would have passed however many boxes appeared. Five install tests planted `beforeinstallprompt` themselves, so every one would have passed with the root layout's listener deleted. And date tests in a **UTC runner** cannot fail, because the correct code and the offset-shifting code agree there. Ask of any new test: what edit would make this red? |
 | **A wait that can pass before the work starts** | the timezone test waited for text that was also static helper copy. It matched instantly, the database read ran mid-action, and the failure looked like a broken RPC. Wait on text that exists *because* the server did something |
 
+### Toolchain-shaped — the error is real, the cause is a cache
+
+| Pattern | Example |
+|---|---|
+| **A status code that a streamed response cannot set** | Two tests asserted `notFound()` gives a 404 and got 200. `notFound()` and `redirect()` can only set a status while the headers are still unsent, and adding `loading.tsx` gave these routes a Suspense boundary — so the shell flushes with a 200 and the not-found UI arrives inside a response that already committed. **Adding a loading state changes what a test can assert about a route.** Harmless here, because `/profile` is behind auth and no crawler sees the status; the fix was to assert on what renders, and to compare the blocked answer to the missing answer rather than to a number |
+| **A suppression that suppresses nothing** | `// eslint-disable-next-line @next/next/no-img-element -- a signed URL` followed by two more comment lines explaining why, then the `<img>`. The directive applies to **the next line**, which was another comment, so it did nothing — and the explanation reads as though it worked. Both avatar `<img>` tags warned. The rule: the directive is the last line before the code, and the reasoning goes in a block comment *above* it. Same family as "an assertion that cannot fail": the artefact looks present and is inert |
+| **A generated file that regeneration does not regenerate** | Moving `dashboard/` into `app/(app)/(shell)/` broke `npm run typecheck` with six errors, every one inside `.next/dev/types/validator.ts`, importing `app/(app)/dashboard/page.js` — a path that no longer exists. **`tsconfig.json` includes both `.next/types/**` and `.next/dev/types/**`, and `next typegen` only writes the first.** The second is the dev server's copy and is only refreshed by running `npm run dev`. So typecheck compared a freshly generated route map against a stale one and reported the contradiction as a type error in code nobody wrote. **After moving or renaming any route file, delete `.next/dev` before typechecking.** The tell is that every path in the error message is one you just moved, and the file is under `.next/` |
+
+### Seam-shaped — two correct decisions, wrong together
+
+| Pattern | Example |
+|---|---|
+| **A cleanup that reads the state it is cleaning up** | `job_scrub_and_list_user_media` deleted the avatar object only `where avatar_url is not null`, and "Remove picture" clears the column while deliberately keeping the object. Both defensible alone; together, **removing your picture and then deleting your account left the photograph in Storage**. Neither file was wrong when it was written. **A deletion path must derive what it deletes, never ask permission of the state it is deleting** — the key is deterministic, so migration 89 builds it from the user id |
+| **A cast standing in for a check** | `contentType as ReportType` on a string straight off a form. The type system was told a fact nobody had established; an unrecognised value reached Postgres as `22P02`, a code with no copy, and surfaced as "Something went wrong." A cast on external input is a `// trust me` with syntax highlighting |
+| **A text column with no CHECK, filled by a client** | `content_reports.content_reference` is `not null` text with no length constraint, so a report could carry a megabyte. `reason` had a 500-character CHECK; the column beside it had nothing. **Ask of every client-writable column: what stops this being enormous?** |
+
 **Three related traps, all hit while fixing the above:**
 
 - Clearing state in a form's `onSubmit` unmounts a form mid-submission and can abort the action. Close panels on the *result*.

@@ -1,0 +1,33 @@
+-- 88. `content_report_type` gains `user_profile`.
+--
+-- ## This migration does one thing, and that is the whole point
+--
+-- **A value added to an enum inside a transaction cannot be used later in that
+-- same transaction.** Postgres allows `alter type ... add value` in a
+-- transaction, and then refuses `unsafe use of new value` the moment anything
+-- references it — a policy, a default, a CHECK, or a proof block that inserts
+-- one row to see whether it worked.
+--
+-- Migrations here are applied transactionally. So this file adds the value and
+-- **stops**. Anything that reads or writes it belongs in a later migration or
+-- in application code, and there is no proof block below for exactly the reason
+-- this comment exists.
+--
+-- ## Why the value is needed
+--
+-- The type was `{checkin_photo, checkin_note, planet_avatar}`: reporting was a
+-- thing you did to a piece of *content*, and there was no way to report a
+-- person. Step 15 puts profiles in front of every signed-in user, so a profile
+-- itself — a username, a display name, a picture — is now something that can
+-- need reporting, and none of the three existing values describe it.
+--
+-- `content_reference` is `not null`, so a profile report carries the reported
+-- user's id. That is redundant with `reported_user_id` and kept anyway: every
+-- other row in this table can be found from its reference alone, and a
+-- moderator should not need a different query per type.
+--
+-- `planet_avatar` names a feature that does not exist. Left alone: removing an
+-- enum value means rewriting the type and every column using it, and it costs
+-- nothing to keep.
+
+alter type public.content_report_type add value if not exists 'user_profile';

@@ -90,9 +90,18 @@ export function sniff(head: Uint8Array): ImageKind | null {
  * Ordered cheapest first, so a 40MB video is refused on `size` without reading
  * a byte of it.
  */
-export async function inspect(file: File): Promise<PhotoProblem | null> {
+export async function inspect(
+  file: File,
+  /**
+   * The cap to judge against. **Not always `MAX_UPLOAD_BYTES`**: the avatars
+   * bucket allows 2MB where check-in photos allow 10, and a client-side check
+   * that is looser than the bucket turns a clear refusal into a Storage error
+   * after the upload has already been paid for.
+   */
+  maxBytes: number = MAX_UPLOAD_BYTES,
+): Promise<PhotoProblem | null> {
   if (file.size === 0) return "EMPTY"
-  if (file.size > MAX_UPLOAD_BYTES) return "TOO_LARGE"
+  if (file.size > maxBytes) return "TOO_LARGE"
 
   let head: Uint8Array
   try {
