@@ -267,7 +267,7 @@ Pick a file → `inspect` → `preparePhoto` → upload straight to Storage → 
 
 | | |
 |---|---|
-| Accepts | HEIC, JPG, PNG, GIF, WebP, judged by **magic bytes** rather than the name or the declared type |
+| Accepts | HEIC, JPG, PNG, GIF, WebP *as input*, judged by **magic bytes** rather than the name or the declared type. All of it is re-encoded to JPEG before upload |
 | Normalised to | **JPEG**, longest edge ~1600px, quality 0.8, in the browser. Not WebP: **Safari cannot encode it**, and `toBlob` falls back to PNG silently. Migration 82 |
 | Cap | 10MB before compression, checked client-side so a 12MB file fails instantly rather than after the upload |
 | Metered | `photoUpload`, 20/hour, spent by `attachCheckinPhoto` — the step that makes an object visible to other people, not the byte transfer |
@@ -276,14 +276,14 @@ Pick a file → `inspect` → `preparePhoto` → upload straight to Storage → 
 
 **EXIF orientation and EXIF stripping are two concerns that look like one.** The canvas re-encode drops metadata for free, which is the privacy requirement — a check-in photo must not carry the poster's GPS to their Circle. It also drops the *orientation flag*, so `exifOrientation: -1` bakes the rotation into the pixels first. Without it every portrait photo arrives sideways, which looks like a working feature.
 
-**The magic-byte check stops mistakes, not attackers**, and the docs should not imply otherwise. Nothing of ours sees the bytes, and the bucket's `image/webp` restriction checks the *declared* content type. The real containment is that the object is private, reached only through a signed URL, and rendered in an `<img>`.
+**The magic-byte check stops mistakes, not attackers**, and the docs should not imply otherwise. Nothing of ours sees the bytes, and the bucket's `image/jpeg` restriction checks the type of the multipart part, which comes from `blob.type`. The real containment is that the object is private, reached only through a signed URL, and rendered in an `<img>`.
 
 ### Storage buckets
 
 **Path convention: fixed. Changing it later means migrating objects.**
 
 ```
-checkin-photos : {user_id}/{goal_id}/{entry_id}.webp
+checkin-photos : {user_id}/{goal_id}/{entry_id}.jpg
 avatars        : {user_id}/{filename}
 ```
 

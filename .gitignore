@@ -54,6 +54,13 @@ e2e/.auth/
 
 # graphify
 .graphifyignore
+# A machine-local absolute path. Meaningless in anyone else's clone.
+graphify-out/.graphify_root
+# Content-hashed AST cache. It makes the *next* run fast on one machine; in the
+# repository it is 89 files that get renamed wholesale on every regeneration.
+# `graph.json` and `manifest.json` are the artefacts worth tracking.
+graphify-out/cache/
+graphify-out/.graphify_analysis.json
 
 # cursor
 .cursor/

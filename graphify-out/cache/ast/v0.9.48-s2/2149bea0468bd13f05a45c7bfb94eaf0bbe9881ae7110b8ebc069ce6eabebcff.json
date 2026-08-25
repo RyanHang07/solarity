@@ -1,1 +1,0 @@
-{"nodes": [{"id": "$graphify-root$_supabase_migrations_20260815003521_67_revoke_anon_from_new_private_helper_sql", "label": "20260815003521_67_revoke_anon_from_new_private_helper.sql", "file_type": "code", "source_file": "supabase/migrations/20260815003521_67_revoke_anon_from_new_private_helper.sql", "source_location": null}], "edges": []}

@@ -58,7 +58,7 @@ async function createCircleInTheUi(page: Page, label: string) {
   const name = circleName(label)
   // `?tab=circles` since 8f-1. The list and the create form moved off Overview,
   // and a bare `/dashboard` now renders the check-in panel and goals instead.
-  await page.goto("/dashboard?tab=circles")
+  await page.goto("/dashboard/circles")
   await page.getByLabel("Start a Circle").fill(name)
   await page.getByRole("button", { name: "Create Circle" }).click()
   await expect(page.getByRole("link", { name })).toBeVisible()
@@ -288,7 +288,7 @@ test.describe("joining", () => {
     // Only reproducible with two members, which is why every earlier test
     // missed it and only a React duplicate-key warning gave it away.
     for (const p of [joinerPage, ownerPage]) {
-      await p.goto("/dashboard?tab=circles")
+      await p.goto("/dashboard/circles")
       await expect(p.getByRole("link", { name })).toHaveCount(1)
     }
   })

@@ -24,10 +24,15 @@ export const metadata = {
  * than from a template, because a policy that describes a different product is
  * worse than none.
  *
- * **It describes only what is built.** Account deletion is deployed as an Edge
- * Function with no UI, so this says to write in — and that sentence becomes a
- * link when `/settings/account` ships. Not legal advice; have it reviewed
- * before real users.
+ * **It describes only what is built**, and that is a rule this page has already
+ * had to honour twice. It used to say to write in for deletion, because the
+ * `delete-account` Edge Function was deployed with nothing able to call it. 14e
+ * shipped the control, so the sentence became a link **in the same change** —
+ * a policy describing a slower path than the product offers is drift in the
+ * direction that costs trust. The email route is kept as an alternative, not
+ * as the only one.
+ *
+ * Not legal advice; have it reviewed before real users.
  */
 export default function PrivacyPage() {
   return (
@@ -136,12 +141,16 @@ export default function PrivacyPage() {
           .
         </p>
         <p>
-          <strong>Deletion.</strong> Email{" "}
+          <strong>Deletion.</strong>{" "}
+          <Link href="/settings" className="underline">
+            Delete your account from settings
+          </Link>
+          . It happens immediately and cannot be undone. If you would rather
+          write, email{" "}
           <a href={`mailto:${CONTACT_EMAIL}`} className="underline">
             {CONTACT_EMAIL}
           </a>{" "}
-          from the address on your account and it will be done. A self-serve
-          button is coming; until it exists this page will not pretend otherwise.
+          from the address on your account and it will be done for you.
         </p>
         <p>
           <strong>One thing deletion does not do.</strong> Your check-in records

@@ -4,10 +4,13 @@ import { useActionState, useEffect, useRef } from "react"
 import { useFormStatus } from "react-dom"
 import {
   createGoal,
+  achieveGoal,
   archiveGoal,
   setCircleVisibility,
+  setGoalDeadline,
   setHiddenEverywhere,
 } from "@/app/actions/goals"
+import { deadlineLabel, isOverdue } from "@/lib/goal-deadline"
 import type { ActionResult } from "@/lib/errors"
 
 type Category = { slug: string; name: string; color_hex: string }
@@ -17,8 +20,68 @@ type Goal = {
   title: string
   archived_at: string | null
   achieved_at: string | null
+  /** A calendar date, `YYYY-MM-DD`. A `date` column since migration 84. */
+  deadline: string | null
   hidden_everywhere: boolean
   goal_categories: { name: string; color_hex: string } | null
+}
+
+/**
+ * Step 14d. One goal's deadline: set, changed and removed by the same control.
+ *
+ * **An explicit Save rather than submitting on change**, which is what every
+ * other control in this panel does. A date input fires `change` while you are
+ * still picking on some platforms, so an auto-submitting field would write
+ * intermediate dates and revalidate the page under the picker.
+ *
+ * **Clearing the field removes the deadline.** That is why there is no separate
+ * remove button, and why the field carries no `min` and no default: the column
+ * is nullable on purpose, most daily goals have no end date, and defaulting to
+ * today would turn an opt-in field into an opt-out one and make every new goal
+ * look overdue tomorrow.
+ */
+function Deadline({
+  goal,
+  today,
+  action,
+}: {
+  goal: Goal
+  /** The check-in date, from Postgres. Never `Date.now()`; see `lib/goal-deadline`. */
+  today: string | null
+  action: (formData: FormData) => void
+}) {
+  const label = deadlineLabel(goal.deadline, today)
+  const overdue = isOverdue(goal.deadline, today)
+  const inputId = `deadline-${goal.id}`
+
+  return (
+    <form action={action} className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+      <input type="hidden" name="goalId" value={goal.id} />
+      <label htmlFor={inputId} className="opacity-70">
+        Deadline
+      </label>
+      {/*
+        `defaultValue`, not `value`. The server prop is the truth after a save
+        and React reuses this node across the revalidate, so an uncontrolled
+        input keeps what was typed and the next server render agrees with it.
+      */}
+      <input
+        id={inputId}
+        type="date"
+        name="deadline"
+        defaultValue={goal.deadline ?? ""}
+        className="rounded border px-2 py-1"
+      />
+      <button type="submit" className="underline opacity-70">
+        Save
+      </button>
+      {label ? (
+        // Colour is not the only signal: the word "Overdue" is in the text, so
+        // this reads the same to anyone who cannot see the red.
+        <span className={overdue ? "text-red-600" : "opacity-60"}>{label}</span>
+      ) : null}
+    </form>
+  )
 }
 
 function Submit({ label, pendingLabel }: { label: string; pendingLabel: string }) {
@@ -151,11 +214,21 @@ export function GoalsPanel({
   categories,
   circles,
   hiddenIn,
+  today,
 }: {
   goals: Goal[]
   categories: Category[]
   circles: Circle[]
   hiddenIn: Record<string, string[]>
+  /**
+   * The caller's check-in date, or null if the RPC failed.
+   *
+   * **Passed down rather than computed here.** "Is this overdue" and "does
+   * today count" have to be the same day, and a client component asking the
+   * browser would disagree with the database for two hours either side of the
+   * boundary. See `lib/goal-deadline.ts`.
+   */
+  today: string | null
 }) {
   const [createState, createAction] = useActionState<ActionResult | null, FormData>(
     createGoal,
@@ -163,6 +236,14 @@ export function GoalsPanel({
   )
   const [archiveState, archiveAction] = useActionState<ActionResult | null, FormData>(
     archiveGoal,
+    null,
+  )
+  const [achieveState, achieveAction] = useActionState<ActionResult | null, FormData>(
+    achieveGoal,
+    null,
+  )
+  const [deadlineState, deadlineAction] = useActionState<ActionResult | null, FormData>(
+    setGoalDeadline,
     null,
   )
   // One state per action rather than one per goal. The switches render from the
@@ -250,7 +331,13 @@ export function GoalsPanel({
         ) : null}
       </form>
 
-      {[archiveState, circleVisState, everywhereState].map((st, i) =>
+      {[
+        achieveState,
+        archiveState,
+        deadlineState,
+        circleVisState,
+        everywhereState,
+      ].map((st, i) =>
         st && !st.ok ? (
           <p key={i} role="alert" className="text-sm text-red-600">
             {st.error}
@@ -275,19 +362,57 @@ export function GoalsPanel({
                   <span className="opacity-60">{g.goal_categories?.name}</span>
                 </span>
 
-                <form action={archiveAction}>
-                  <input type="hidden" name="goalId" value={g.id} />
-                  <button
-                    type="submit"
-                    className="text-xs underline opacity-70"
-                    // Archiving changes the denominator for today, so it can
-                    // re-complete a day that was incomplete a moment ago.
-                    title="Archive this goal"
-                  >
-                    Archive
-                  </button>
-                </form>
+                <span className="flex shrink-0 items-center gap-3">
+                  {/*
+                    Step 14c. **Achieve sits before Archive because it is the
+                    better outcome**, and because the two are easy to confuse:
+                    both retire the goal and both move today's denominator, but
+                    only this one counts toward `total_goals_achieved`.
+
+                    **The confirmation is here and not on Archive.** Archiving
+                    is reversible — nothing stops `archived_at` going back to
+                    null — while migration 83 refuses to clear `achieved_at`
+                    once set, because the lifetime counter has already moved.
+                    The same rule `RowButton` follows on Undo: a dialog appears
+                    only when something cannot be got back. A confirmation
+                    people meet on every button is one they stop reading.
+                  */}
+                  <form action={achieveAction}>
+                    <input type="hidden" name="goalId" value={g.id} />
+                    <button
+                      type="submit"
+                      className="text-xs underline opacity-70"
+                      title="Mark this goal finished. It stops counting toward your day."
+                      onClick={(e) => {
+                        if (
+                          !window.confirm(
+                            `Mark "${g.title}" as achieved?\n\nIt stops counting toward your daily check-in, and this can't be undone.`,
+                          )
+                        ) {
+                          e.preventDefault()
+                        }
+                      }}
+                    >
+                      Achieve
+                    </button>
+                  </form>
+
+                  <form action={archiveAction}>
+                    <input type="hidden" name="goalId" value={g.id} />
+                    <button
+                      type="submit"
+                      className="text-xs underline opacity-70"
+                      // Archiving changes the denominator for today, so it can
+                      // re-complete a day that was incomplete a moment ago.
+                      title="Archive this goal"
+                    >
+                      Archive
+                    </button>
+                  </form>
+                </span>
               </div>
+
+              <Deadline goal={g} today={today} action={deadlineAction} />
 
               <Visibility
                 goal={g}

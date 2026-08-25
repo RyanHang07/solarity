@@ -50,9 +50,17 @@ User-owned, never group-owned. Goals stay constant across every Circle a user be
 
 - `id`, `user_id` (FK → users), `title`
 - `category_id` (FK → goal_categories, **required**, `ON DELETE RESTRICT`): no uncategorized state
-- `deadline` (nullable, **unconstrained**): personal and informational; recording a missed or historical deadline is legitimate, so a constraint here would fight the user
-- `achieved_at` (nullable, CHECK `<= now()`): the goal itself is done, distinct from a daily check-in
+- `deadline` (**`date`**, nullable, **unconstrained**): personal and informational; recording a missed or historical deadline is legitimate, so a constraint here would fight the user
+
+**`date`, not `timestamptz`, since migration 84.** A goal deadline is a calendar date and never an instant. `<input type="date">` submits `YYYY-MM-DD`, which a `timestamptz` column stores as midnight **UTC** — so anyone west of UTC picked 1 September and read back 31 August. That is not fixable in the reader: it would leave every consumer to agree on which timezone to un-apply, and one of them getting it wrong is a date off by one. `date` has no timezone semantics, so the error class stops existing. Changed at zero rows, because `timestamptz -> date` casts in the session timezone and with data it would have been a silent decision about whose midnight counts.
+
+**Overdue means strictly before today**, matching the rule `/circles/[id]` states for a Circle's deadline: the deadline day itself is fully playable. `lib/goal-deadline.ts` holds it as pure functions, and "today" is always the check-in date from `current_checkin_date()` — never the browser's clock, or the two would disagree either side of the 2 AM boundary.
+- `achieved_at` (nullable, CHECK `<= now()`, **write-once**): the goal itself is done, distinct from a daily check-in
 - `archived_at` (nullable, CHECK `<= now()`): dropped rather than completed
+
+**Achieved means retired, whatever migration 04's column comment says.** That comment reads *"a goal can be achieved and kept active"*, and nothing in the database agrees with it: `goals_active_by_user_idx`, `enforce_active_goal_cap`, `recompute_daily_completion` and `can_check_in_on_goal` all treat a non-null `achieved_at` as inactive. So achieving moves today's denominator exactly as archiving does. A migration comment cannot be edited after it has been applied; this line is the correction.
+
+**Achieving is one-way, and archiving deliberately is not.** `goals_count_achievement` increments `total_goals_achieved` on every null → not-null transition, so clearing the column and setting it again counts one goal twice — reachable through the ordinary API, since `authenticated` holds `update (achieved_at)`. Migration 83's `goals_achievement_is_final` refuses to clear *or move* it once set, raising `check_violation` with `hint = 'ACHIEVEMENT_FINAL'`. `archived_at` feeds no counter and un-archiving is reasonable, so it has no equivalent rule; the asymmetry is the point.
 - `created_at`, `updated_at`
 
 Achieving doesn't touch `daily_completion` or streak history. After achieving, the user is prompted to archive, edit into a new goal, or keep it active.
@@ -186,6 +194,7 @@ Persists across every cycle and Circle.
 
 - `user_id` (PK), `current_streak`, `longest_streak_ever`, `total_days_completed`, `total_goals_achieved`
 - `visible_on_profile` (bool, default `false`): opt-in, and the **only** client-writable column
+- `total_goals_achieved` is maintained by `goals_count_achievement` and protected from inflation by migration 83; see `goals.achieved_at` above
 - CHECK: non-negative; `longest_streak_ever >= current_streak`; `longest_streak_ever <= total_days_completed`
 
 **One row per user, created at signup** by `handle_new_user()`, so no read path has to distinguish "no row yet" from "all zeroes".

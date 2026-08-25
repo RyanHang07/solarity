@@ -124,6 +124,125 @@ export async function archiveGoal(
 }
 
 /**
+ * Step 14c. Marking a goal finished. The writer `achieved_at` has never had.
+ *
+ * **Nothing in the database changed for this except migration 83.** The column,
+ * the grant, the not-future CHECK, the cap trigger, the daily-completion
+ * recount and `goals_count_achievement` have all been in place since migration
+ * 34 with no way to reach any of them. This action is the way.
+ *
+ * **Achieving retires the goal, and the copy has to say so.** Migration 04's
+ * column comment claims a goal "can be achieved and kept active", but every
+ * consumer disagrees: the partial index, `enforce_active_goal_cap`,
+ * `recompute_daily_completion` and `can_check_in_on_goal` all treat a non-null
+ * `achieved_at` as retired. So achieving moves today's denominator exactly as
+ * archiving does, and can complete a day that was incomplete a moment ago.
+ *
+ * **It is also one-way, which archiving is not.** `goals_count_achievement`
+ * increments `total_goals_achieved` on every null → not-null transition, so
+ * clearing the column and setting it again would count one goal twice.
+ * Migration 83 refuses to clear or move it; `ACHIEVEMENT_FINAL` is the copy.
+ */
+export async function achieveGoal(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  const goalId = formData.get("goalId")?.toString() ?? ""
+  if (!goalId) return { ok: false, error: "Missing goal." }
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: "Please sign in again." }
+
+  const { data, error } = await supabase
+    .from("goals")
+    // **`"now"`, not `new Date()`**, for the reason spelled out in
+    // `archiveGoal`: `goals_achieved_not_future` asserts `achieved_at <= now()`
+    // in Postgres, and a timestamp minted in this process is judged by a clock
+    // in another datacentre. Any forward skew turns the button into a bare
+    // `23514`.
+    .update({ achieved_at: "now" })
+    .eq("id", goalId)
+    // **Load-bearing twice over.** It makes a second press a no-op rather than
+    // a second increment of `total_goals_achieved`, and it is the guard that
+    // keeps this action from ever tripping migration 83's trigger — a request
+    // that would move an already-set value simply matches no rows.
+    .is("achieved_at", null)
+    // RLS filters silently, so the affected-row count is the only evidence the
+    // write landed. Same reasoning as `archiveGoal`.
+    .select("id")
+
+  if (error) return { ok: false, error: toMessage(error) }
+  if (!data?.length) {
+    return { ok: false, error: "That goal is already achieved, or isn't yours." }
+  }
+
+  revalidatePath("/dashboard")
+  return { ok: true, data: undefined }
+}
+
+/** What `<input type="date">` submits, and the only shape `date` accepts here. */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Step 14d. Sets, changes or clears one goal's deadline.
+ *
+ * **One control for all three.** An empty field means no deadline, so removing
+ * one is clearing the input rather than a separate button. The column has been
+ * nullable and writable since migration 25 and has never had a writer.
+ *
+ * **Deliberately unconstrained.** No `min`, no CHECK, no refusal of a past
+ * date. Migration 26 states the reason and 84 restates it: a personal deadline
+ * is informational, and recording a missed or historical one is legitimate. A
+ * date in the past renders as overdue, which is a fact about it rather than a
+ * complaint.
+ *
+ * **The column is a `date`, not a `timestamptz`** — migration 84. That is what
+ * makes this action a single assignment instead of a timezone negotiation: a
+ * date input submits `YYYY-MM-DD`, and under the old type that stored as
+ * midnight UTC and read back a day early for anyone west of it.
+ */
+export async function setGoalDeadline(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  const goalId = formData.get("goalId")?.toString() ?? ""
+  const raw = formData.get("deadline")?.toString().trim() ?? ""
+  if (!goalId) return { ok: false, error: "Missing goal." }
+
+  // **Checked here rather than left to Postgres.** A malformed date arrives as
+  // `22007`, which `toMessage` has no case for and renders as "Something went
+  // wrong" — true, and useless beside a field the person just filled in.
+  if (raw && !ISO_DATE.test(raw)) {
+    return { ok: false, error: "Pick a date, or clear the field to remove it." }
+  }
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: "Please sign in again." }
+
+  const { data, error } = await supabase
+    .from("goals")
+    // Empty means none. `|| null` rather than `?? null`, because the empty
+    // string is exactly the value that has to become a null here.
+    .update({ deadline: raw || null })
+    .eq("id", goalId)
+    .eq("user_id", user.id)
+    // RLS filters silently, so the affected-row count is the only evidence.
+    .select("id")
+
+  if (error) return { ok: false, error: toMessage(error) }
+  if (!data?.length) return { ok: false, error: "That isn't your goal." }
+
+  revalidatePath("/dashboard")
+  return { ok: true, data: undefined }
+}
+
+/**
  * Hides or shows one goal in one Circle. The writer `goal_group_visibility` has
  * never had.
  *

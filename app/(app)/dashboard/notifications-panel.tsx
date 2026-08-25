@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { markNotificationsRead } from "@/app/actions/notifications"
 
 export type NotificationRow = {
@@ -30,9 +31,27 @@ export type NotificationRow = {
  * whatever it is given.
  */
 
-/** Marks everything read once the list has actually rendered. */
+/**
+ * Marks everything read once the list has actually rendered.
+ *
+ * **Step 14a: it now has to repair the badge as well.** The unread count lives
+ * on the section *label*, so it is computed in `dashboard/layout.tsx` — and a
+ * layout is precisely what Next does *not* re-render when you navigate between
+ * its children. Marking everything read would leave the old number sitting
+ * beside "Notifications" until something else forced a full load.
+ *
+ * **`router.refresh()`, and deliberately not `revalidatePath` in the action.**
+ * That was considered and rejected: revalidating would re-run the page,
+ * re-mount this component, and call the action again. `router.refresh()`
+ * re-renders the server tree while **preserving client state**, so this
+ * component is not re-mounted and `fired` never re-arms. The loop is
+ * structurally impossible rather than merely unlikely.
+ *
+ * It also does not unmount the section bar, which is the point of the split.
+ */
 function MarkRead({ unread }: { unread: number }) {
   const fired = useRef(false)
+  const router = useRouter()
 
   useEffect(() => {
     if (fired.current || unread === 0) return
@@ -40,8 +59,14 @@ function MarkRead({ unread }: { unread: number }) {
     // Fire and forget. A failure here means the badge is still there next time,
     // which is the harmless direction, and an error banner over a list you have
     // plainly just read would be noise about nothing you asked for.
+    //
+    // The refresh is chained rather than fired alongside, so it reads a
+    // database that has already been written to. `catch` covers both: a failed
+    // mark leaves the badge alone, which is the state it was already in.
     void markNotificationsRead()
-  }, [unread])
+      .then(() => router.refresh())
+      .catch(() => {})
+  }, [unread, router])
 
   return null
 }

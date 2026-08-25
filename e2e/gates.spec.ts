@@ -46,7 +46,7 @@ import { storageStateFor } from "./session"
  * worse than a stray Circle.
  */
 
-const GATED = ["/dashboard", "/dashboard?tab=circles", "/settings"] as const
+const GATED = ["/dashboard", "/dashboard/circles", "/settings"] as const
 
 let ctx: { page: Page; close: () => Promise<void> } | null = null
 

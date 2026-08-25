@@ -244,7 +244,7 @@ test("the tab lists events and never a digest, and the badge agrees", async ({
   const page = await context.newPage()
 
   try {
-    await page.goto("/dashboard?tab=notifications")
+    await page.goto("/dashboard/notifications")
     const panel = page.getByRole("region", { name: "Notifications" })
 
     // The event is listed.
@@ -299,7 +299,7 @@ test("an unread digest never lights the badge", async ({ browser }) => {
   try {
     // Clear the slate through the app itself, so the baseline is whatever the
     // badge legitimately shows for this account.
-    await page.goto("/dashboard?tab=notifications")
+    await page.goto("/dashboard/notifications")
     await page.goto("/dashboard")
     const before = await badgeCount(page)
 

@@ -1,1 +1,0 @@
-{"nodes": [{"id": "$graphify-root$_supabase_migrations_20260810045607_19_revoke_public_execute_on_private_helpers_sql", "label": "20260810045607_19_revoke_public_execute_on_private_helpers.sql", "file_type": "code", "source_file": "supabase/migrations/20260810045607_19_revoke_public_execute_on_private_helpers.sql", "source_location": null}], "edges": []}

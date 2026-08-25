@@ -154,14 +154,39 @@ export async function updateSession(request: NextRequest) {
  * | `/auth` | Sign-in, the OAuth callback, and the error screen |
  * | `/join` | An invite has to *preview* before sign-in, or the link is useless to someone who has never heard of Solarity |
  * | `/privacy`, `/terms` | **Google's OAuth consent screen will not publish without a reachable privacy URL.** A page behind a redirect does not qualify |
+ * | `/robots.txt`, `/sitemap.xml` | A crawler is by definition signed out. Both were missing and both were being redirected to sign-in |
  * | `/_next` | Framework assets |
  *
  * `/api/csp-report` is deliberately absent: it returns above and never reaches
  * this check. Were that early return removed it would have to be added here,
  * because browsers POST violation reports with no credentials and the redirect
  * would discard every one of them while the endpoint looked healthy.
+ *
+ * **On the two that were missing.** `app/robots.ts` and `app/sitemap.ts` shipped
+ * with the public surface, and the proxy's matcher excludes `sw.js`, the
+ * manifest and image extensions but not `.txt` or `.xml` — so every request for
+ * either got a 307 to `/auth/sign-in?next=/robots.txt`. The file was written,
+ * served by a route that worked, and unreachable by the only clients that exist
+ * for it.
+ *
+ * **The sitemap test did not catch it, and that is the sharper lesson.** It
+ * asserts the response contains `/privacy` and `/terms` and does not contain
+ * `/join` — and all three are true of the **sign-in page**, because
+ * `legal-footer.tsx` puts a Privacy and a Terms link on it. Three assertions,
+ * every one of them passing, against a document that was not a sitemap. A test
+ * that checks for content without ever checking the *kind* of document it got
+ * can be satisfied by the redirect it was meant to detect.
  */
-const PUBLIC_PREFIXES = ["/", "/auth", "/join", "/privacy", "/terms", "/_next"]
+const PUBLIC_PREFIXES = [
+  "/",
+  "/auth",
+  "/join",
+  "/privacy",
+  "/terms",
+  "/robots.txt",
+  "/sitemap.xml",
+  "/_next",
+]
 
 /**
  * Stamps the enforcing policy onto a response.

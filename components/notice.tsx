@@ -38,6 +38,16 @@ const MESSAGES: Record<string, string> = {
     "Everything's checked off for today. Come back after your next daily reset.",
   "no-checkin-date":
     "Couldn't work out today's date, so the check-in screen is unavailable. Everything else works; try again in a moment.",
+
+  // 14e. Shown on `/`, because by the time this renders there is no account to
+  // show it to and every signed-in route would bounce to sign-in — where an
+  // unexplained landing looks like being logged out, not like having succeeded.
+  //
+  // **It says what survived.** Check-ins are kept anonymised so other members'
+  // shared history stays intact, and a message claiming total erasure would be
+  // the app's last word to that person and a false one.
+  "account-deleted":
+    "Your account is deleted. Your goals, notes and photos are gone; past check-ins remain, with your name removed, so your Circles' shared history still adds up.",
 }
 
 export function Notice({

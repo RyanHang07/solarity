@@ -35,6 +35,13 @@ export const BY_HINT: Record<string, string> = {
   NOT_YOUR_GOAL: "That isn't your goal.",
   NOT_AUTHENTICATED: "Please sign in again.",
 
+  // Goal lifecycle. Migration 83 refuses to clear or move `achieved_at` once
+  // set, because `goals_count_achievement` would count the goal twice. The copy
+  // names the consequence rather than the trigger: "final" is the fact, and the
+  // way out is a new goal.
+  ACHIEVEMENT_FINAL:
+    "Achieving a goal is final. Start a new goal if you want to keep going.",
+
   // Circle state
   CIRCLE_INACTIVE: "That Circle isn't active.",
   CIRCLE_LOCKED: "That Circle has finished its cycle and isn't taking new members.",

@@ -8,6 +8,7 @@ import {
   TodayScreenForm,
   PushNameForm,
 } from "./settings-forms"
+import { DeleteAccountPanel } from "./delete-account-panel"
 import { PushToggle } from "@/components/push-toggle"
 
 export const metadata = { title: "Settings — Solarity" }
@@ -19,10 +20,15 @@ export const metadata = { title: "Settings — Solarity" }
  * `complete_onboarding` doubling as the rename path, and `export_user_data` are
  * all live RPCs. Notifications joined them in 10d, once `subscribe_push` and the
  * browser half existed; until then it would have been a switch over nothing.
- * Account deletion still is one, and stays out.
  *
  * That is the same shape 8h spent two migrations removing, and it is worth
  * refusing on a page that invites people to change things.
+ *
+ * **Account deletion joined them in 14e, and it was the rule's mirror image.**
+ * The `delete-account` Edge Function has been deployed since the
+ * account-lifecycle work: a complete backend with nothing able to call it. The
+ * note here used to say deletion "stays out" for want of a confirmation flow,
+ * which was true, and left a finished function unreachable for weeks.
  */
 export default async function SettingsPage() {
   const supabase = await createClient()
@@ -46,6 +52,27 @@ export default async function SettingsPage() {
   // `pending_checkin_timezone` at all, because a grant that let you see your own
   // would have let every circle-mate see it too.
   const pending = await pendingTimezone()
+
+  /**
+   * Active Circles this account owns, for the deletion warning.
+   *
+   * **`.eq("role", "owner")` and active only.** Succession fires for every
+   * Circle, but naming an archived one would list something that has already
+   * stopped running as a consequence of leaving — true and misleading. Same
+   * filter the Circles list uses.
+   *
+   * One query on a page that already runs two, and only to answer a question
+   * the person is about to ask.
+   */
+  const { data: owned } = await supabase
+    .from("group_members")
+    .select("groups(name, group_status)")
+    .eq("user_id", user.id)
+    .eq("role", "owner")
+
+  const ownedCircles = (owned ?? [])
+    .filter((m) => m.groups?.group_status === "active")
+    .map((m) => m.groups?.name ?? "Circle")
 
   return (
     <div className="flex flex-col gap-8">
@@ -105,10 +132,10 @@ export default async function SettingsPage() {
       </section>
 
       {/*
-        Still deliberately absent: deleting your account needs a confirmation
-        flow, and nobody has written one. A control over a function that does
-        not exist is the exact thing 8h was built to remove.
+        Last, and behind a border, because it is the only control here that
+        cannot be undone by using the page again.
       */}
+      <DeleteAccountPanel username={profile.username} ownedCircles={ownedCircles} />
     </div>
   )
 }

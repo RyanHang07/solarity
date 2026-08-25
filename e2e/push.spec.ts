@@ -395,7 +395,7 @@ test("a rotated subscription repairs itself without ever prompting", async ({
  * The nudge on the notifications tab, and the four people it must not bother.
  */
 
-const TAB = "/dashboard?tab=notifications"
+const TAB = "/dashboard/notifications"
 
 test("the nudge offers notifications to someone who never decided", async ({
   browser,

@@ -49,7 +49,7 @@ test.afterAll(async () => {
   await ctx?.close()
 })
 
-test("the three tabs are addressable, and an unknown one lands on Overview", async ({
+test("the three sections are addressable, and an unknown tab lands on Overview", async ({
   browser,
 }) => {
   const p = await ownerPage(browser)
@@ -57,22 +57,93 @@ test("the three tabs are addressable, and an unknown one lands on Overview", asy
   await p.goto("/dashboard")
   await expect(p.getByRole("region", { name: "Your goals" })).toBeVisible()
 
-  await p.goto("/dashboard?tab=circles")
+  await p.goto("/dashboard/circles")
   await expect(p.getByRole("region", { name: "Your Circles" })).toBeVisible()
   // The create form travels with the list. Without it, a new account lands on a
-  // Circles tab with no way out of it, which reads as broken rather than empty.
+  // Circles section with no way out of it, which reads as broken rather than
+  // empty.
   await expect(p.getByLabel("Start a Circle")).toBeVisible()
 
-  await p.goto("/dashboard?tab=notifications")
+  await p.goto("/dashboard/notifications")
   await expect(p.getByRole("region", { name: "Notifications" })).toBeVisible()
 
   // An unknown value falls back rather than rendering nothing, matching
-  // `/circles/[id]`. A tab bar that renders blank for a stale bookmark is worse
-  // than one that ignores it.
+  // `/circles/[id]`. A section bar that renders blank for a stale bookmark is
+  // worse than one that ignores it.
   await p.goto("/dashboard?tab=nonsense")
   await expect(p.getByRole("region", { name: "Your goals" })).toBeVisible()
 
   await expect(p.getByRole("link", { name: "Account settings" })).toBeVisible()
+})
+
+/**
+ * Step 14a made the sections route segments. **Every URL written before that
+ * still has to work**, because they are in bookmarks, in already-delivered
+ * notifications, and in specs older than this one.
+ */
+test("the old ?tab= URLs still land on the right section", async ({ browser }) => {
+  const p = await ownerPage(browser)
+
+  await p.goto("/dashboard?tab=circles")
+  await expect(p).toHaveURL(/\/dashboard\/circles$/)
+  await expect(p.getByRole("region", { name: "Your Circles" })).toBeVisible()
+
+  await p.goto("/dashboard?tab=notifications")
+  await expect(p).toHaveURL(/\/dashboard\/notifications$/)
+  await expect(p.getByRole("region", { name: "Notifications" })).toBeVisible()
+})
+
+/**
+ * The requirement behind the route split: the bar is furniture.
+ *
+ * **Asserted by identity, not by appearance.** "The bar is visible on both
+ * pages" would pass even if it were torn down and rebuilt, which is exactly the
+ * failure this is about. Tagging the node and re-reading the tag after a
+ * client-side navigation proves it is the *same* element — if Next re-rendered
+ * the layout, the property would be gone.
+ *
+ * It also covers the trap: the active highlight is computed client-side from
+ * `usePathname`, because a layout does not re-render on a sibling navigation
+ * and a server-computed one would freeze on whichever section you arrived at.
+ */
+test("the section bar survives a navigation, and the highlight moves", async ({
+  browser,
+}) => {
+  const p = await ownerPage(browser)
+  await p.goto("/dashboard")
+
+  const bar = p.getByRole("navigation").first()
+  await expect(bar).toBeVisible()
+  await bar.evaluate((node) => {
+    ;(node as HTMLElement & { __solarity?: string }).__solarity = "same-node"
+  })
+
+  await expect(p.getByRole("link", { name: "Overview" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  )
+
+  // A click, not a `goto`. A full load would rebuild everything and prove
+  // nothing about partial rendering.
+  await p.getByRole("link", { name: "Circles", exact: true }).click()
+  await expect(p).toHaveURL(/\/dashboard\/circles$/)
+  await expect(p.getByRole("region", { name: "Your Circles" })).toBeVisible()
+
+  await expect(
+    await bar.evaluate(
+      (node) => (node as HTMLElement & { __solarity?: string }).__solarity,
+    ),
+    "the section bar was re-mounted across a navigation",
+  ).toBe("same-node")
+
+  await expect(p.getByRole("link", { name: "Circles", exact: true })).toHaveAttribute(
+    "aria-current",
+    "page",
+  )
+  await expect(p.getByRole("link", { name: "Overview" })).not.toHaveAttribute(
+    "aria-current",
+    "page",
+  )
 })
 
 test("the badge counts unread, opening the tab clears it, and a reload keeps it clear", async ({
@@ -184,7 +255,7 @@ test("a notification renders without its Circle, and an unknown type has a fallb
       }),
     )
 
-    await p.goto("/dashboard?tab=notifications")
+    await p.goto("/dashboard/notifications")
 
     const ghost = p.getByRole("listitem").filter({ hasText: "E2E GHOST CIRCLE" })
     await expect(ghost).toBeVisible()
@@ -241,7 +312,7 @@ test("a Circle with no finished day is absent from Overview, not blank in it", a
     await expect(panel.getByTestId("digest-circle").filter({ hasText: name })).toHaveCount(0)
 
     // And it is not lost: the tab that owns the list still has it.
-    await p.goto("/dashboard?tab=circles")
+    await p.goto("/dashboard/circles")
     await expect(p.getByText(name).first()).toBeVisible()
   } finally {
     await deleteE2ECircles()

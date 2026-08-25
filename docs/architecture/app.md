@@ -210,13 +210,23 @@ Realtime respects RLS, so `notifications_select_own` governs the socket too: one
 
 ## 6b. The dashboard
 
-Three tabs, addressable by `?tab=`, read on the server with no client state.
+**Three sections, each its own route segment**, under a shared layout.
 
-| Tab | Answers |
-|---|---|
-| Overview | Where you stand: today's check-in, your goals, and **five days of digest boxes** |
-| Circles | The list, and the create form |
-| Notifications | The four **event** types, and nothing else |
+| Section | Route | Answers |
+|---|---|---|
+| Overview | `/dashboard` | Where you stand: today's check-in, your goals, and **five days of digest boxes** |
+| Circles | `/dashboard/circles` | The list, and the create form |
+| Notifications | `/dashboard/notifications` | The four **event** types, and nothing else |
+
+**Segments rather than `?tab=`, since 14a, for two reasons that happen to agree.** Next's partial rendering re-renders only the segment that changed, so a switch no longer repeats the reads of the two sections you are not looking at — Notifications used to pay for `getTodayData` and its Storage signing round trip to render a list of notifications. And the section bar, living in the layout, is **never unmounted**: the same DOM node before and after every switch, which is the shape the app is heading towards.
+
+`?tab=circles` and `?tab=notifications` still redirect to their segments, so bookmarks and older links keep working.
+
+**The section list is data**, in `app/(app)/dashboard/sections.ts`. Adding a section is one entry plus one folder; nothing else in the dashboard knows how many there are.
+
+**The active highlight is computed client-side, from `usePathname`.** This is not a preference. A layout does not re-render when you navigate between its children, so an active section computed on the server and handed to the bar would be computed once — on whichever section you arrived at — and every section after that would highlight the wrong one. The same rule is why the unread badge needs `router.refresh()` from `MarkRead` rather than going stale on the label.
+
+**`/circles/[id]` deliberately stays on `?tab=`.** Two tabs, no shared reads worth hoisting, and no persistent-bar requirement, so the cost of a segment split buys nothing there.
 
 ### The day boxes
 

@@ -80,6 +80,23 @@ test("the sitemap lists the public pages and never an invite", async ({ request 
   expect(response.status()).toBe(200)
   const xml = await response.text()
 
+  /**
+   * **Assert the kind of document before asserting its contents.**
+   *
+   * `/robots.txt` and `/sitemap.xml` were missing from the proxy's public list
+   * and both were being redirected to `/auth/sign-in`. This test stayed green
+   * through all of it: the sign-in page carries `legal-footer.tsx`, so it
+   * contains `/privacy` and `/terms` and does not contain `/join` — all three
+   * assertions below passing against a document that was not a sitemap.
+   *
+   * `request.get` follows redirects and reports the final 200, so a status
+   * check cannot catch this either. The content type can.
+   */
+  expect(
+    response.headers()["content-type"],
+    "sitemap.xml did not return XML, so this is not a sitemap",
+  ).toContain("xml")
+
   expect(xml).toContain("/privacy")
   expect(xml).toContain("/terms")
 
@@ -98,6 +115,14 @@ test("robots keeps crawlers away from invite links", async ({ request }) => {
   const response = await request.get("/robots.txt")
   expect(response.status()).toBe(200)
   const txt = await response.text()
+
+  // Same trap as the sitemap above: a redirect to sign-in returns 200 with an
+  // HTML body. Naming it here means the failure reads as "this is the wrong
+  // document" rather than as "the rules are missing".
+  expect(
+    response.headers()["content-type"],
+    "robots.txt did not return text/plain, so this is not robots.txt",
+  ).toContain("text/plain")
 
   // `/join/[token]` already sets `robots: noindex`, but that is a request read
   // *after* the fetch. This stops the fetch, which is what keeps the token out

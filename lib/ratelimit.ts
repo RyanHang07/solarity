@@ -21,6 +21,13 @@ const LIMITS = {
   checkIn: [60, "1 h"],
   photoUpload: [20, "1 h"],
   report: [10, "1 d"],
+
+  // **Deliberately tiny, and not about abuse.** Nobody deletes their account
+  // five times an hour; the limit exists so a stuck form, a double submit or a
+  // retry loop cannot hammer an Edge Function that talks to the auth admin API.
+  // The second call would fail anyway — the caller no longer exists — so this
+  // bounds the noise rather than the damage.
+  deleteAccount: [5, "1 h"],
   inviteLink: [10, "1 h"],
 
   // The two invite limits. Keyed by client IP and by a hash of the token

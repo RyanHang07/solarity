@@ -1,6 +1,7 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
+import { redirect } from "next/navigation"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { enforce } from "@/lib/ratelimit"
 import { containsProfanity } from "@/lib/profanity"
@@ -15,8 +16,14 @@ const USERNAME_RE = /^[A-Za-z0-9_]{3,30}$/
  * That is a rule, not a coincidence. A switch over a function nobody wrote is
  * exactly the shape 8h spent two migrations removing: `goal_group_visibility`
  * had policies, grants and two consumers enforcing it, and no writer, for
- * weeks. Push has no subscribe flow and account deletion has no confirmation
- * flow, so neither appears here yet.
+ * weeks.
+ *
+ * Both of the exceptions that note used to list are now closed: push got its
+ * subscribe flow in step 10, and account deletion got its confirmation flow in
+ * 14e. `deleteAccount` below satisfies the rule rather than bending it — the
+ * `delete-account` Edge Function has been deployed and unreachable since the
+ * account-lifecycle work, which is the same shape from the other direction: a
+ * backend nobody could call.
  */
 
 /**
@@ -256,4 +263,119 @@ export async function updatePushShowsCircleName(
   if (!data?.length) return { ok: false, error: "Couldn't save that." }
 
   return { ok: true, data: undefined }
+}
+
+/**
+ * Step 14e. Deletes your account, for good.
+ *
+ * **The backend has existed the whole time.** `supabase/functions/delete-account`
+ * scrubs note text, removes every Storage object, then deletes the auth user,
+ * which cascades into `public.users` and fires `handle_membership_removal` for
+ * owner succession and the audit trail. None of that is re-implemented here and
+ * none of it should be: this action's whole job is to prove who is asking and
+ * hand the request over.
+ *
+ * **An Edge Function rather than an RPC, and that is not a style choice.**
+ * Deleting an auth user requires the admin API and the service key, which no
+ * database function can reach and which must never be near a browser. The
+ * function reads the caller's own JWT and takes the user id from it — never
+ * from a request body, which would let anyone delete anyone.
+ *
+ * **`invoke` forwards the session automatically.** The server client is built
+ * from the request's cookies, so the `Authorization` header the function
+ * authenticates against is the caller's. There is no id to pass and no way for
+ * this action to name a different user, which is the property worth keeping.
+ *
+ * ## What survives, and why that is correct rather than sloppy
+ *
+ * `progress_entries` are kept, anonymised. Other members' historical group
+ * stats were computed against them, so hard-deleting would retroactively
+ * corrupt cycles that other people shared. The foreign keys null the
+ * attribution and the function scrubs the free-text note, which a foreign key
+ * cannot reach. The copy in the panel says this plainly rather than promising
+ * an erasure the product does not perform.
+ */
+export async function deleteAccount(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: "Please sign in again." }
+
+  /**
+   * **The typed confirmation is checked on the server, not only in the panel.**
+   *
+   * A client-side check is a courtesy to the person, not a control: this action
+   * is a POST endpoint like any other, and a mis-wired button or a stray
+   * `requestSubmit` reaches it directly. The username is read from the database
+   * rather than trusted from a hidden field, or the form would be confirming
+   * itself.
+   */
+  const { data: profile } = await supabase
+    .from("users")
+    .select("username")
+    .eq("id", user.id)
+    .maybeSingle()
+
+  const typed = formData.get("confirm")?.toString().trim() ?? ""
+  if (!profile?.username || typed.toLowerCase() !== profile.username.toLowerCase()) {
+    return { ok: false, error: "Type your username exactly to confirm." }
+  }
+
+  try {
+    await enforce("deleteAccount", user.id)
+  } catch (e) {
+    return { ok: false, error: toMessage(e) }
+  }
+
+  const { data, error } = await supabase.functions.invoke("delete-account", {
+    method: "POST",
+  })
+
+  if (error) {
+    // Logged, because this is the one failure in the app where the person
+    // cannot simply try a different route and where a silent 500 leaves them
+    // believing their data is gone when it is not.
+    console.error("delete-account invoke failed", error)
+    return { ok: false, error: "Couldn't delete your account. Please try again." }
+  }
+
+  // The function answers 200 with `{ error }` for its own failures, so a
+  // transport-level success is not the same as a deletion.
+  if (!(data as { deleted?: boolean } | null)?.deleted) {
+    console.error("delete-account returned without deleting", data)
+    return { ok: false, error: "Couldn't delete your account. Please try again." }
+  }
+
+  /**
+   * **Sign out locally, and do not let a failure here look like a failure.**
+   *
+   * The account is gone at this point. `signOut` only clears this browser's
+   * cookies, and the refresh token it would revoke belongs to a user that no
+   * longer exists — Supabase may well answer with an error. Swallowing it is
+   * correct: reporting it would tell the person their deletion failed after it
+   * succeeded, which is the worst wrong answer available here.
+   */
+  try {
+    await supabase.auth.signOut()
+  } catch {
+    // Deliberately ignored; see above.
+  }
+
+  /**
+   * **Redirected here rather than returning `ok`.**
+   *
+   * There is no signed-in screen left to render: every route in `(app)` reads
+   * the user row this just removed, so returning success would leave the panel
+   * mounted on a page that is about to bounce to sign-in. Landing on sign-in
+   * with no explanation reads as being logged out, not as having succeeded.
+   *
+   * `/` is outside the route group and carries `Notice`, so the last thing the
+   * app says is a sentence about what happened. `redirect` throws, so it must
+   * stay outside the `try` above.
+   */
+  redirect("/?notice=account-deleted")
 }
