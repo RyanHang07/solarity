@@ -13,6 +13,7 @@ import { AvatarForm } from "./avatar-form"
 import { BlockedList } from "./blocked-list"
 import { DeleteAccountPanel } from "./delete-account-panel"
 import { blockedAccounts } from "@/app/actions/moderation"
+import { amIAdmin } from "@/app/actions/admin"
 import { PushToggle } from "@/components/push-toggle"
 
 export const metadata = { title: "Settings — Solarity" }
@@ -75,6 +76,9 @@ export default async function SettingsPage() {
   // 15d. Through the RPC, because a blocked account's username is not readable
   // through `users` once you share no Circle. See migration 87.
   const blocked = await blockedAccounts()
+
+  // One boolean, and it can only ever answer about you. See migration 94.
+  const isAdmin = await amIAdmin()
 
   /**
    * Active Circles this account owns, for the deletion warning.
@@ -147,6 +151,21 @@ export default async function SettingsPage() {
       </section>
 
       <BlockedList blocked={blocked} />
+
+      {/*
+        Step 17. **The only way to discover `/admin` from inside the app**, and
+        only if you are one. The route is a 404 to everybody else, so an
+        unconditional link would be a dead end that also announced the route
+        exists.
+      */}
+      {isAdmin ? (
+        <section aria-label="Admin" className="flex flex-col gap-2">
+          <h2 className="text-lg font-semibold">Admin</h2>
+          <Link href="/admin" className="self-start text-sm underline">
+            Reports and administrators
+          </Link>
+        </section>
+      ) : null}
 
       <section aria-label="Legal" className="flex flex-col gap-2">
         <h2 className="text-lg font-semibold">Legal</h2>

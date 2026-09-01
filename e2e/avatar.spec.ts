@@ -1,7 +1,8 @@
-import { test, expect } from "@playwright/test"
+import { test, expect, type Locator } from "@playwright/test"
+import fs from "node:fs"
 import path from "node:path"
 import { admin, requireEnv, sessionFor, userIdByEmail } from "./db"
-import { AVATAR_BUCKET, avatarKey } from "@/lib/avatar"
+import { AVATAR_BUCKET, AVATAR_EDGE, avatarKey } from "@/lib/avatar"
 import { storageStateFor } from "./session"
 
 /**
@@ -28,6 +29,40 @@ import { storageStateFor } from "./session"
  */
 const FIXTURE = path.join(process.cwd(), "e2e", "fixtures", "checkin.png")
 
+/**
+ * A **second, deliberately non-square** picture, for the replace step.
+ *
+ * Two things it buys. Different bytes, so "the object changed" is a fact about
+ * Storage rather than about a label that already said "Replace picture" before
+ * the second upload started. And 96×48 is the first rectangular source this
+ * pipeline has ever been given by a test. `prepareAvatar` centre-crops with
+ * `Math.min(width, height)` and two offsets, and a square fixture exercises
+ * none of that arithmetic. Real pictures are never square.
+ */
+const WIDE_FIXTURE = path.join(process.cwd(), "e2e", "fixtures", "avatar-wide.png")
+
+/**
+ * The decoded dimensions of an `<img>`, as `"256x256"`.
+ *
+ * A string rather than a pair, so a failure prints `"64x64"` against
+ * `"256x256"` instead of an object diff.
+ */
+function naturalSize(img: Locator): Promise<string> {
+  return img.evaluate((el) => {
+    const i = el as HTMLImageElement
+    return `${i.naturalWidth}x${i.naturalHeight}`
+  })
+}
+
+/** The stored object's size, or null when there is none. */
+async function storedSize(userId: string): Promise<number | null> {
+  const { data } = await admin.storage
+    .from(AVATAR_BUCKET)
+    .list(userId, { search: "avatar.jpg" })
+  const size = data?.[0]?.metadata?.size
+  return typeof size === "number" ? size : null
+}
+
 const EMAIL = () => requireEnv("E2E_OWNER_EMAIL")
 
 /** Puts the account back exactly as it was: no column value, no object. */
@@ -44,6 +79,20 @@ test("a picture can be uploaded from settings, and removed again", async ({
   browser,
 }) => {
   const userId = await userIdByEmail(EMAIL())
+  const { data: me } = await admin
+    .from("users")
+    .select("username")
+    .eq("id", userId)
+    .single()
+  const username = me!.username!
+
+  // Checked rather than assumed, the same guard `photos.spec.ts` keeps: a
+  // missing fixture makes `setInputFiles` fail with a message about the
+  // locator, which sends you looking at the DOM for an input that is fine.
+  for (const file of [FIXTURE, WIDE_FIXTURE]) {
+    expect(fs.existsSync(file), `fixture missing at ${file}`).toBe(true)
+  }
+
   await clearAvatar(userId)
 
   const context = await browser.newContext({
@@ -93,15 +142,80 @@ test("a picture can be uploaded from settings, and removed again", async ({
       .list(userId, { search: "avatar.jpg" })
     expect(listed?.length, "no object was written to the bucket").toBe(1)
 
-    // The stored image is the square this pipeline promises, not the source.
-    // A missing crop would leave the fixture's own proportions behind.
-    const box = await img.boundingBox()
-    expect(box, "the picture has no layout box").toBeTruthy()
+    // **The decoded image, not its layout box.** What this replaced asked for a
+    // bounding box and checked it was truthy, under a comment claiming it
+    // proved the crop. It could not: `Avatar` sets `width`/`height` inline and
+    // `object-cover`, so the box is 64 CSS pixels whatever the bytes are, and
+    // an `<img>` that 404s still has one. `naturalWidth` is the JPEG's own
+    // size, so this fails if the pipeline ever stores the source untouched.
+    //
+    // Polled, because `toBeVisible` is satisfied by that same layout box: the
+    // element is visible before a byte of the JPEG has been decoded, and
+    // `naturalWidth` is 0 until it has.
+    await expect
+      .poll(() => naturalSize(img), { message: "the stored image is not a 256px square" })
+      .toBe(`${AVATAR_EDGE}x${AVATAR_EDGE}`)
+
+    /**
+     * **The three places the picture has to appear, not just the one that
+     * uploads it.** The plan promised the profile *and the roster*; the first
+     * build did settings and the profile only, and a picture you have to
+     * navigate to a settings page to see is not the point of a picture. Each
+     * of these reads through a different path — the header signs one URL in
+     * `(app)/layout.tsx`, the roster signs a batch inside `circle_roster` —
+     * so one of them working says nothing about the others.
+     */
+    await expect(
+      page.getByRole("banner").getByRole("img", { name: `${username}'s picture` }),
+      "no picture in the header",
+    ).toBeVisible()
+
+    const { data: membership } = await admin
+      .from("group_members")
+      .select("group_id")
+      .eq("user_id", userId)
+      .limit(1)
+      .maybeSingle()
+
+    if (membership) {
+      await page.goto(`/circles/${membership.group_id}`)
+      // **Named, not just "an image".** A roster row can hold a check-in photo
+      // as well as an avatar, and `getByRole("img")` would then resolve to two
+      // and fail as a strict-mode violation rather than as a missing avatar.
+      await expect(
+        page
+          .getByRole("listitem")
+          .filter({ hasText: username })
+          .getByRole("img", { name: `${username}'s picture` }),
+        "no picture on the roster row",
+      ).toBeVisible()
+    }
 
     // -------------------------------------------------------------- replace
+    //
+    // **Back to `/settings` first, and its absence is what hung this test.**
+    // The roster check above navigates away, and `setInputFiles` on a control
+    // that is not on the page does not fail. It waits for the element until the
+    // test's own 30s timeout, then reports as a bare "Test timeout exceeded"
+    // with no locator named. A step that leaves the page owes the next one a
+    // way back.
+    await page.goto("/settings")
+    const sizeBefore = await storedSize(userId)
+
     // The key is fixed, so a second upload overwrites rather than orphaning.
-    await panel.locator("#avatar-file").setInputFiles(FIXTURE)
-    await expect(panel.getByText("Replace picture")).toBeVisible()
+    await panel.locator("#avatar-file").setInputFiles(WIDE_FIXTURE)
+
+    // **Polled on the object, not on the label.** "Replace picture" has been
+    // on screen since the *first* upload finished, so asserting it here would
+    // pass with the second upload deleted: the assertion-that-cannot-fail
+    // pattern, one line after a real one. A different fixture guarantees
+    // different bytes, so a changed size is proof the write landed.
+    await expect
+      .poll(() => storedSize(userId), {
+        message: "replacing did not write new bytes to the fixed key",
+        timeout: 15_000,
+      })
+      .not.toBe(sizeBefore)
 
     const { data: afterReplace } = await admin.storage
       .from(AVATAR_BUCKET)
@@ -110,6 +224,21 @@ test("a picture can be uploaded from settings, and removed again", async ({
       afterReplace?.length,
       "replacing left a second object behind, so the fixed key is not fixed",
     ).toBe(1)
+
+    /**
+     * **What the rectangular source proves, and what it does not.** A 2:1
+     * picture went in and a 256px square came out, so `prepareAvatar`'s crop
+     * arithmetic ran on a rectangle without throwing: the case every real
+     * photograph takes, and the one no test took before.
+     *
+     * It does not prove the crop is *centred*. A stretch would also produce
+     * 256×256, and telling those apart needs the decoded pixels, which a
+     * cross-origin signed URL taints a canvas against reading. Whether a face
+     * comes out centred stays with the manual pass.
+     */
+    await expect
+      .poll(() => naturalSize(img), { message: "the replacement is not a 256px square" })
+      .toBe(`${AVATAR_EDGE}x${AVATAR_EDGE}`)
 
     // --------------------------------------------------------------- remove
     await panel.getByRole("button", { name: "Remove picture" }).click()

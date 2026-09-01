@@ -17,10 +17,9 @@
 
 ## Verify
 
-Cheapest first. **Regenerate the types before anything else** — the last three migrations added functions and an enum value that `lib/database.types.ts` does not know about yet, and typecheck fails until it does. The command and the PowerShell UTF-16 warning are in that file's own header.
+Cheapest first. `lib/database.types.ts` is **current as of migration 95**; regenerate it after the next one.
 
 ```
-npx supabase gen types typescript --project-id wyuadcnrxisqmzygzhzd > lib/database.types.ts
 rm -rf .next/dev
 
 npm run typecheck
@@ -43,6 +42,36 @@ node scripts/graph-freshness.mjs
 
 ---
 
+## Make yourself an admin
+
+**`/admin` does not exist for anyone until this runs.** Nothing in the app can create the first administrator, because there is nobody to authorise it — and a UI that could would be the highest-value target in the product. One statement, in the Supabase SQL editor:
+
+**By email, which means a join.** `public.users` has no email column — email lives in `auth.users`, and the two share an id.
+
+```sql
+update public.users u
+   set role = 'admin'
+  from auth.users au
+ where au.id = u.id
+   and au.email = 'edgy.zedmain@gmail.com';
+```
+
+Confirm it took, since an email that matches nothing updates nothing and says so in the same way as success:
+
+```sql
+select au.email, u.username, u.role
+from public.users u join auth.users au on au.id = u.id
+where u.role = 'admin';
+```
+
+**The account has to have signed in at least once.** The row in `public.users` is created by the `on_auth_user_created` trigger, so an address that has never been through Google has nothing to update.
+
+**Put the same address in `.env.local` as `E2E_ADMIN_EMAIL`.** The suite needs a *real* admin rather than one it makes: `admin.spec.ts` asserts that the last admin cannot be demoted, and a run that promoted a test account would have two admins, so the demotion would be allowed and the assertion would fail. `auth.setup.ts` mints a session for it like the other two, and the spec asserts the role is actually set — so a forgotten `update` fails with a sentence instead of a puzzling 404.
+
+After that: `/admin` appears, a link shows up at the bottom of Settings, and further administrators can be granted from `/admin/people`. **You cannot demote yourself while you are the only one** — promote somebody else first. The column is in no client grant, so nothing but SQL or an existing admin can change it.
+
+---
+
 ## The manual pass
 
 **Everything below has failed in a browser while passing headless.** The avatar pipeline is the one piece with no device run at all yet.
@@ -62,7 +91,7 @@ node scripts/graph-freshness.mjs
 
 | | Check | Why |
 |---|---|---|
-| 7 | Tap all four tabs. The bar must not flash or move | It lives in `(shell)/layout.tsx` and is never unmounted. A flicker means it is being rebuilt |
+| 7 | Tap all five tabs. The bar must not flash or move | It lives in `(shell)/layout.tsx` and is never unmounted. A flicker means it is being rebuilt |
 | 8 | Open a Circle-mate's profile from a roster row | Reached from the expanded panel, not the row |
 | 9 | Toggle **Show my streaks and totals** off, then view your own profile | Your own stats show either way; only other people lose them |
 | 10 | Block them. Their profile 404s. **Then check from their browser** | Mutual invisibility. The blocker cannot see this half |
@@ -70,14 +99,25 @@ node scripts/graph-freshness.mjs
 | 12 | Report a photo, a note, and a profile | Three report types, one of them added by migration 88 |
 | 13 | Achieve a goal, set a deadline in the past | Achieving is irreversible and confirms; a past deadline is legitimate and reads as overdue |
 | 14 | Open the delete-account panel and **cancel** | Confirm the submit stays disabled until the username matches exactly |
+| 15 | **Goals → a retired goal → its record.** Check a past day shows its note | Step 16. Photos older than 90 days are gone by retention, and the page must say so rather than show a broken frame |
 
 **Still unverified anywhere:** every avatar row above, and a portrait/HEIC check-in photo.
+
+### Found by the first manual pass, and fixed
+
+| Report | Cause |
+|---|---|
+| Skeleton only appeared moving to and from Profile | **A loading boundary only fires for a navigation that changes the segment it sits in.** 15b moved `dashboard/loading.tsx` up to `(shell)/` on the assumption that one boundary above both covered everything below. It covered the one transition that already felt fast and none of the three 14a existed to fix. Both files are needed |
+| Date picker text invisible on iOS; calendar icon black on black | `globals.css` swapped colour *variables* under `prefers-color-scheme` and never set **`color-scheme`**, which is the only thing that tells the UA which palette to draw its own widgets in. Chromium's calendar indicator is a fixed image rather than a themed control, so it needs an `invert(1)` as well |
+| Avatar upload refused ordinary photos | The input cap was the **bucket's** 2MB. An iPhone photo is 3–5MB, and what actually gets stored is a 256px JPEG of tens of kilobytes. Two different numbers that had been one constant; the input cap is now 10MB and the bucket is unchanged |
+| No photo on a Circle roster row | **Not a bug.** The roster shows *today*; the newest check-in photo in the database is three days old. Attach one today and it appears |
+| Avatars were only on the profile | **The plan promised the roster and I built half of it.** Now on the roster row beside the name, in the header beside the username (linking to `/profile`), on the profile and in settings — all four through one `components/avatar.tsx`, down from two hand-rolled copies. **Migration 90** adds `avatar_url` to `circle_roster`, unmasked: an avatar is not about a goal, and it is the same picture any signed-in user can open on the profile. `getCircleRoster` now signs two batches in parallel, one per bucket |
 
 ---
 
 ## The core loop is closed
 
-**Steps 1 to 14 are built.** Every reason and every bug is in `history.md`; this table is the index.
+**Every numbered step is built.** Every reason and every bug is in `history.md`; this table is the index. What remains is verification and one unbounded item, both under **Open items** at the foot of this file.
 
 | # | Step | State |
 |---|---|---|
@@ -89,111 +129,13 @@ node scripts/graph-freshness.mjs
 | 12 | Security headers | ✅ no migration. Nonce CSP, HSTS, `Permissions-Policy`. **`E2E_PROD=1 npm run test:e2e:ios` before any deploy**: the dev CSP is not the one that ships |
 | 13 | Check-in photos | ✅ migrations 79–82. **Manual pass complete on a real iPhone**, including portrait EXIF orientation and a HEIC from the camera roll. **JPEG, not WebP** — Safari cannot encode WebP |
 | 14 | What the loop deferred | ✅ migrations 83–84. Dashboard route segments, the code graph, achieving a goal, goal deadlines, account deletion. Also fixed `/robots.txt` and `/sitemap.xml`, which the proxy had been redirecting to sign-in |
-| **15** | **Profiles, and the moderation surface they carry** | **current**. `/profile/[username]`. Brings `user_blocks`, `content_reports` and the `report` rate limit their first caller |
+| 15 | Profiles, and the moderation surface they carry | ✅ migrations 85–90. `/profile`, avatars, the stats toggle, blocking, reporting |
+| 16 | The goal record | ✅ **no migration.** A fifth tab: `/dashboard/goals`, `/archived`, `/[id]` — every control, and a row per check-in day |
+| 17 | The admin dashboard | ✅ migrations 91–95. Site roles, the report queue, triage, and who may moderate |
 
 **What that means.** A person can sign in, set goals, check them off with a note and a photo, invite friends into a Circle, see who finished today, keep a streak, get a push when it matters, and read a five-day digest. **The premise the product exists to test is now testable.**
 
 **What it does not mean.** Nothing has shipped to anyone yet. The rest of this file is what stands between here and that.
-
----
-
-## 15. Profiles, and the moderation surface they carry — **current**
-
-**Named, not planned.** `/profile/[username]` is where four things that already exist in the schema get their first caller:
-
-| | |
-|---|---|
-| `user_lifetime_stats.visible_on_profile` | A column with no reader |
-| `user_blocks` | A table with no writer |
-| `content_reports`, and the `report` rate limit | **The last limit in `lib/ratelimit.ts` with no caller.** As built, reporting is a thing you do to *content*, not to a person — see below, the old note here had that backwards |
-| `total_goals_achieved` | Written since migration 34, made un-inflatable by migration 83 in step 14c, and still read by nothing. This is the screen that reads it |
-
-That third row is why this is step 15 rather than a loose end: the limit is not missing a caller by oversight, it is waiting for the screen it belongs to.
-
-**The rule step 14e ended on applies here first.** `settings/page.tsx` refuses controls whose backend does not exist; `delete-account` was the mirror image, a finished backend nothing could call. **This step is four of those at once.** Whatever else it does, it should close them rather than add a fifth.
-
-### What was decided
-
-| Question | Answer |
-|---|---|
-| Who can see a profile | **Any signed-in user.** Not just Circle-mates, and not the public web |
-| How that is done | **A masked `SECURITY DEFINER` RPC**, not a widened RLS policy |
-| What the toggle controls | The four lifetime stats. Identity is always visible to a signed-in viewer |
-| What blocking does | **Mutual profile invisibility**, and nothing else |
-| Where reporting lives | **Both**: photos and notes on the roster, and the profile itself, via a new report type |
-| Who can report | **Circle-mates only**, on every surface |
-| What is on the page | Username, display name, member since, and the four stats |
-
-### The pieces, and what each one turned on
-
-| | Piece | Migration | The decision worth remembering |
-|---|---|---|---|
-| 15a | `profile_by_username` | 86 | **A masked RPC, not a widened policy.** RLS filters *rows*: relaxing `users_select_self_or_groupmate` would have exposed `checkin_timezone` and two preference columns along with the three profile ones. The function returns `created_at`, which `authenticated` cannot select at all — that is the point of it choosing. Same pattern as `circle_roster` |
-| 15b | `/profile`, `/profile/[username]` | — | **Profile is the fourth tab, and that restructured the shell.** `dashboard/` and `profile/` now sit under `app/(app)/(shell)/`; a route group adds nothing to the URL, so all four tabs share one never-unmounted bar. `/today`, `/settings` and `/circles/[id]` stay outside it — `/today` is a full-screen gate a nav bar would undermine |
-| 15c | The stats toggle | — | **The narrowest write in the app.** `authenticated` holds `update (visible_on_profile)` and nothing else on that table, because the counters are trigger-maintained. So no RPC: the policy and the column grant already say it |
-| 15d | Block, unblock | 87 | **Blocking hides the thing it is undone from.** A blocked profile 404s, so Unblock lives in settings — and needs an RPC, because `users_select_self_or_groupmate` will not return a blocked account's username once you share no Circle |
-| 15e | Reporting | 88 | **Reporting is about content, not people** — that is what the enum always said, and the old note in this file had it backwards. `user_profile` was added so a profile can be reported too |
-| 15f | Avatars | 85 | **The `avatars` bucket was set to `image/webp`**: migration 82's trap, armed, one bucket over. And `avatar_url` held Google URLs that our own CSP blocks and nobody chose to publish |
-
-### The rules these landed on
-
-**Stats are opt-in; identity is not.** Username, display name, picture and join month are visible to any signed-in user. The toggle governs four numbers, and the copy says so — "hidden" read as "invisible" would be misleading by omission.
-
-**Absent is not zero.** With the toggle off the RPC returns nulls and `stats_visible: false`, and the page says "hasn't shared their stats". Four zeroes would be true of a new account and false of someone withholding.
-
-**You always see your own stats**, whatever the toggle says. Mirrors `user_lifetime_stats_select_visible`'s first clause.
-
-**A blocked profile and a nonexistent one are the same 404.** Anything distinguishable turns "did they block me" into something anyone can probe.
-
-**Blocking is mutual, and `private.is_blocked_by` only answers one direction.** The RPC tests both. Blocking does not remove either of you from a shared Circle — hiding a member from the roster would make the member count and group streak disagree between two people looking at the same Circle.
-
-**Block needs no shared Circle; Report does.** Blocking is how you stop seeing someone. Reporting is a complaint a moderator must be able to act on, and `content_reports_insert_own` keeps that rule.
-
-**A check-in report points at `<user_id>/<goal_id>/<check_in_date>`.** The roster returns `entry_id` for your own rows only, and a photo's signed URL dies in an hour, so neither is a reference a report can keep. `lib/report-reference.ts` owns the format and the resolving query.
-
-**Avatars are one fixed key, `<uid>/avatar.jpg`, overwritten in place.** A timestamped key would orphan the previous image on every change and need the sweep job migration 81 exists for on the other bucket.
-
-### Two traps, written down because they will recur
-
-**A new enum value must land in its own migration.** Postgres allows `add value` inside a transaction and then refuses `unsafe use of new value` the moment anything references it. Migrations apply transactionally, so migration 88 adds the value and stops — no proof block, for exactly that reason.
-
-**Safari cannot encode WebP**, and `canvas.toBlob` falls back to PNG silently while supabase-js sends `blob.type` rather than the `contentType` option. Three facts, none wrong alone. It cost three device bugs in step 13 and was sitting in the avatars bucket ready to cost them again.
-
-### The security and resilience audit, before commit
-
-**One real privacy defect, and it lived in a seam rather than in a file.**
-
-`job_scrub_and_list_user_media` listed the avatar to delete only `where avatar_url is not null`. **"Remove picture" clears the column and deliberately keeps the object** — one fixed key, overwritten in place, nothing orphaned by a replacement. Each decision is defensible alone. Together: remove your picture, then delete your account, and **a photograph of your face outlives the account**.
-
-**Migration 89** derives the key from the user id instead of reading the column. A deletion path must not ask permission of the state it is deleting. `md5(prosrc)` matches the file.
-
-**Two smaller holes in `reportContent`, both from trusting a form:**
-
-- **`content_type` was cast, not checked.** `contentType as ReportType` on a raw string is a lie to the type system; an unrecognised value reached Postgres and came back as `22P02`, which `toMessage` renders as "Something went wrong." Now narrowed against a literal list, which also means **`planet_avatar` cannot be filed** — it is in the enum for a feature that does not exist.
-- **`content_reference` has no length CHECK** and is client-supplied `not null` text, so a report could have carried a megabyte of anything. Both valid shapes are exact, so it is validated by comparison rather than by a cap: a profile report must name the account it is about, and a check-in report must parse back through `lib/report-reference.ts`.
-
-**Avatar uploads were unmetered.** `setAvatar` now enforces `photoUpload`, the same limit `attachCheckinPhoto` uses — an avatar and a check-in photo are the same act against the same budget. **It bounds recorded writes, not bytes**: the browser uploads directly to Storage, so the real bounds are the bucket's 2MB cap and `avatars_insert` confining a writer to their own folder. Clearing is not metered; it writes a null.
-
-**What the audit cleared:** every `SECURITY DEFINER` function pins `search_path`, and **`circle_preview` is the only one `anon` can execute**, which is deliberate — `/join/[token]` serves signed-out visitors. `img-src` already covers the Supabase origin, so signed avatar URLs render without a CSP change. No secrets reachable from a client bundle.
-
-### The audit of 14 and 15
-
-Run as checks rather than as reading.
-
-**Clean:** 0 syntax errors across 17 changed files; no `.rpc()` outside `app/actions/`; no `createAdminClient` in anything bundled; no `new Date("YYYY-MM-DD")` anywhere; no `import.meta` in any spec; no `server-only` module reaching a client bundle (four apparent hits were three comments and one erased `import type`). **Every rate limit now has a caller** — `report` and `deleteAccount` were the last two.
-
-**Two real defects, both fixed:**
-
-1. **Blocking left you on a page you had just made invisible.** The block happens on `/profile/[username]`, which needs the **route pattern** — `revalidatePath("/profile/[username]", "page")`. Passing the resolved URL silently revalidates nothing.
-2. **A refused report said "You don't have access to that."** A policy refusal is a bare `42501` with no hint, and this policy refuses for one reason a person can act on.
-
-**One gap closed by the audit:** `lib/report-reference.ts` had no unit test. It has one now, including `//2026-08-25` — three segments, two empty uuids, which a length check alone would accept.
-
-### Still open in step 15
-
-- **`content_reports` has a writer and no reader.** A moderation console is deferred to v2; the gap is closed by *documenting the process*, and **the step is not done until `security.md` says how a report reaches a human**.
-- **`/privacy` should say a username and display name are visible to any signed-in user.** Enumeration is now possible by design.
-- **No device run for avatars.** See the manual pass at the top.
 
 ---
 
@@ -308,7 +250,7 @@ Keep the posture deny-by-default: enumerate what is *public*, so a forgotten rou
 
 ### Blocking
 
-**Nothing is blocking.** The migration workflow was the last entry here and it settled itself in practice over steps 10 to 13:
+**Nothing is blocking, and every numbered step is built.** The migration workflow was the last entry here and it settled itself in practice over steps 10 to 13:
 
 > Apply through the Supabase MCP, then **write the file under the version the server recorded** and prove `md5(prosrc)` matches. Migration 77 was applied and never committed; 79 and 81 were both recorded under a timestamp different from the filename I chose. The verification is the workflow.
 
@@ -316,11 +258,23 @@ Keep the posture deny-by-default: enumerate what is *public*, so a forgotten rou
 
 ### Before launch
 
+**Four things, and only one of them is unbounded.**
+
+| | | |
+|---|---|---|
+| 1 | **The first admin, by SQL** | Two minutes. `/admin` is unreachable and untestable by hand until it runs; the statement is at the top of this file |
+| 2 | **A device pass for avatars** | Rows 1–6 of the manual pass. The only feature shipped with no run on real hardware, in the one pipeline that has failed on a device three times |
+| 3 | **Regenerate `graphify-out/`** | Stale since steps 15–17 added roughly thirty files. `graphify . update`, then `node scripts/graph-freshness.mjs` |
+| 4 | **The legal review** | The only unbounded item. `/privacy` and `/terms` were rewritten on 28 Aug for profiles, avatars, blocking, reporting and admin access, so a reviewer is reading something current. The section below says what to hand them |
+
+**Also worth a run before any deploy:** `E2E_PROD=1 npm run test:e2e:ios`, which is the only pass that sees the CSP that ships.
+
+**Closed since this list was written**
+
 - ~~Security headers~~ — step 12.
-- `pushsubscriptionchange` ~~handler~~ — step 10f. `sw.js` listens and `resubscribeIfPermitted` repairs a rotated endpoint without ever prompting.
-- Wire rate limits into each new action as it is written. **Every limit now has a caller except** `report`, which waits on the content-reporting UI in step 15.
-- ~~Regenerate `graphify-out/`~~ — step 14b. Current at 237 files; `node scripts/graph-freshness.mjs` says so and exits non-zero when it stops being true.
-- **The legal review.** Still the only unbounded item on this list; the section below says what to hand a reviewer.
+- ~~`pushsubscriptionchange` handler~~ — step 10f. `sw.js` listens and `resubscribeIfPermitted` repairs a rotated endpoint without ever prompting.
+- ~~Wire rate limits into each new action~~ — **every limit in `lib/ratelimit.ts` now has a caller.** `report` and `deleteAccount` were the last two, and neither was missing one by oversight.
+- ~~A custom domain~~ — never needed. `*.vercel.app` is accepted as a Google OAuth authorized domain.
 
 
 
@@ -328,5 +282,5 @@ Keep the posture deny-by-default: enumerate what is *public*, so a forgotten rou
 
 - Replace the placeholder icons.
 - All visual design. See `product-and-design.md`.
-- **A moderation console.** `content_reports` gets its writer in step 15 and its reader is a documented query run by hand. That is honest for a one-person project with an invite-only user base, and it is the thing to replace first if reports ever arrive faster than one person can read them. A console means a review queue, an actioned/dismissed workflow, and an admin role the schema does not have — which is why it is v2 and not a corner of step 15.
+- ~~A moderation console~~ — **pulled out of v2 and made step 17.**
 

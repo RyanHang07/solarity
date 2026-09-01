@@ -2,6 +2,8 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { signOut } from "@/app/actions/auth"
+import { signedAvatarUrl } from "@/app/actions/settings"
+import { Avatar } from "@/components/avatar"
 
 /**
  * Onboarding gate for every signed-in screen. See architecture/app.md section 2b
@@ -24,11 +26,25 @@ export default async function AppLayout({
 
   const { data: profile } = await supabase
     .from("users")
-    .select("username")
+    .select("username, avatar_url")
     .eq("id", user.id)
     .maybeSingle()
 
   if (!profile?.username) redirect("/onboarding")
+
+  /**
+   * 15f. Your own picture in the header.
+   *
+   * **One signed URL per page load, and it is the price of the feature.** This
+   * layout wraps every signed-in screen, so a Storage round trip here is paid
+   * on all of them. It is a single `createSignedUrl` against a private bucket
+   * and the alternative — a public bucket — would make every avatar a
+   * permanent unauthenticated URL, which is a worse trade than one request.
+   *
+   * Null when there is no picture, and `Avatar` renders an initial rather than
+   * a broken image.
+   */
+  const avatarUrl = await signedAvatarUrl(profile.avatar_url)
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
@@ -37,7 +53,15 @@ export default async function AppLayout({
           Solarity
         </Link>
         <div className="flex items-center gap-3 text-sm">
-          <span className="opacity-70">{profile.username}</span>
+          {/*
+            **A link to your own profile, not decoration.** The picture is the
+            most tappable thing in the header and every app puts your profile
+            behind it; making it inert would be a small, constant surprise.
+          */}
+          <Link href="/profile" className="flex items-center gap-2 opacity-70">
+            <Avatar url={avatarUrl} name={profile.username} size={24} />
+            <span>{profile.username}</span>
+          </Link>
           <form action={signOut}>
             <button type="submit" className="underline opacity-70">
               Sign out

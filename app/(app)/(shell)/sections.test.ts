@@ -26,6 +26,15 @@ describe("activeSection", () => {
     expect(activeSection("/dashboard/circles/anything")?.key).toBe("circles")
   })
 
+  it("keeps Goals highlighted on its own children", () => {
+    // The counterpart to the Profile case below, and the reason `exact` is a
+    // per-entry flag rather than a global rule: `/dashboard/goals/archived` and
+    // `/dashboard/goals/<id>` are still *your* goals, so the tab stays lit.
+    expect(activeSection("/dashboard/goals")?.key).toBe("goals")
+    expect(activeSection("/dashboard/goals/archived")?.key).toBe("goals")
+    expect(activeSection("/dashboard/goals/some-uuid")?.key).toBe("goals")
+  })
+
   it("does not highlight Profile for someone else's profile", () => {
     /**
      * **The one entry with `exact`.** `/profile` is your own; `/profile/[username]`

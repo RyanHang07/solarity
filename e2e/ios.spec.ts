@@ -189,7 +189,9 @@ test("the category picker's displayed row is the real value", async ({ browser }
   const { page, close } = await iphone(browser)
 
   try {
-    await page.goto("/dashboard")
+    // The add-goal form lives on `/dashboard/goals` since step 16. Overview's
+    // "Your goals" is the read-only summary and has no picker to test.
+    await page.goto("/dashboard/goals")
     const goals = page.getByRole("region", { name: "Your goals" })
     const select = goals.getByLabel("Category")
 

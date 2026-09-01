@@ -408,6 +408,17 @@ test("a photo picked on the dashboard reaches a circle-mate, and hiding takes it
     const src = await photo.getAttribute("src")
     expect(src, "the image is not behind a signed URL").toContain("/object/sign/")
 
+    // **And the signature works for them.** Everything above is satisfied by an
+    // `<img>` whose src 403s: it is present, visible, and pointing at a signed
+    // path. `naturalWidth` is non-zero only once the bytes have arrived and
+    // decoded, which is the actual claim this test makes about a circle-mate.
+    await expect
+      .poll(() => photo.evaluate((el) => (el as HTMLImageElement).naturalWidth), {
+        message: "the signed URL did not resolve to an image for the circle-mate",
+        timeout: 15_000,
+      })
+      .toBeGreaterThan(0)
+
     // ------------------------------------------------------------ and hiding
     // Insert rather than upsert: see the note in the first test.
     assertOk(

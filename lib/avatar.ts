@@ -40,8 +40,25 @@ export const AVATAR_URL_TTL_SECONDS = 3600
 export const AVATAR_MIME = "image/jpeg"
 export const AVATAR_EXT = "jpg"
 
-/** The bucket's own cap, so a 5MB file fails instantly rather than at Storage. */
-export const MAX_AVATAR_BYTES = 2 * 1024 * 1024
+/**
+ * The largest file the picker will accept — **not** what gets stored.
+ *
+ * **Raised from 2MB after the manual pass.** 2MB was the bucket's own limit,
+ * and reusing it as the input cap was wrong: an ordinary iPhone photo is 3–5MB,
+ * so the picker refused normal pictures before anything had a chance to shrink
+ * them.
+ *
+ * The two numbers measure different things. This bounds the file read into
+ * memory and decoded. What reaches Storage is a **256px square JPEG**, tens of
+ * kilobytes, which cannot approach the bucket's 2MB however large the original
+ * was — so the bucket limit needs no change and stays as the backstop it is.
+ *
+ * The equivalent mistake is live in `lib/photo-upload.ts`, where the same
+ * constant is both the input cap and `maxSizeMB` for the compressor. Raising it
+ * there without splitting the two would let a compressed photo exceed the
+ * check-in bucket's 10MB and be refused after the upload was paid for.
+ */
+export const MAX_AVATAR_BYTES = 10 * 1024 * 1024
 
 /**
  * Side length of the stored square.

@@ -3,6 +3,25 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /*
+   * **The one property that makes native controls follow the theme.**
+   *
+   * This file has always swapped `--background` and `--foreground` under
+   * `prefers-color-scheme: dark`, which styles everything *we* draw and nothing
+   * the operating system draws. A `<input type="date">` is drawn by the UA: on
+   * iOS Safari its text stayed black on our dark background and was
+   * unreadable, and on desktop the calendar indicator was a black glyph on the
+   * same dark field.
+   *
+   * `color-scheme` is what tells the UA which palette to render its own
+   * widgets in. It also covers the ones nobody has complained about yet —
+   * `<select>` popups, scrollbars, spinners, form autofill.
+   *
+   * `light dark` rather than a fixed value, so the browser follows the system
+   * exactly as the media query below does. Two mechanisms, one answer.
+   */
+  color-scheme: light dark;
 }
 
 @theme inline {
@@ -16,6 +35,26 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+  }
+}
+
+/*
+ * The calendar button inside `<input type="date">`, on Chromium.
+ *
+ * **`color-scheme` fixes the text and not this glyph.** Chromium renders the
+ * indicator as a fixed dark image rather than a themed control, so on a dark
+ * background it is black on black — invisible, and the only affordance saying
+ * the field opens a picker.
+ *
+ * `invert(1)` under dark, and nothing under light, where black is correct.
+ * Scoped to the indicator so it cannot touch anything else, and written
+ * against the media query rather than a class because the input is native and
+ * carries none of ours.
+ */
+@media (prefers-color-scheme: dark) {
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    opacity: 0.7;
   }
 }
 

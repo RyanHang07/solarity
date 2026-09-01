@@ -40,15 +40,26 @@ Build phases, screen inventory and the deferred galaxy visualization are in `pro
 ```
 app/
   (app)/            signed-in screens; layout.tsx is the onboarding gate
+    (shell)/        the five tabbed sections; layout.tsx owns the bar and the /today gate
+      dashboard/    Overview, circles/, notifications/, goals/
+      profile/      your own, and [username]/
+    admin/          the back office. 404 unless private.is_admin()
+    circles/[id]/   one Circle: roster, settings
+    settings/       identity, preferences, data, blocked, delete
+    today/          the daily check-in gate
   actions/          server actions: the only place .rpc() may appear
   api/csp-report/   where CSP violations land; logs and returns 204
   auth/             sign-in page, OAuth callback route, error page
   onboarding/       username + timezone, then install/ (10b), then notifications/ (10c)
+  privacy/, terms/  the public legal pages
   manifest.ts       web app manifest
-components/         client components
+components/         client components shared across route groups
 lib/
+  avatar.ts         crop, re-encode, the fixed key
   digest-days.ts    grouping, ordering, UTC-pinned dates — pure, unit-tested
+  goal-deadline.ts  overdue and its copy — pure, unit-tested
   notification-types.ts  which types the Notifications tab owns
+  report-reference.ts    what a report points at, both directions
   security-headers.ts  the CSP and the fixed headers, in one place
   csp-report.ts     reads both spellings of a violation report
   supabase/         browser client, server client, admin client, proxy helper
@@ -90,10 +101,11 @@ Keyed by user id, enforced in server actions via `lib/ratelimit.ts`.
 | Join Circle | 10 / hour |
 | Create goal | 20 / hour |
 | Check in | 60 / hour |
-| Photo upload | 20 / hour |
+| Photo upload | 20 / hour. **Shared by avatars**: the same act against the same budget |
 | Create invite link | 10 / hour |
 | **Revoke invite link** | **none, deliberately** |
 | Submit report | 10 / day |
+| Delete account | 5 / hour. Not about abuse: it bounds a stuck form retrying against the auth admin API |
 | Invite attempt | 20 / hour, keyed by **client IP**. Preview and join |
 | Single invite token | 60 / hour, keyed by a **hash of the token**. Preview only |
 
@@ -210,23 +222,47 @@ Realtime respects RLS, so `notifications_select_own` governs the socket too: one
 
 ## 6b. The dashboard
 
-**Three sections, each its own route segment**, under a shared layout.
+**Five sections, each its own route segment**, under one shared layout.
 
 | Section | Route | Answers |
 |---|---|---|
-| Overview | `/dashboard` | Where you stand: today's check-in, your goals, and **five days of digest boxes** |
+| Overview | `/dashboard` | Where you stand: today's check-in, a read-only summary of your goals, and **five days of digest boxes** |
 | Circles | `/dashboard/circles` | The list, and the create form |
 | Notifications | `/dashboard/notifications` | The four **event** types, and nothing else |
+| Goals | `/dashboard/goals` | Every control a goal has, plus `/archived` and `/[id]` — see section 6c |
+| Profile | `/profile` | Your own profile. The only section outside `/dashboard` |
 
 **Segments rather than `?tab=`, since 14a, for two reasons that happen to agree.** Next's partial rendering re-renders only the segment that changed, so a switch no longer repeats the reads of the two sections you are not looking at — Notifications used to pay for `getTodayData` and its Storage signing round trip to render a list of notifications. And the section bar, living in the layout, is **never unmounted**: the same DOM node before and after every switch, which is the shape the app is heading towards.
 
 `?tab=circles` and `?tab=notifications` still redirect to their segments, so bookmarks and older links keep working.
 
-**The section list is data**, in `app/(app)/dashboard/sections.ts`. Adding a section is one entry plus one folder; nothing else in the dashboard knows how many there are.
+**The section list is data**, in `app/(app)/(shell)/sections.ts`. Adding a section is one entry plus one folder; nothing else knows how many there are. It holds **absolute hrefs and does not care where the files live**, which is what let Profile sit outside `/dashboard` without the bar unmounting.
+
+**`(shell)` is a route group and contributes nothing to any URL.** `dashboard/` and `profile/` both live inside it, so all five sections are siblings under one layout — one bar, one unread badge, one `/today` gate. `/today`, `/settings`, `/circles/[id]` and `/admin` stay outside it deliberately: `/today` is a full-screen gate a nav bar would undermine, and `/admin` is the back office.
+
+**One section is matched `exact`, and only one.** Sections own everything beneath them — `/dashboard/goals/archived` keeps Goals lit — but `/profile/[username]` is *somebody else's* page and must not light your Profile tab. The flag turns on whose thing you are looking at, not on the shape of the URL.
 
 **The active highlight is computed client-side, from `usePathname`.** This is not a preference. A layout does not re-render when you navigate between its children, so an active section computed on the server and handed to the bar would be computed once — on whichever section you arrived at — and every section after that would highlight the wrong one. The same rule is why the unread badge needs `router.refresh()` from `MarkRead` rather than going stale on the label.
 
 **`/circles/[id]` deliberately stays on `?tab=`.** Two tabs, no shared reads worth hoisting, and no persistent-bar requirement, so the cost of a segment split buys nothing there.
+
+## 6c. Goals, and the record
+
+`/dashboard/goals` holds **every control a goal has**: creating, deadlines, achieving, archiving, per-Circle visibility. Overview keeps a read-only summary under the same `Your goals` landmark, calling out only **overdue** deadlines — a deadline three weeks out is not news on the screen you check in from.
+
+| Route | |
+|---|---|
+| `/dashboard/goals` | Active goals, full controls, and a link to the archive |
+| `/dashboard/goals/archived` | Retired goals — achieved *or* archived, labelled apart, with how many days each was checked off |
+| `/dashboard/goals/[id]` | A row per check-in date, with that day's note and photo |
+
+**Achieved is not archived**, and the archive labels them separately. `schema.md` is explicit that `archived_at` is not a synonym for `achieved_at`: one is finishing, the other is stopping, and a record that conflated them would tell somebody they completed a goal they abandoned.
+
+**Entirely a read of your own data.** `goals_select_own` and `progress_entries_select_own` are both `user_id = auth.uid()`, so the record needs no RPC, no policy and no grant.
+
+**Paged at 60 days**, newest first, with the page number clamped rather than trusted — `parseInt` on nonsense is `NaN`, which becomes a negative `range` and an empty page that reads as a goal with no history.
+
+**Photos older than 90 days are gone**, by retention, and the page says so once at the foot of the list rather than leaving a column of broken frames.
 
 ### The day boxes
 

@@ -56,6 +56,14 @@ export type RosterMember = {
   user_id: string
   username: string
   display_name: string | null
+  /**
+   * A signed URL, or null. **Not masked**, unlike titles, notes and photos.
+   *
+   * An avatar is not about a goal, and it is the same picture any signed-in
+   * user can already open on the profile — so hiding a goal in this Circle has
+   * nothing to say about it. Migration 90 carries the reasoning.
+   */
+  avatarUrl: string | null
   role: string
   is_self: boolean
   streak_grace: boolean

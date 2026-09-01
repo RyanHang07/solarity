@@ -12,6 +12,7 @@ import {
 } from "@/lib/avatar"
 import { inspect, type PhotoProblem } from "@/lib/photo-upload"
 import { setAvatar } from "@/app/actions/settings"
+import { Avatar } from "@/components/avatar"
 import type { ActionResult } from "@/lib/errors"
 
 /**
@@ -141,35 +142,9 @@ export function AvatarForm({
       </h2>
 
       <div className="flex items-center gap-4">
-        {currentUrl ? (
-          /*
-            **A plain `<img>`, not `next/image`.** The source is a signed URL
-            with an hour's TTL, so the optimiser would cache a URL that outlives
-            it and then serve a 400 from its own cache. `checkin-photo.tsx` made
-            the same call for the same reason.
-
-            The directive below has to be the line immediately above the
-            element. Written as a trailing continuation of a multi-line comment
-            it applies to the *next comment line* and silently does nothing.
-          */
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={currentUrl}
-            alt="Your picture"
-            width={64}
-            height={64}
-            className="size-16 rounded-full object-cover"
-          />
-        ) : (
-          // **Initials, not a placeholder image.** There is no asset to ship
-          // and nothing to load, and it is legible at 40px on a roster row.
-          <span
-            aria-hidden
-            className="flex size-16 items-center justify-center rounded-full border text-lg font-medium opacity-70"
-          >
-            {displayName.trim().charAt(0).toUpperCase() || "?"}
-          </span>
-        )}
+        {/* The same component every other surface uses, so what you see here
+            is exactly what a Circle-mate sees on a roster row. */}
+        <Avatar url={currentUrl} name={displayName} alt="Your picture" size={64} />
 
         <div className="flex flex-col gap-1">
           <input

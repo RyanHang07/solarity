@@ -265,7 +265,6 @@ export function GoalsPanel({
   }, [createState])
 
   const active = goals.filter((g) => !g.archived_at && !g.achieved_at)
-  const inactive = goals.filter((g) => g.archived_at || g.achieved_at)
 
   return (
     // Named, so it is a landmark rather than an anonymous `section`. The
@@ -426,23 +425,14 @@ export function GoalsPanel({
         </ul>
       )}
 
-      {inactive.length ? (
-        <details>
-          <summary className="cursor-pointer text-sm opacity-70">
-            Archived and achieved ({inactive.length})
-          </summary>
-          <ul className="mt-2 flex flex-col gap-2">
-            {inactive.map((g) => (
-              <li
-                key={g.id}
-                className="rounded border px-3 py-2 text-sm opacity-60"
-              >
-                {g.title} · {g.achieved_at ? "achieved" : "archived"}
-              </li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
+      {/*
+        **Retired goals are a page, not an expander.** This used to be a
+        `<details>` listing "title · archived", which is a line about a goal
+        rather than a record of one. `/dashboard/goals/archived` shows when each
+        started and ended and how many days it was checked off, and links to the
+        full record. The page that renders this panel owns the link, so the two
+        cannot both claim the same text.
+      */}
     </section>
   )
 }

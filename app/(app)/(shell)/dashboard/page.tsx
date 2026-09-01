@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { getCheckinDate } from "@/lib/supabase/checkin-date"
 import { getTodayData } from "@/lib/supabase/today"
 import { getDigestDays } from "@/lib/supabase/digests"
-import { GoalsPanel } from "./goals-panel"
+import { GoalsSummary } from "./goals-summary"
 import { TodayPanel } from "./today-panel"
 import { DigestPanel } from "./digest-panel"
 import { Notice } from "@/components/notice"
@@ -82,33 +82,9 @@ export default async function OverviewPage({
    */
   const todayData = await getTodayData(supabase, userId, today)
 
-  const activeGoals = (goals ?? []).filter((g) => !g.archived_at && !g.achieved_at)
-
-  /**
-   * Which of your goals are hidden in which Circles.
-   *
-   * **Filtered to your own goal ids on purpose.** `ggv_select_owner_or_member`
-   * is `owns_goal(goal_id) OR is_group_member(group_id)`, so an unfiltered read
-   * also returns rows for *other* members' goals in Circles you belong to.
-   * Correct as a policy, wrong as a query: this panel is about your goals, and
-   * RLS bounds what you may read rather than what you meant to read.
-   *
-   * Second query rather than an embed, because the row only exists when hidden
-   * and an inner join would drop every visible goal.
-   */
-  const ownGoalIds = activeGoals.map((g) => g.id)
-  const { data: visibility } = ownGoalIds.length
-    ? await supabase
-        .from("goal_group_visibility")
-        .select("goal_id, group_id")
-        .in("goal_id", ownGoalIds)
-        .eq("hidden", true)
-    : { data: [] }
-
-  const hiddenIn = new Map<string, string[]>()
-  for (const row of visibility ?? []) {
-    hiddenIn.set(row.goal_id, [...(hiddenIn.get(row.goal_id) ?? []), row.group_id])
-  }
+  // Active only, and the summary shows nothing else. Retired goals live at
+  // `/dashboard/goals/archived`, where there is room for what they were.
+  const overviewGoals = (goals ?? []).filter((g) => !g.archived_at && !g.achieved_at)
 
   /**
    * Step 11. Five days of digests, grouped into boxes.
@@ -189,23 +165,11 @@ export default async function OverviewPage({
       )}
 
       {/*
-        Only active Circles get a visibility toggle. An archived Circle's roster
-        is frozen at a past instant, so a change now would either do nothing or
-        appear to rewrite history depending on which side of that instant it
-        landed. Same reasoning as the note-sharing controls in 8d.
+        Step 16. **A summary, not the panel.** Every control moved to `/dashboard/goals`:
+        Overview is about today, and managing the list is a different job that
+        was crowding it.
       */}
-      <GoalsPanel
-        goals={goals ?? []}
-        categories={categories ?? []}
-        circles={active.map((m) => ({
-          id: m.group_id,
-          name: m.groups?.name ?? "Circle",
-        }))}
-        hiddenIn={Object.fromEntries(hiddenIn)}
-        // 14d. The same date the check-in gate and the streak use, so "overdue"
-        // and "today" cannot disagree at the 2 AM boundary.
-        today={today}
-      />
+      <GoalsSummary goals={overviewGoals} today={today} />
 
       <DigestPanel days={digestDays} viewerId={userId} today={today} />
     </>

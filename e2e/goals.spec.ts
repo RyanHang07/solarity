@@ -69,7 +69,14 @@ async function restoreAchievedCount(userId: string, value: number) {
  * back afterwards.
  */
 
-test("a goal can be created and archived from the dashboard", async ({ browser }) => {
+/**
+ * **These navigate to `/dashboard/goals`, not `/dashboard`, since step 16.** Every goal
+ * control — create, deadline, achieve, archive, visibility — moved to the fifth
+ * tab; Overview keeps a read-only summary under the same `Your goals` landmark.
+ * A locator that still found the region on `/dashboard` would pass while
+ * pressing nothing.
+ */
+test("a goal can be created and archived from the goals tab", async ({ browser }) => {
   const userId = await userIdByEmail(requireEnv("E2E_OWNER_EMAIL"))
   // Named with the suite's prefix so `deleteE2EGoals` and the standalone clean
   // script can both find it if this test dies mid-flight.
@@ -86,7 +93,7 @@ test("a goal can be created and archived from the dashboard", async ({ browser }
   const page = await context.newPage()
 
   try {
-    await page.goto("/dashboard")
+    await page.goto("/dashboard/goals")
 
     // The section is named because the dashboard prints each title twice, here
     // and in Today, and an unanchored locator would be ambiguous the moment the
@@ -137,7 +144,7 @@ test("archiving twice is refused in words, not silently", async ({ browser }) =>
   const page = await context.newPage()
 
   try {
-    await page.goto("/dashboard")
+    await page.goto("/dashboard/goals")
     const goals = page.getByRole("region", { name: "Your goals" })
 
     await goals.getByLabel("Goal title").fill(title)
@@ -207,7 +214,7 @@ test("a goal can be achieved, and the lifetime counter moves once", async ({
   page.on("dialog", (d) => d.accept())
 
   try {
-    await page.goto("/dashboard")
+    await page.goto("/dashboard/goals")
     const goals = page.getByRole("region", { name: "Your goals" })
 
     await goals.getByLabel("Goal title").fill(title)
@@ -229,11 +236,17 @@ test("a goal can be achieved, and the lifetime counter moves once", async ({
     // Every active goal carries a `<details>` for its Circle visibility, and
     // `<details>` is `role="group"`, so that locator resolves to as many
     // elements as there are goals plus one.
-    await goals.getByText(/^Archived and achieved \(\d+\)$/).click()
+    // **The archive is a page, not an expander on this one.** Step 16 replaced
+    // the `<details>` that used to list "title · archived" here; a goal you
+    // finished is worth more than a line, and the panel and the page were both
+    // claiming the same text.
+    await page.goto("/dashboard/goals/archived")
     await expect(
-      goals.getByRole("listitem").filter({ hasText: title }).filter({
-        hasText: "achieved",
-      }),
+      page
+        .getByRole("region", { name: "Archived and achieved" })
+        .getByRole("listitem")
+        .filter({ hasText: title })
+        .filter({ hasText: "achieved" }),
       "the achieved goal is not listed as achieved",
     ).toHaveCount(1)
 
@@ -388,7 +401,7 @@ test("a goal's deadline can be set, changed and cleared", async ({ browser }) =>
   }
 
   try {
-    await page.goto("/dashboard")
+    await page.goto("/dashboard/goals")
     const goals = page.getByRole("region", { name: "Your goals" })
 
     await goals.getByLabel("Goal title").fill(title)
@@ -436,6 +449,89 @@ test("a goal's deadline can be set, changed and cleared", async ({ browser }) =>
     expect(await stored(), "clearing the field did not remove the deadline").toBeNull()
 
     await expect(goals.locator('p[role="alert"]')).toHaveCount(0)
+  } finally {
+    await deleteE2EGoals()
+    await restoreGoalSlots(freed)
+    await context.close()
+  }
+})
+
+/**
+ * Step 16. The goal record.
+ *
+ * **The value of a record is the days, so the days are what this asserts.** A
+ * test that only checked the page renders would pass on a goal whose history
+ * was silently empty — which is exactly what a wrong `goal_id` filter or a
+ * mis-paged `range` produces.
+ *
+ * **Writes** one goal and two check-ins, and deletes both.
+ */
+test("a retired goal keeps its record", async ({ browser }) => {
+  const email = requireEnv("E2E_OWNER_EMAIL")
+  const userId = await userIdByEmail(email)
+  const title = `${E2E_PREFIX}record ${Date.now().toString().slice(-6)}`
+  const freed = await freeGoalSlots(userId, 1)
+  const today = await checkinDateFor(email)
+
+  const context = await browser.newContext({
+    storageState: await storageStateFor(email),
+  })
+  const page = await context.newPage()
+
+  try {
+    const { data: category } = await admin
+      .from("goal_categories")
+      .select("id")
+      .limit(1)
+      .single()
+
+    const { data: goal } = await admin
+      .from("goals")
+      .insert({ user_id: userId, title, category_id: category!.id })
+      .select("id")
+      .single()
+
+    // Two days, one with a note and one without: the record has to render both,
+    // and a row with no note must not look like a row that failed to load.
+    await admin.from("progress_entries").insert([
+      {
+        user_id: userId,
+        goal_id: goal!.id,
+        check_in_date: addDays(today, -2),
+        note: "E2E: the day I remember",
+      },
+      { user_id: userId, goal_id: goal!.id, check_in_date: addDays(today, -1) },
+    ])
+
+    // Retired, because that is the path this feature was asked for.
+    await admin.from("goals").update({ archived_at: "now" }).eq("id", goal!.id)
+
+    // ------------------------------------------------------- the archive list
+    await page.goto("/dashboard/goals/archived")
+    const list = page.getByRole("region", { name: "Archived and achieved" })
+    const entry = list.getByRole("listitem").filter({ hasText: title })
+    await expect(entry).toBeVisible()
+    await expect(entry, "the count of checked-off days is missing").toContainText(
+      "2 days checked off",
+    )
+    // Archived is not achieved. Conflating them would tell somebody they
+    // finished a goal they abandoned.
+    await expect(entry).toContainText("archived")
+
+    // ------------------------------------------------------------ the record
+    await entry.getByRole("link").click()
+    await expect(page).toHaveURL(new RegExp(`/dashboard/goals/${goal!.id}$`))
+
+    const days = page.getByRole("list", { name: "Check-ins" })
+    await expect(days.getByRole("listitem")).toHaveCount(2)
+    await expect(days.getByText("E2E: the day I remember")).toBeVisible()
+
+    // Still the Goals tab: `/dashboard/goals/[id]` is a child of the section, unlike
+    // `/profile/[username]`, which is somebody else's page.
+    await expect(page.getByRole("link", { name: "Goals" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    )
   } finally {
     await deleteE2EGoals()
     await restoreGoalSlots(freed)

@@ -526,12 +526,14 @@ test("hiding a goal from the dashboard removes it from a circle-mate's view", as
     const mine = s.joinerPage
     const theirs = s.ownerPage
 
-    // The goals list, not Today. The dashboard prints each title in both, so an
-    // unscoped locator matches two rows and Playwright's strict mode refuses.
+    // **`/dashboard/goals`, not `/dashboard`.** Step 16 moved every goal
+    // control off Overview: what Overview keeps is a read-only summary under
+    // the same "Your goals" landmark, so a locator pointed at the old page
+    // still finds a region and never finds a switch.
     const panel = mine.getByRole("region", { name: "Your goals" })
     const row = panel.locator("li").filter({ hasText: VISIBLE_TITLE })
 
-    await mine.goto("/dashboard")
+    await mine.goto("/dashboard/goals")
     await expect(row).toHaveCount(1)
     await expect(row.getByText("Visible to all your Circles")).toBeVisible()
 
@@ -594,7 +596,7 @@ test("hide everywhere outranks the per-Circle switch, and says so", async ({
     const panel = mine.getByRole("region", { name: "Your goals" })
     const row = panel.locator("li").filter({ hasText: VISIBLE_TITLE })
 
-    await mine.goto("/dashboard")
+    await mine.goto("/dashboard/goals")
     await row.getByText("Visible to all your Circles").click()
     await row.getByRole("button", { name: "Hide from every Circle" }).click()
     await expect(row.getByText("Hidden from every Circle")).toBeVisible()
@@ -620,7 +622,7 @@ test("hide everywhere outranks the per-Circle switch, and says so", async ({
     await expect(mine.getByText(VISIBLE_TITLE)).toBeVisible()
     await expect(mine.getByText("hidden here").first()).toBeVisible()
 
-    await mine.goto("/dashboard")
+    await mine.goto("/dashboard/goals")
     await row.getByText("Hidden from every Circle").click()
     await row.getByRole("button", { name: "Show in my Circles again" }).click()
     await expect(row.getByText("Visible to all your Circles")).toBeVisible()

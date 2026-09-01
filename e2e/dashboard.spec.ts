@@ -17,7 +17,11 @@ import {
 import { storageStateFor } from "./session"
 
 /**
- * Step 8f: the dashboard's three tabs, the notifications reader, and settings.
+ * Step 8f: the dashboard's sections, the notifications reader, and settings.
+ *
+ * Three tabs when this was written; five since steps 15b and 16 added Profile
+ * and Goals. The count is deliberately not in the prose — it has been wrong
+ * twice.
  *
  * **The destructive one.** Opening the notifications tab marks every unread row
  * read, and the product offers no undo. These specs capture the unread set
@@ -49,7 +53,7 @@ test.afterAll(async () => {
   await ctx?.close()
 })
 
-test("the three sections are addressable, and an unknown tab lands on Overview", async ({
+test("every section is addressable, and an unknown tab lands on Overview", async ({
   browser,
 }) => {
   const p = await ownerPage(browser)
@@ -66,6 +70,15 @@ test("the three sections are addressable, and an unknown tab lands on Overview",
 
   await p.goto("/dashboard/notifications")
   await expect(p.getByRole("region", { name: "Notifications" })).toBeVisible()
+
+  // Steps 15b and 16 added two more. This test is the one place the whole tab
+  // set is written down, so a section that stops resolving fails here rather
+  // than in whichever spec happens to use it.
+  await p.goto("/dashboard/goals")
+  await expect(p.getByRole("region", { name: "Your goals" })).toBeVisible()
+
+  await p.goto("/profile")
+  await expect(p.getByRole("heading", { level: 1 })).toBeVisible()
 
   // An unknown value falls back rather than rendering nothing, matching
   // `/circles/[id]`. A section bar that renders blank for a stale bookmark is

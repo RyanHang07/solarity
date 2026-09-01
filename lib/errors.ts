@@ -33,6 +33,24 @@ export const BY_HINT: Record<string, string> = {
   NOT_OWNER: "Only the Circle's owner can do that.",
   NOT_A_MEMBER: "You're not a member of that Circle.",
   NOT_YOUR_GOAL: "That isn't your goal.",
+
+  // Step 17. A site admin, not a Circle admin — `NOT_ADMIN` above is the
+  // Circle one and its copy says "owner or admin", which would be wrong here.
+  // Reachable only by calling an admin RPC directly, since `/admin` is a 404
+  // to everyone else; a person who sees this went looking.
+  NOT_SITE_ADMIN: "That's an administrator action.",
+
+  // Roles. Each names the rule rather than the refusal, because each exists to
+  // stop a specific way of locking everyone out.
+  // **`ROLE_SELF_CHANGE` is gone**, not renamed. Migration 93 forbade changing
+  // your own role, and migration 95 removed that rule because it made
+  // `LAST_ADMIN` unreachable: to reach the last-admin check the caller must be
+  // an admin and the target a *different* admin, which means there are two.
+  // Self-demotion is now allowed and the last-admin rule is the real guard.
+  LAST_ADMIN:
+    "You're the last administrator. Give somebody else the role first, then step down.",
+  NO_SUCH_ACCOUNT: "There's no account with that username.",
+  REPORT_NOT_FOUND: "That report no longer exists.",
   NOT_AUTHENTICATED: "Please sign in again.",
 
   // Goal lifecycle. Migration 83 refuses to clear or move `achieved_at` once

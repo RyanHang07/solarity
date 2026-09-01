@@ -44,7 +44,7 @@ export function storageStateFor(email: string) {
 }
 
 /**
- * Which of the two accounts an address is, or `null` for anything else.
+ * Which of the three accounts an address is, or `null` for anything else.
  *
  * Resolved from the environment rather than hard-coded, because the two
  * addresses are swapped by hand often enough that a literal would go stale
@@ -53,6 +53,7 @@ export function storageStateFor(email: string) {
 function accountFor(email: string): E2EAccount | null {
   if (email === process.env.E2E_OWNER_EMAIL) return "owner"
   if (email === process.env.E2E_JOINER_EMAIL) return "joiner"
+  if (email === process.env.E2E_ADMIN_EMAIL) return "admin"
   return null
 }
 

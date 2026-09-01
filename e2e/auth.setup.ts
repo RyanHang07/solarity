@@ -6,7 +6,7 @@ import { admin, requireEnv, userIdByEmail } from "./db"
 import { saveModes, type TodayMode } from "./saved-modes"
 
 /**
- * Signs both test accounts in without touching Google.
+ * Signs all three test accounts in without touching Google.
  *
  * **The problem.** Solarity is Google OAuth only. Playwright cannot drive
  * Google's consent screen, and automating it would be testing Google rather
@@ -41,6 +41,18 @@ import { saveModes, type TodayMode } from "./saved-modes"
 const ACCOUNTS: Record<E2EAccount, string> = {
   owner: requireEnv("E2E_OWNER_EMAIL"),
   joiner: requireEnv("E2E_JOINER_EMAIL"),
+  /**
+   * **Already a site admin, and this file does not make it one.**
+   *
+   * `users.role` is in no client grant; it is set by SQL. So the suite cannot
+   * mint an admin, and it should not try — a spec that promoted an account and
+   * demoted it afterwards would be asserting against a role it had just
+   * invented, and would break the moment a real admin existed.
+   *
+   * `admin.spec.ts` asserts this account *is* an admin before it relies on it,
+   * so a missing grant fails with a sentence rather than as a puzzling 404.
+   */
+  admin: requireEnv("E2E_ADMIN_EMAIL"),
 }
 
 async function sessionCookiesFor(email: string) {

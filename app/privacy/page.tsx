@@ -64,7 +64,8 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong>Your profile.</strong> A username, an optional display name,
-            and your timezone — which the app needs to know when your day ends.
+            an optional picture, and your timezone — which the app needs to know
+            when your day ends.
           </li>
           <li>
             <strong>Your goals and check-ins.</strong> Goal titles, categories,
@@ -87,14 +88,29 @@ export default function PrivacyPage() {
 
       <PolicySection heading="Who can see it">
         <p>
-          <strong>Only people in a Circle you joined.</strong> Circles are
-          invite-only and capped at ten people. Nothing you write is public, and
-          there is no way to browse other users.
+          <strong>Nothing here is public.</strong> Every page needs an account,
+          and nothing is readable by search engines or by anyone signed out.
+        </p>
+        <p>
+          <strong>Your profile is visible to anyone with an account.</strong>{" "}
+          That is your username, your display name, your picture and the month
+          you joined. Anyone signed in who knows or guesses your username can
+          open it — usernames are how people find each other, so they are not
+          secret.
+        </p>
+        <p>
+          <strong>Your streaks and totals are off by default.</strong> They
+          appear on your profile only if you turn them on in settings, and you
+          can turn them off again at any time.
+        </p>
+        <p>
+          <strong>Everything else is limited to Circles you joined.</strong>{" "}
+          Circles are invite-only and capped at ten people.
         </p>
         <ul className="flex list-disc flex-col gap-1 pl-5">
           <li>
-            Circle members see your username, whether you checked in today, and
-            your streak.
+            Circle members see your username, your picture, whether you checked
+            in today, and your streak.
           </li>
           <li>
             <strong>Notes are private unless you share them.</strong> There is a
@@ -111,7 +127,43 @@ export default function PrivacyPage() {
             that Circle, while still counting it toward your day. You can hide a
             goal in one Circle, in all of them, or none.
           </li>
+          <li>
+            <strong>Blocking</strong> hides your profile from someone and theirs
+            from you. It does not remove either of you from a Circle you both
+            joined, and they are not told.
+          </li>
         </ul>
+      </PolicySection>
+
+      <PolicySection heading="Reports, and what a moderator can see">
+        <p>
+          You can report a check-in photo, a check-in note, or a profile
+          belonging to someone in one of your Circles. A report records what was
+          reported, who reported it, and anything you typed.
+        </p>
+        <p>
+          <strong>
+            An administrator can read the specific thing that was reported
+          </strong>{" "}
+          — that note or that photo — even if it was never shared with them,
+          because there is no way to judge a report without seeing what it is
+          about. They see nothing else: not your other goals, not your other
+          days, and nothing nobody reported.
+        </p>
+        <p>
+          Administrators can mark a report reviewed, actioned or dismissed. The
+          dashboard cannot delete your content or suspend your account; anything
+          of that kind is done by hand and would be a separate decision.
+        </p>
+        <p className="opacity-70">
+          {/*
+            Named plainly rather than left to inference. "An administrator" in a
+            product run by one person means that person, and someone deciding
+            whether to trust it deserves to know the scale.
+          */}
+          Solarity is run by one person, so today that administrator is{" "}
+          {CONTACT_EMAIL}. Every grant or removal of that access is recorded.
+        </p>
       </PolicySection>
 
       <PolicySection heading="How long it is kept">

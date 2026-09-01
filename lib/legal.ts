@@ -18,8 +18,8 @@
  * declared with no writer, which is the first shape in `patterns.md`. It lands
  * with the signup flow, and reads this.
  */
-export const TERMS_VERSION = "2026-08-23"
-export const PRIVACY_VERSION = "2026-08-23"
+export const TERMS_VERSION = "2026-08-28"
+export const PRIVACY_VERSION = "2026-08-28"
 
 /** Where a person writes to ask for something the app cannot yet do. */
 export const CONTACT_EMAIL = "ryanhang07@gmail.com"

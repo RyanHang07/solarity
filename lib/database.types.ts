@@ -1,3 +1,23 @@
+// Generated from the live Supabase schema. Do not edit by hand.
+//
+// Regenerate after any migration:
+//   npx supabase gen types typescript --project-id wyuadcnrxisqmzygzhzd > lib/database.types.ts
+//
+// **Redirect with care on Windows.** PowerShell's `>` writes UTF-16LE, which
+// `tsc` tolerates and ESLint rejects outright as "File appears to be binary",
+// and which silently drops this header. If that happens, re-encode as UTF-8:
+//   npx supabase gen types typescript --project-id wyuadcnrxisqmzygzhzd `
+//     | Out-File -Encoding utf8 lib/database.types.ts
+//
+// **This header has been lost once already** — it was absent at HEAD, which is
+// the trap above happening rather than a hypothetical. If it goes missing,
+// paste it back; nothing regenerates it.
+//
+// Note: job_* and admin_* functions appear here because they exist in the
+// public schema. EXECUTE on job_* is granted to service_role only, and every
+// admin_* function checks private.is_admin() as its first statement — Postgres
+// refuses regardless of what these types allow.
+
 export type Json =
   | string
   | number
@@ -10,7 +30,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.15"
+    PostgrestVersion: "14.17"
   }
   graphql_public: {
     Tables: {
@@ -834,6 +854,7 @@ export type Database = {
           last_rollover_date: string | null
           pending_checkin_timezone: string | null
           push_shows_circle_name: boolean
+          role: Database["public"]["Enums"]["user_role"]
           today_screen_mode: Database["public"]["Enums"]["today_screen_mode"]
           updated_at: string
           username: string | null
@@ -848,6 +869,7 @@ export type Database = {
           last_rollover_date?: string | null
           pending_checkin_timezone?: string | null
           push_shows_circle_name?: boolean
+          role?: Database["public"]["Enums"]["user_role"]
           today_screen_mode?: Database["public"]["Enums"]["today_screen_mode"]
           updated_at?: string
           username?: string | null
@@ -862,6 +884,7 @@ export type Database = {
           last_rollover_date?: string | null
           pending_checkin_timezone?: string | null
           push_shows_circle_name?: boolean
+          role?: Database["public"]["Enums"]["user_role"]
           today_screen_mode?: Database["public"]["Enums"]["today_screen_mode"]
           updated_at?: string
           username?: string | null
@@ -873,6 +896,64 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_list_admins: {
+        Args: never
+        Returns: {
+          display_name: string
+          user_id: string
+          username: string
+        }[]
+      }
+      admin_report_detail: {
+        Args: { p_report_id: string }
+        Returns: {
+          checkin_date: string
+          content_reference: string
+          content_type: Database["public"]["Enums"]["content_report_type"]
+          created_at: string
+          id: string
+          note: string
+          photo_key: string
+          reason: string
+          reported_avatar_key: string
+          reported_display_name: string
+          reported_user_id: string
+          reported_username: string
+          reporter_username: string
+          reviewed_at: string
+          status: Database["public"]["Enums"]["content_report_status"]
+        }[]
+      }
+      admin_report_queue: {
+        Args: {
+          p_limit?: number
+          p_status?: Database["public"]["Enums"]["content_report_status"]
+        }
+        Returns: {
+          content_type: Database["public"]["Enums"]["content_report_type"]
+          created_at: string
+          id: string
+          reason: string
+          reported_username: string
+          reporter_username: string
+          status: Database["public"]["Enums"]["content_report_status"]
+        }[]
+      }
+      admin_resolve_report: {
+        Args: {
+          p_report_id: string
+          p_status: Database["public"]["Enums"]["content_report_status"]
+        }
+        Returns: undefined
+      }
+      admin_set_role: {
+        Args: {
+          p_role: Database["public"]["Enums"]["user_role"]
+          p_user_id: string
+        }
+        Returns: undefined
+      }
+      am_i_admin: { Args: never; Returns: boolean }
       archive_circle: { Args: { p_group_id: string }; Returns: undefined }
       blocked_accounts: {
         Args: never
@@ -897,6 +978,7 @@ export type Database = {
         Args: { p_group_id: string }
         Returns: {
           as_of: string
+          avatar_url: string
           checked_count: number
           checkin_date: string
           circle_status: string
@@ -1037,6 +1119,8 @@ export type Database = {
         | "member_joined"
         | "member_left"
         | "group_archived"
+        | "site_admin_granted"
+        | "site_admin_revoked"
       content_report_status: "pending" | "reviewed" | "actioned" | "dismissed"
       content_report_type:
         | "checkin_photo"
@@ -1053,6 +1137,7 @@ export type Database = {
         | "group_locked_renewal"
         | "deadline_changed"
       today_screen_mode: "every_open" | "once_daily" | "never"
+      user_role: "standard" | "admin"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1198,6 +1283,8 @@ export const Constants = {
         "member_joined",
         "member_left",
         "group_archived",
+        "site_admin_granted",
+        "site_admin_revoked",
       ],
       content_report_status: ["pending", "reviewed", "actioned", "dismissed"],
       content_report_type: [
@@ -1217,6 +1304,7 @@ export const Constants = {
         "deadline_changed",
       ],
       today_screen_mode: ["every_open", "once_daily", "never"],
+      user_role: ["standard", "admin"],
     },
   },
 } as const

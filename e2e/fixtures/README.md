@@ -10,3 +10,12 @@ the one part of the upload path that can only be tested in a browser never was.
 
 It is deliberately not a solid colour: a uniform image compresses to almost
 nothing, so a resize that silently did nothing would still look like a pass.
+
+`avatar-wide.png` is 96×48, for the replace step of `avatar.spec.ts`.
+
+**Rectangular on purpose.** `prepareAvatar` centre-crops with
+`Math.min(width, height)` and two offsets, and a square source exercises none of
+that arithmetic. Every real photograph is rectangular and no fixture was until
+this one. Being a different picture from `checkin.png` also makes "the object
+changed" checkable by size, which is what stops the replace assertion passing
+on a label that was already on screen.

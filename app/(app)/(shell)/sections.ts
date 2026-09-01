@@ -46,13 +46,27 @@ export const SECTIONS: readonly Section[] = [
   { key: "circles", label: "Circles", href: "/dashboard/circles" },
   { key: "notifications", label: "Notifications", href: "/dashboard/notifications" },
   /**
-   * **`/profile`, not `/dashboard/profile`.**
+   * Step 16. **Not `exact`, unlike Profile below.** `/dashboard/goals/archived`
+   * and `/dashboard/goals/[id]` are both *part of* Goals — you are still in
+   * that section, looking at your own goals — where `/profile/[username]` is
+   * somebody else's page and not your Profile tab. The difference is whose
+   * thing you are looking at, not the shape of the URL.
+   *
+   * **Longest-match is what keeps this working under `/dashboard`.** Overview
+   * is `/dashboard`, so every path here starts with it; the rule below picks
+   * the longest href that matches, which is this one.
+   */
+  { key: "goals", label: "Goals", href: "/dashboard/goals" },
+
+  /**
+   * **`/profile`, not `/dashboard/profile`**, and the only section that sits
+   * outside it.
    *
    * The hrefs here are absolute and this list does not care where a section's
-   * files live — which is what let Profile sit outside `/dashboard` without the
-   * bar unmounting. `dashboard/` and `profile/` are both inside the `(shell)`
-   * route group, and a route group contributes nothing to the URL, so all four
-   * share one layout and one never-remounted bar.
+   * files live — which is what lets Profile live outside `/dashboard` without
+   * the bar unmounting. `dashboard/` and `profile/` are both inside the
+   * `(shell)` route group, and a route group contributes nothing to the URL, so
+   * all five share one layout and one never-remounted bar.
    */
   { key: "profile", label: "Profile", href: "/profile", exact: true },
 ]

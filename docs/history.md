@@ -2772,3 +2772,232 @@ The e2e test sets, changes and clears through the screen. **Its load-bearing ass
 
 The honest fix, if this ever needs real coverage, is a disposable account created and destroyed by the spec. That is a change to `auth.setup.ts` and the account model, not to this file.
 
+
+---
+
+## Step 15: profiles, and the moderation surface they carry ✅ done
+
+**Named, not planned.** `/profile/[username]` is where four things that already exist in the schema get their first caller:
+
+| | |
+|---|---|
+| `user_lifetime_stats.visible_on_profile` | A column with no reader |
+| `user_blocks` | A table with no writer |
+| `content_reports`, and the `report` rate limit | **The last limit in `lib/ratelimit.ts` with no caller.** As built, reporting is a thing you do to *content*, not to a person — see below, the old note here had that backwards |
+| `total_goals_achieved` | Written since migration 34, made un-inflatable by migration 83 in step 14c, and still read by nothing. This is the screen that reads it |
+
+That third row is why this is step 15 rather than a loose end: the limit is not missing a caller by oversight, it is waiting for the screen it belongs to.
+
+**The rule step 14e ended on applies here first.** `settings/page.tsx` refuses controls whose backend does not exist; `delete-account` was the mirror image, a finished backend nothing could call. **This step is four of those at once.** Whatever else it does, it should close them rather than add a fifth.
+
+#### What was decided
+
+| Question | Answer |
+|---|---|
+| Who can see a profile | **Any signed-in user.** Not just Circle-mates, and not the public web |
+| How that is done | **A masked `SECURITY DEFINER` RPC**, not a widened RLS policy |
+| What the toggle controls | The four lifetime stats. Identity is always visible to a signed-in viewer |
+| What blocking does | **Mutual profile invisibility**, and nothing else |
+| Where reporting lives | **Both**: photos and notes on the roster, and the profile itself, via a new report type |
+| Who can report | **Circle-mates only**, on every surface |
+| What is on the page | Username, display name, member since, and the four stats |
+
+#### The pieces, and what each one turned on
+
+| | Piece | Migration | The decision worth remembering |
+|---|---|---|---|
+| 15a | `profile_by_username` | 86 | **A masked RPC, not a widened policy.** RLS filters *rows*: relaxing `users_select_self_or_groupmate` would have exposed `checkin_timezone` and two preference columns along with the three profile ones. The function returns `created_at`, which `authenticated` cannot select at all — that is the point of it choosing. Same pattern as `circle_roster` |
+| 15b | `/profile`, `/profile/[username]` | — | **Profile is the fourth tab, and that restructured the shell.** `dashboard/` and `profile/` now sit under `app/(app)/(shell)/`; a route group adds nothing to the URL, so all four tabs share one never-unmounted bar. `/today`, `/settings` and `/circles/[id]` stay outside it — `/today` is a full-screen gate a nav bar would undermine |
+| 15c | The stats toggle | — | **The narrowest write in the app.** `authenticated` holds `update (visible_on_profile)` and nothing else on that table, because the counters are trigger-maintained. So no RPC: the policy and the column grant already say it |
+| 15d | Block, unblock | 87 | **Blocking hides the thing it is undone from.** A blocked profile 404s, so Unblock lives in settings — and needs an RPC, because `users_select_self_or_groupmate` will not return a blocked account's username once you share no Circle |
+| 15e | Reporting | 88 | **Reporting is about content, not people** — that is what the enum always said, and the old note in this file had it backwards. `user_profile` was added so a profile can be reported too |
+| 15f | Avatars | 85 | **The `avatars` bucket was set to `image/webp`**: migration 82's trap, armed, one bucket over. And `avatar_url` held Google URLs that our own CSP blocks and nobody chose to publish |
+
+#### The rules these landed on
+
+**Stats are opt-in; identity is not.** Username, display name, picture and join month are visible to any signed-in user. The toggle governs four numbers, and the copy says so — "hidden" read as "invisible" would be misleading by omission.
+
+**Absent is not zero.** With the toggle off the RPC returns nulls and `stats_visible: false`, and the page says "hasn't shared their stats". Four zeroes would be true of a new account and false of someone withholding.
+
+**You always see your own stats**, whatever the toggle says. Mirrors `user_lifetime_stats_select_visible`'s first clause.
+
+**A blocked profile and a nonexistent one are the same 404.** Anything distinguishable turns "did they block me" into something anyone can probe.
+
+**Blocking is mutual, and `private.is_blocked_by` only answers one direction.** The RPC tests both. Blocking does not remove either of you from a shared Circle — hiding a member from the roster would make the member count and group streak disagree between two people looking at the same Circle.
+
+**Block needs no shared Circle; Report does.** Blocking is how you stop seeing someone. Reporting is a complaint a moderator must be able to act on, and `content_reports_insert_own` keeps that rule.
+
+**A check-in report points at `<user_id>/<goal_id>/<check_in_date>`.** The roster returns `entry_id` for your own rows only, and a photo's signed URL dies in an hour, so neither is a reference a report can keep. `lib/report-reference.ts` owns the format and the resolving query.
+
+**Avatars are one fixed key, `<uid>/avatar.jpg`, overwritten in place.** A timestamped key would orphan the previous image on every change and need the sweep job migration 81 exists for on the other bucket.
+
+#### Two traps, written down because they will recur
+
+**A new enum value must land in its own migration.** Postgres allows `add value` inside a transaction and then refuses `unsafe use of new value` the moment anything references it. Migrations apply transactionally, so migration 88 adds the value and stops — no proof block, for exactly that reason.
+
+**Safari cannot encode WebP**, and `canvas.toBlob` falls back to PNG silently while supabase-js sends `blob.type` rather than the `contentType` option. Three facts, none wrong alone. It cost three device bugs in step 13 and was sitting in the avatars bucket ready to cost them again.
+
+#### The security and resilience audit, before commit
+
+**One real privacy defect, and it lived in a seam rather than in a file.**
+
+`job_scrub_and_list_user_media` listed the avatar to delete only `where avatar_url is not null`. **"Remove picture" clears the column and deliberately keeps the object** — one fixed key, overwritten in place, nothing orphaned by a replacement. Each decision is defensible alone. Together: remove your picture, then delete your account, and **a photograph of your face outlives the account**.
+
+**Migration 89** derives the key from the user id instead of reading the column. A deletion path must not ask permission of the state it is deleting. `md5(prosrc)` matches the file.
+
+**Two smaller holes in `reportContent`, both from trusting a form:**
+
+- **`content_type` was cast, not checked.** `contentType as ReportType` on a raw string is a lie to the type system; an unrecognised value reached Postgres and came back as `22P02`, which `toMessage` renders as "Something went wrong." Now narrowed against a literal list, which also means **`planet_avatar` cannot be filed** — it is in the enum for a feature that does not exist.
+- **`content_reference` has no length CHECK** and is client-supplied `not null` text, so a report could have carried a megabyte of anything. Both valid shapes are exact, so it is validated by comparison rather than by a cap: a profile report must name the account it is about, and a check-in report must parse back through `lib/report-reference.ts`.
+
+**Avatar uploads were unmetered.** `setAvatar` now enforces `photoUpload`, the same limit `attachCheckinPhoto` uses — an avatar and a check-in photo are the same act against the same budget. **It bounds recorded writes, not bytes**: the browser uploads directly to Storage, so the real bounds are the bucket's 2MB cap and `avatars_insert` confining a writer to their own folder. Clearing is not metered; it writes a null.
+
+**What the audit cleared:** every `SECURITY DEFINER` function pins `search_path`, and **`circle_preview` is the only one `anon` can execute**, which is deliberate — `/join/[token]` serves signed-out visitors. `img-src` already covers the Supabase origin, so signed avatar URLs render without a CSP change. No secrets reachable from a client bundle.
+
+#### The audit of 14 and 15
+
+Run as checks rather than as reading.
+
+**Clean:** 0 syntax errors across 17 changed files; no `.rpc()` outside `app/actions/`; no `createAdminClient` in anything bundled; no `new Date("YYYY-MM-DD")` anywhere; no `import.meta` in any spec; no `server-only` module reaching a client bundle (four apparent hits were three comments and one erased `import type`). **Every rate limit now has a caller** — `report` and `deleteAccount` were the last two.
+
+**Two real defects, both fixed:**
+
+1. **Blocking left you on a page you had just made invisible.** The block happens on `/profile/[username]`, which needs the **route pattern** — `revalidatePath("/profile/[username]", "page")`. Passing the resolved URL silently revalidates nothing.
+2. **A refused report said "You don't have access to that."** A policy refusal is a bare `42501` with no hint, and this policy refuses for one reason a person can act on.
+
+**One gap closed by the audit:** `lib/report-reference.ts` had no unit test. It has one now, including `//2026-08-25` — three segments, two empty uuids, which a length check alone would accept.
+
+#### Still open in step 15
+
+- **`content_reports` has a writer and no reader.** A moderation console is deferred to v2; the gap is closed by *documenting the process*, and **the step is not done until `security.md` says how a report reaches a human**.
+- **`/privacy` should say a username and display name are visible to any signed-in user.** Enumeration is now possible by design.
+- **No device run for avatars.** See the manual pass at the top.
+
+---
+
+## Step 17: the admin dashboard ✅ done
+
+Pulled out of v2. `content_reports` had a writer and no reader, and the plan's answer was "document a manual query" — which is a promise to be diligent rather than a feature.
+
+#### Decided
+
+| Question | Answer |
+|---|---|
+| Who is an admin | A `role` column on `users`, `standard` or `admin`. **Not readable or writable by any client** |
+| What an admin sees | **The reported item and nothing else**, through one RPC. Not full read access |
+| What an admin does | **Triage only**: reviewed, actioned, dismissed. No content removal, no suspensions |
+| How admins are made | SQL for the first; after that an admin-only, audited UI |
+
+#### The database layer ✅ done — migrations 91, 92, 93
+
+**`user_role`, not `group_member_role`.** There is already an `admin` in this schema and it means *admin of one Circle*. Two unrelated powers with one name would make the audit log unreadable, so the audit values are `site_admin_granted` / `site_admin_revoked`.
+
+**The column is in no grant at all.** `authenticated` cannot read or write `users.role` through PostgREST — not their own, not anyone's. Every admin path is a `SECURITY DEFINER` function calling `private.is_admin()` as its **first statement**, so there is one door and one place to read to know what an admin can reach. **No admin policies were added**, deliberately: a policy would be a second place the rule lives.
+
+**The escalation is scoped to a row, not to a role.** `admin_report_detail` returns the note or photo *that was reported* and nothing else — an admin cannot browse someone's goals, their other days, or anything nobody complained about. Photo keys leave the database and the server signs them with the service key, because widening `checkin_photos_select` for admins would be a permanent escalation where this is a per-report one.
+
+**Three guards on `admin_set_role`**, each for a specific failure: the caller must already be an admin; **you cannot change your own role**, which is how a single admin locks everyone out; and **the last admin cannot be revoked**, counted `for update` at the moment of the write, because two admins demoting each other concurrently would each see one other admin and leave none.
+
+**A proof caught a real thing before it shipped.** Migration 91 asserts `authenticated` holds nothing on `users.role` — and failed, because `authenticated` holds `REFERENCES` on every column of `users` from a table-level grant. REFERENCES permits creating a foreign key and permits neither reading nor writing, so the assertion was refusing the wrong thing; it now names SELECT, INSERT and UPDATE.
+
+#### The screens ✅ done — migration 94
+
+`/admin` (queue, filtered by status), `/admin/reports/[id]` (the report, its content, triage) and `/admin/people` (the admin list and the role form). Error copy added.
+
+**`notFound()`, not a redirect and not a 403.** A 403 confirms the route exists and has something worth being refused from; a 404 says only what a wrong URL says. The database refuses independently, so the gate is a courtesy and the RPCs are the control.
+
+**Outside `(shell)`.** The four-tab bar is the product; this is the back office, and Overview across the top of a moderation queue invites doing one while distracted by the other. `(app)/layout.tsx` still applies, so the header says which account you are moderating as.
+
+**Migration 94 exists because the app could not ask the question.** `private.is_admin()` is revoked from `authenticated` and `private` is not exposed, so `am_i_admin()` is the one read that gates the route — no argument, so it cannot be asked about anyone else. `admin_list_admins()` is there because a privilege whose holders you cannot enumerate is not reviewable.
+
+**Granting is confirmed; revoking is not.** Granting hands somebody the ability to read other people's reported content and cannot be undone once they have looked. A confirmation on the safe direction is how people learn to click through the unsafe one.
+
+**The signed photo URL for a reported image is minted with the service key**, the only place in the app that does so for someone else's object. `checkin_photos_select` will not sign a stranger's photo for an admin and should not — widening it would be standing access to every photo in the product, where this is one key from one report somebody else raised.
+
+**Still to do: the first admin, by SQL.**
+
+```sql
+update public.users set role = 'admin' where username = 'ryahn2';
+```
+
+#### Tests, and the bug they found — migration 95
+
+`e2e/admin.spec.ts` asserts the gate **at the database and not only at the page**: a standard user calling each of the five admin RPCs directly is refused with `42501`, and the report they tried to resolve is still `pending` afterwards. The 404s are asserted too, but as the courtesy they are.
+
+**Writing the third test found a real defect in migration 93**, and it is the sharpest kind — a rule that could not fire and a rule that fired wrongly, in the same guard.
+
+93 forbade changing your own role *and* refused to revoke the last admin. Those cannot both matter: to reach the last-admin check the caller must be an admin and the target a **different** admin, which means there are two. **The self-guard made the last-admin rule unreachable.** 93's own proof passed only because its final call was a self-demotion — refused by the self-guard, which raises the same SQLSTATE. An assertion that could not fail, of exactly the shape `patterns.md` warns about, written by the same hand that wrote the warning.
+
+And the branch that *was* reachable was wrong: the admin count ran on **every** demotion without checking whether the target held the role. With one admin — a fresh install — revoking anybody at all, including someone who was never an admin, failed with "That is the last administrator". Not an edge case: the common one.
+
+**Migration 95** allows self-demotion, which is what makes the last-admin rule reachable and therefore real, and scopes the count to targets who actually hold the role. `ROLE_SELF_CHANGE` is deleted rather than renamed. Every branch is now asserted **by hint**, because all three refusals share a SQLSTATE and "it was refused" is precisely what hid the first bug.
+
+#### The legal pages, brought up to date
+
+**`/privacy` said "there is no way to browse other users", which stopped being true in 15b.** That was the sharpest correction: profiles are now visible to anyone signed in, and usernames are enumerable by design. It now says so plainly, separates the three tiers (public to nobody, profile to any signed-in user, everything else to your Circles), and states that streaks and totals are **off by default**.
+
+New in both: pictures, blocking, reporting, and a section on **what a moderator can see** — the reported item and nothing else, with the scale named rather than implied, since "an administrator" in a one-person product means one person. `/terms` gains reporting and blocking, and its deletion paragraph now points at settings rather than at an email. Both versions bumped, which is what dates the change in the footer.
+
+---
+
+---
+
+## Step 16: the goal record ✅ done
+
+From the manual pass. The "Archived and achieved" `<details>` on Overview lists a title and a word. It should be a place you go back to.
+
+#### What the data already supports, and what it does not
+
+`progress_entries` keeps every check-in forever — date, note, `note_shared`, `photo_url` — and `goals` keeps `created_at`, `deadline`, `achieved_at`, `archived_at`. **The record is a read.** No new columns.
+
+**Three things it cannot show, and the page has to be honest about each:**
+
+| | |
+|---|---|
+| **Photos older than 90 days are gone** | Retention deletes the object and nulls the column. A day with a note and no image is the ordinary case for an old goal, and it must read as *"the photo was deleted after 90 days"* rather than as a broken thumbnail |
+| **Deleting a goal is not possible, but archiving keeps the entries** | `progress_entries.goal_id` is `ON DELETE SET NULL`, so a record page keyed on `goal_id` shows nothing for entries whose goal was removed. Nothing removes goals today except the suite |
+| **Missed days are not stored** | Only check-ins exist. A calendar of hits and misses can be *derived* from `created_at` to `archived_at`, and that is a different feature — see below |
+
+#### Decided
+
+**A fifth tab.** `/dashboard/goals` joins Overview, Circles, Notifications and Profile in `sections.ts` — one entry and one folder, which is what that file was built for.
+
+**The extensive controls live there, not on Overview.** Creating a goal, setting a deadline, achieving, archiving and per-Circle visibility all move to `/dashboard/goals`. Overview keeps a compact list of active goals and a **View all goals** link, so it is about today rather than about management.
+
+**The archived list is a page, not a preview.** Overview's "Archived and achieved (N)" `<details>` becomes a link to `/dashboard/goals/archived`. An expandable list of retired goals on the screen you check in from is clutter on the way to somewhere else.
+
+**Days completed, not days missed.** The record lists what happened, not a wall of gaps on a goal somebody abandoned. Deriving misses is possible and is a separate decision.
+
+**Photos are signed in batches**, as the roster does. A goal with 200 check-ins must not become 200 signing round trips.
+
+**Paginated from the start.** A daily goal kept for a year is 365 rows. The roster gets away with no paging because a Circle holds ten people; this has no such bound.
+
+#### No migration
+
+`goals_select_own` and `progress_entries_select_own` are both `user_id = auth.uid()`. **The whole feature is a read of your own data**, so there is no RPC, no policy and no grant to add — the first step in a while that touches no SQL.
+
+#### The routes
+
+| | |
+|---|---|
+| `/dashboard/goals` | Active goals with the full controls, and a link to the archive |
+| `/dashboard/goals/archived` | Retired goals: achieved or archived, with when each started and ended |
+| `/dashboard/goals/[id]` | One goal's record: a row per check-in date, with that day's note and photo |
+
+**`/dashboard/goals/archived` and `/dashboard/goals/[id]` are siblings**, and a static segment wins over a dynamic one in Next, so `archived` resolves to the page rather than to a goal. Goal ids are uuids, so nothing can collide with the literal — but it is worth knowing that the rule is ordering rather than luck.
+
+**Under `/dashboard`, not at the root.** Profile is the only section that sits outside it; `sections.ts` holds absolute hrefs and does not care where the files live, so this was a folder move and one string.
+
+#### Built
+
+**Goals is the one section that is *not* `exact`.** `/dashboard/goals/archived` and `/dashboard/goals/[id]` are still your goals, so the tab stays lit — where `/profile/[username]` is somebody else's page and must not light your Profile tab. The flag turns on whose thing you are looking at, not on the shape of the URL, and `sections.test.ts` now pins both cases.
+
+**Overview keeps the `Your goals` landmark**, now a read-only summary: the live list, and only *overdue* deadlines called out, because a deadline three weeks away is not news on the screen you check in from. Every control moved, so `goals.spec.ts` navigates to `/dashboard/goals` — a locator that still found the region on `/dashboard` would have passed while pressing nothing.
+
+**The record pages 60 days at a time**, newest first, with `page` clamped rather than trusted: `Number.parseInt` on nonsense is `NaN`, which becomes a negative `range` and an empty page that reads as a goal with no history.
+
+**Retention is stated once, at the foot of the list**, not on every dateless row. Somebody scrolling a two-year-old goal should understand why the early days have no pictures without working it out.
+
+**The counts are one grouped read, not one per goal.** Active goals stop at ten; retired ones have no cap, so a count per goal is unbounded round trips.
+
+---

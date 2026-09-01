@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database } from "@/lib/database.types"
 import type { RosterGoal, RosterMember } from "@/lib/roster"
 import { signPhotos } from "./photo-urls"
+import { signAvatars } from "./avatar-urls"
 
 /**
  * **`server-only` since step 13, and its absence was the bug.** Nothing stopped
@@ -54,22 +55,38 @@ export async function getCircleRoster(
    * Named separately so the swap below is visible rather than a cast.
    */
   type RawGoal = Omit<RosterGoal, "photoUrl"> & { photo_url: string | null }
-  const raw = (data ?? []) as unknown as (Omit<RosterMember, "goals"> & {
+  const raw = (data ?? []) as unknown as (Omit<RosterMember, "goals" | "avatarUrl"> & {
+    avatar_url: string | null
     goals: RawGoal[]
   })[]
 
-  // One request for every photo on the page, signed as the caller. See
-  // `photo-urls.ts` for why it is not the service key and not per photo.
-  const urls = await signPhotos(
-    supabase,
-    raw.flatMap((m) => m.goals.map((g) => g.photo_url)),
-  )
+  /**
+   * Two batches, in parallel, one per bucket.
+   *
+   * `createSignedUrls` addresses a single bucket, so check-in photos and
+   * avatars cannot share a call. They can share a round trip: neither depends
+   * on the other, and a Circle page that awaited them in sequence would pay two
+   * latencies to render one screen.
+   */
+  const [photos, avatars] = await Promise.all([
+    // One request for every photo on the page, signed as the caller. See
+    // `photo-urls.ts` for why it is not the service key and not per photo.
+    signPhotos(
+      supabase,
+      raw.flatMap((m) => m.goals.map((g) => g.photo_url)),
+    ),
+    signAvatars(
+      supabase,
+      raw.map((m) => m.avatar_url),
+    ),
+  ])
 
-  return raw.map((m) => ({
+  return raw.map(({ avatar_url, ...m }) => ({
     ...m,
+    avatarUrl: avatar_url ? (avatars.get(avatar_url) ?? null) : null,
     goals: m.goals.map(({ photo_url, ...g }) => ({
       ...g,
-      photoUrl: photo_url ? (urls.get(photo_url) ?? null) : null,
+      photoUrl: photo_url ? (photos.get(photo_url) ?? null) : null,
     })),
   }))
 }

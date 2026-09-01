@@ -157,6 +157,13 @@ test("a Circle waiting on a decision sorts to the top of every box", async ({
     await page.goto("/dashboard")
     const panel = page.getByRole("region", { name: "Recent days" })
 
+    // **`allInnerTexts` does not auto-wait**, and since step 14a the panel
+    // arrives through a Suspense boundary rather than with the document. Read
+    // straight after `goto` it returned `[]` — every index -1, reported as a
+    // missing Circle. One auto-waiting assertion first is the whole fix; the
+    // reads below are then reads of a rendered list.
+    await expect(panel.getByTestId("digest-day").nth(1)).toBeVisible()
+
     for (const boxIndex of [0, 1]) {
       const box = panel.getByTestId("digest-day").nth(boxIndex)
       const names = await box.getByTestId("digest-circle").allInnerTexts()

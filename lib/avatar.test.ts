@@ -7,7 +7,7 @@ import {
   MAX_AVATAR_BYTES,
   avatarKey,
 } from "./avatar"
-import { MAX_EDGE, MAX_UPLOAD_BYTES } from "./photo-upload"
+import { MAX_EDGE } from "./photo-upload"
 
 /**
  * Step 15f, the half that can be tested without a browser.
@@ -71,12 +71,22 @@ describe("the constants agree with the bucket", () => {
     expect(AVATAR_BUCKET).toBe("avatars")
   })
 
-  it("caps at the bucket's own limit, not the check-in photo one", () => {
-    // The avatars bucket allows 2MB where checkin-photos allows 10. Checking
-    // against the wrong cap would let a 5MB file through to a Storage refusal
-    // after the upload had already been paid for on someone's mobile data.
-    expect(MAX_AVATAR_BYTES).toBe(2 * 1024 * 1024)
-    expect(MAX_AVATAR_BYTES).toBeLessThan(MAX_UPLOAD_BYTES)
+  it("accepts a file far larger than the bucket stores", () => {
+    /**
+     * **The input cap and the storage cap are different numbers, and this test
+     * used to assert they were the same one.** It pinned 2MB — the bucket's
+     * limit — as what the picker accepts, and passed while the picker refused
+     * ordinary iPhone photos, which are 3–5MB.
+     *
+     * What reaches Storage is a 256px square JPEG of tens of kilobytes, so it
+     * cannot approach the bucket's 2MB whatever the original weighed. The cap
+     * here bounds what is read into memory and decoded, nothing else.
+     */
+    expect(MAX_AVATAR_BYTES).toBe(10 * 1024 * 1024)
+    expect(
+      MAX_AVATAR_BYTES,
+      "the input cap should not be smaller than a phone photo",
+    ).toBeGreaterThan(5 * 1024 * 1024)
   })
 
   it("stores far fewer pixels than a check-in photo", () => {

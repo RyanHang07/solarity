@@ -4,6 +4,7 @@ import { useActionState, useState } from "react"
 import { useFormStatus } from "react-dom"
 import Link from "next/link"
 import { setNoteSharing } from "@/app/actions/check-ins"
+import { Avatar } from "@/components/avatar"
 import { CheckinPhoto } from "@/components/checkin-photo"
 import { ReportCheckin } from "./report-checkin"
 import type { ActionResult } from "@/lib/errors"
@@ -77,12 +78,18 @@ export function TodayRoster({
               aria-expanded={open}
               className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
             >
-              <span>
-                {name}
-                {m.is_self ? <span className="opacity-60"> (you)</span> : null}
-                {m.role !== "member" ? (
-                  <span className="opacity-60"> · {m.role}</span>
-                ) : null}
+              <span className="flex min-w-0 items-center gap-2">
+                {/* 15f. Next to the name, which is the whole point of it: the
+                    roster is where you scan a Circle for people, and a face is
+                    faster to scan than a handle. */}
+                <Avatar url={m.avatarUrl} name={name ?? ""} size={28} />
+                <span className="truncate">
+                  {name}
+                  {m.is_self ? <span className="opacity-60"> (you)</span> : null}
+                  {m.role !== "member" ? (
+                    <span className="opacity-60"> · {m.role}</span>
+                  ) : null}
+                </span>
               </span>
 
               <span className="flex shrink-0 items-center gap-2">

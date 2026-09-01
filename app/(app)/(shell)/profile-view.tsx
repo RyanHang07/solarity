@@ -1,3 +1,4 @@
+import { Avatar } from "@/components/avatar"
 import type { Profile } from "@/app/actions/profile"
 
 /**
@@ -36,31 +37,9 @@ export function ProfileView({
   return (
     <section aria-label={`${profile.username}'s profile`} className="flex flex-col gap-6">
       <div className="flex items-center gap-4">
-        {avatarUrl ? (
-          /*
-            **A plain `<img>`, not `next/image`.** The source is a signed URL
-            with an hour's TTL, so the optimiser would cache a URL that outlives
-            it and then serve a 400 from its own cache. `checkin-photo.tsx` made
-            the same call for the same reason.
-          */
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={avatarUrl}
-            alt={`${profile.username}'s picture`}
-            width={80}
-            height={80}
-            className="size-20 rounded-full object-cover"
-          />
-        ) : (
-          // Initials, not a placeholder asset: nothing to ship, nothing to
-          // load, and legible at every size this is drawn at.
-          <span
-            aria-hidden
-            className="flex size-20 items-center justify-center rounded-full border text-2xl font-medium opacity-70"
-          >
-            {name.charAt(0).toUpperCase()}
-          </span>
-        )}
+        {/* Same component as the roster row and the header. One avatar that
+            renders four ways is four things to keep in step. */}
+        <Avatar url={avatarUrl} name={name} size={80} />
 
         <div className="flex flex-col gap-0.5">
           {/*

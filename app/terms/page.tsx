@@ -52,9 +52,29 @@ export default function TermsPage() {
           Anything sexual involving a minor will be reported.
         </p>
         <p className="opacity-70">
-          Accounts that break these can be removed without notice. There are
-          currently no automated content checks — it is a small app, and this
-          runs on people telling me.
+          Accounts that break these can be removed without notice. There are no
+          automated content checks — it is a small app, and this runs on people
+          telling me.
+        </p>
+      </PolicySection>
+
+      <PolicySection heading="Reporting, and blocking">
+        <p>
+          You can <strong>report</strong> a photo, a note or a profile belonging
+          to someone in one of your Circles. An administrator reads what was
+          reported and records whether they reviewed, actioned or dismissed it.
+          Reports are not anonymous to the administrator, and the person you
+          reported is not told who reported them.
+        </p>
+        <p>
+          You can <strong>block</strong> anyone. Blocking hides your profile from
+          them and theirs from you. It does not remove either of you from a
+          Circle you both joined, and it does not tell them. Undo it in settings.
+        </p>
+        <p className="opacity-70">
+          Reporting is for content that breaks these terms. Filing reports about
+          somebody you simply disagree with is itself a misuse of it — block them
+          instead.
         </p>
       </PolicySection>
 
@@ -74,15 +94,20 @@ export default function TermsPage() {
 
       <PolicySection heading="Ending it">
         <p>
-          You can stop at any time. Email{" "}
-          <a href={`mailto:${CONTACT_EMAIL}`} className="underline">
-            {CONTACT_EMAIL}
-          </a>{" "}
-          to have your account deleted, and see{" "}
+          You can stop at any time.{" "}
+          <Link href="/settings" className="underline">
+            Delete your account from settings
+          </Link>
+          ; it happens immediately and cannot be undone. See{" "}
           <Link href="/privacy" className="underline">
             Privacy
           </Link>{" "}
-          for exactly what that removes and what it leaves.
+          for exactly what that removes and what it leaves. If you would rather
+          write, email{" "}
+          <a href={`mailto:${CONTACT_EMAIL}`} className="underline">
+            {CONTACT_EMAIL}
+          </a>{" "}
+          and it will be done for you.
         </p>
         <p>
           Solarity can close an account that breaks these terms, and can shut
