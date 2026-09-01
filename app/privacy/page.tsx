@@ -2,9 +2,13 @@ import Link from "next/link"
 import { PolicyPage, PolicySection } from "@/components/policy-page"
 import {
   CONTACT_EMAIL,
+  CONTROLLER_NAME,
+  DATA_REGION,
+  EXPORT_CONTENTS,
   MINIMUM_AGE,
   PRIVACY_VERSION,
   PROCESSORS,
+  RESPONSE_DAYS,
   RETENTION_DAYS,
 } from "@/lib/legal"
 
@@ -43,8 +47,10 @@ export default function PrivacyPage() {
     >
       <PolicySection heading="Who runs this">
         <p>
-          Solarity is run by one person, not a company. Questions, requests, or
-          anything about your data:{" "}
+          Solarity is run by <strong>{CONTROLLER_NAME}</strong>, one person, not
+          a company. That means there is no support team standing between you
+          and whoever holds your data: it is the same person either way.
+          Questions, requests, or anything about your data:{" "}
           <a href={`mailto:${CONTACT_EMAIL}`} className="underline">
             {CONTACT_EMAIL}
           </a>
@@ -79,10 +85,52 @@ export default function PrivacyPage() {
             <strong>Notifications.</strong> If you turn on push, the address your
             browser gives us to reach that device, and a label for it.
           </li>
+          <li>
+            <strong>Your IP address.</strong> Every site sees one. Solarity does
+            not store it in its database, but the hosting provider records it
+            with the request, and opening an invite link counts an attempt
+            against it so a stranger cannot guess their way into a Circle.
+          </li>
         </ul>
         <p className="opacity-70">
           There is no analytics, no advertising, and no tracking across other
-          sites. Solarity does not sell anything about you.
+          sites. Solarity does not sell anything about you. It also sends you no
+          email today, which is why it has no way to reach you outside the app.
+        </p>
+      </PolicySection>
+
+      {/*
+        **The lawful-basis section, without the phrase "lawful basis".** GDPR
+        asks why each kind of data is processed and under which ground. Written
+        as three reasons in plain words, because a person deciding whether to
+        trust this needs the answer more than a regulator needs the vocabulary,
+        and the vocabulary is recoverable from the wording: a service you asked
+        for is contract, a switch you turned on is consent, and stopping abuse
+        is legitimate interests.
+      */}
+      <PolicySection heading="Why it is collected">
+        <ul className="flex list-disc flex-col gap-1 pl-5">
+          <li>
+            <strong>To run the thing you signed up for.</strong> Your profile,
+            goals, check-ins and Circles exist because the app cannot show you
+            your streak or show your Circle your day without them. This is most
+            of it.
+          </li>
+          <li>
+            <strong>Because you switched it on.</strong> Push notifications and
+            showing your streaks on your profile are both off until you turn
+            them on, and turning them off again stops the processing.
+          </li>
+          <li>
+            <strong>To keep it from being abused.</strong> Counting invite
+            attempts against an IP address, and keeping reports, exist so a
+            stranger cannot guess their way into a Circle and so there is a
+            record when somebody posts something they should not have.
+          </li>
+        </ul>
+        <p className="opacity-70">
+          Nothing here is processed for advertising, profiling or any automated
+          decision about you. There is no such system to opt out of.
         </p>
       </PolicySection>
 
@@ -180,17 +228,45 @@ export default function PrivacyPage() {
             <strong>Goals, check-ins and streaks: until you delete them</strong>{" "}
             or delete your account.
           </li>
+          <li>
+            <strong>Your picture: until you replace or remove it.</strong> It has
+            no expiry date, unlike a check-in photo.
+          </li>
+          <li>
+            <strong>Reports, and the record of who was given moderator access:
+            kept.</strong> Nothing deletes these on a schedule. A report is the
+            only account of why something was actioned, and a record that
+            expired would be no record at all.
+          </li>
         </ul>
       </PolicySection>
 
       <PolicySection heading="Getting your data, and getting rid of it">
         <p>
-          <strong>Export.</strong> Everything Solarity holds about you is
-          downloadable as one JSON file from{" "}
+          <strong>Export.</strong> One JSON file, from{" "}
           <Link href="/settings" className="underline">
             your settings
           </Link>
-          .
+          . It contains:
+        </p>
+        <ul className="flex list-disc flex-col gap-1 pl-5">
+          {EXPORT_CONTENTS.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+        <p className="opacity-70">
+          {/*
+            Named rather than left as "and some other things". A person checking
+            whether they got everything can only do that against a list, and the
+            gap is small enough to state plainly.
+          */}
+          Not in the file: your notifications, the devices you turned push on
+          for, who you have blocked, reports you filed, your notification
+          settings, and the email address Google gave us. Write to{" "}
+          <a href={`mailto:${CONTACT_EMAIL}`} className="underline">
+            {CONTACT_EMAIL}
+          </a>{" "}
+          for any of those and you will get them.
         </p>
         <p>
           <strong>Deletion.</strong>{" "}
@@ -205,11 +281,69 @@ export default function PrivacyPage() {
           from the address on your account and it will be done for you.
         </p>
         <p>
-          <strong>One thing deletion does not do.</strong> Your check-in records
+          <strong>What deletion removes.</strong> Your account, your profile,
+          your picture, your notes, your photos, your notifications and the
+          devices you turned push on for. The picture and the photos are deleted
+          from storage, not just unlinked.
+        </p>
+        <p>
+          <strong>Two things deletion does not do.</strong> Your check-in records
           stay, with your name and any note removed from them. They are part of
           other members&apos; shared history — the days a Circle completed
           together — and erasing them would silently rewrite other people&apos;s
-          streaks. Your photos, your notes and your account are gone.
+          streaks.
+        </p>
+        <p>
+          And <strong>a report keeps its shape without your name in it.</strong>{" "}
+          If you reported something, or were reported, the report survives with
+          the link to your account removed, as does the record of any moderator
+          access that was granted or taken away. Both are accounts of a decision
+          somebody made, and a decision with no record is not reviewable.
+        </p>
+      </PolicySection>
+
+      {/*
+        **The rights list, written as things you can do rather than as
+        articles.** Two of the six are buttons in this app, which is the part
+        worth leading with: a rights section that reads as a legal formality
+        buries the fact that deletion is one click away. The response window is
+        a real commitment made by one person; see `RESPONSE_DAYS`.
+      */}
+      <PolicySection heading="What you can ask for">
+        <p>
+          Wherever you live, you can do all of these. Where you live may also
+          give you a legal right to them, and the answer is the same either way.
+        </p>
+        <ul className="flex list-disc flex-col gap-1 pl-5">
+          <li>
+            <strong>See it, and take a copy.</strong> The export above, plus
+            anything it leaves out on request.
+          </li>
+          <li>
+            <strong>Correct it.</strong> Your username, display name, picture and
+            timezone are all editable in settings. Anything else, write.
+          </li>
+          <li>
+            <strong>Delete it.</strong> One button in settings. The section above
+            says exactly what stays and why.
+          </li>
+          <li>
+            <strong>Object to something, or ask that it stop.</strong> Including
+            the parts you did not switch on, like counting invite attempts.
+          </li>
+          <li>
+            <strong>Complain to a regulator</strong> in your country, without
+            asking here first.
+          </li>
+        </ul>
+        <p>
+          Anything that is not a button gets an answer within{" "}
+          <strong>{RESPONSE_DAYS} days</strong>, usually much sooner. Write from
+          the address on your account so it is clear who is asking:{" "}
+          <a href={`mailto:${CONTACT_EMAIL}`} className="underline">
+            {CONTACT_EMAIL}
+          </a>
+          .
         </p>
       </PolicySection>
 
@@ -225,14 +359,39 @@ export default function PrivacyPage() {
             </li>
           ))}
         </ul>
+        <p>
+          <strong>Where it is.</strong> All of it is stored and processed in{" "}
+          {DATA_REGION}. If you are in the UK or the EU, using Solarity means
+          your data goes there.
+        </p>
+      </PolicySection>
+
+      {/*
+        **Cookies, because their absence was conspicuous.** Every one of these
+        is functional: the Supabase session cookies, `today-gate`'s two, and the
+        dismissal cookie for the install nudge. None is a tracker, which is why
+        there is no banner, and saying so is shorter than the banner would be.
+      */}
+      <PolicySection heading="Cookies">
+        <p>
+          Only the ones the app needs. They keep you signed in, remember whether
+          you have already seen today&apos;s check-in screen, and remember that
+          you dismissed a prompt.
+        </p>
+        <p className="opacity-70">
+          There are no advertising or analytics cookies, and nothing here follows
+          you to another site. That is also why Solarity has no cookie banner:
+          there is nothing to consent to.
+        </p>
       </PolicySection>
 
       <PolicySection heading="Security">
         <p>
-          Check-in photos live in private storage and are served through links
-          that expire within the hour. Every rule about who can read what is
-          enforced by the database itself rather than by the app, so a bug in a
-          screen cannot show someone a goal they were not meant to see.
+          Check-in photos and profile pictures both live in private storage and
+          are served through links that expire within the hour. Every rule about
+          who can read what is enforced by the database itself rather than by the
+          app, so a bug in a screen cannot show someone a goal they were not
+          meant to see.
         </p>
         <p className="opacity-70">
           No system is perfect, and this one is early. If you find something
@@ -242,8 +401,20 @@ export default function PrivacyPage() {
 
       <PolicySection heading="Changes">
         <p>
-          If this changes in a way that matters, the date at the top changes and
-          you will be told in the app before it takes effect.
+          If this changes in a way that matters, the date at the top changes.
+        </p>
+        <p className="opacity-70">
+          {/*
+            This used to promise notice in the app before a change took effect.
+            Nothing implements that: there is no acceptance record, no banner,
+            and the app sends no email, so the promise had no mechanism behind
+            it. A policy that overstates its own machinery is the exact failure
+            this page is meant to avoid.
+          */}
+          It will not email you, because Solarity does not send email. There is
+          no in-app announcement yet either, so the honest version is that the
+          date is the notice. That changes when the signup flow does, and this
+          paragraph changes with it.
         </p>
       </PolicySection>
     </PolicyPage>

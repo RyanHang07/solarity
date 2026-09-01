@@ -166,16 +166,49 @@ The pages say they are not legal advice. That is honest, and it is also not a pl
 
 | | What it is | When it bites |
 |---|---|---|
-| **Accuracy** | Do the pages describe what the code does? | **Now.** This is the part that is your problem rather than a lawyer's, and it is the part most likely to be wrong — every number lives in `lib/legal.ts` for that reason, but nothing enforces that the *prose* keeps up. A policy that describes a different product is worse than none, because it is a written, dated, public misstatement |
-| **Sufficiency** | Do they contain what the law requires of you? | **When you have users outside your test accounts**, and sharply if any are in the EU, UK or California. GDPR requires a named controller, a lawful basis per purpose, a retention period, and the rights list; CCPA requires a "do not sell" statement even though you do not sell. The current pages cover most of the *substance* and none of the *ritual* |
+| **Accuracy** | Do the pages describe what the code does? | ✅ **Done 31 Aug**, and it found six defects; they are listed below. This was the part that was your problem rather than a lawyer's. Every number lives in `lib/legal.ts`, and `EXPORT_CONTENTS` and `PROCESSORS` now join them, but nothing enforces that the *prose* keeps up beyond the four assertions added to `legal.spec.ts` |
+| **Sufficiency** | Do they contain what the law requires of you? | ✅ **Done 31 Aug**, at the level chosen for the audience: friends, mostly US. Named controller, the three reasons processing happens, the rights list with a **30-day** window, US storage stated as a transfer, and a cookie section. Written in the pages' own voice rather than as articles, on the grounds that a reader needs the answer more than a regulator needs the vocabulary. **Not done:** a CCPA notice-at-collection and an explicit do-not-sell heading, deliberately, since a "does not sell" sentence already sits under *What is collected*. Revisit if the audience stops being people you know |
 | **Exposure** | Do the terms actually protect you? | **When someone is unhappy.** "No guarantees" and "we can close your account" are the two clauses most often unenforceable as written, and both are in there. A one-person operation with no company is personally liable, which is the real reason this matters more here than it would behind an LLC |
+
+### What the accuracy pass found, 31 August
+
+Six defects, in a set of pages that had been written carefully six days earlier. Every one was a sentence describing a thing the code does not do.
+
+| | Was | Is |
+|---|---|---|
+| 1 | "Everything Solarity holds about you is downloadable as one JSON file" | `export_user_data()` returns six things and omits notifications, push subscriptions, blocks, reports, the notification and screen preferences, and the email address in `auth.users`. **The single worst sentence to have wrong**, because it is the one a data access request is judged against. The page now lists what the file holds, from `EXPORT_CONTENTS`, and names what it does not |
+| 2 | "a change that matters will be shown in the app before it takes effect", on both pages | Nothing implements it. No acceptance record, no banner, and the app sends no email. **A policy that overstates its own machinery is the failure these pages exist to avoid.** Now: the date is the notice, said plainly |
+| 3 | IP addresses unmentioned | `clientIp()` sends the caller's IP to Upstash as a rate-limit key on the two signed-out paths, and Vercel logs it with every request. Now a bullet under *What is collected*, and both processor roles say which data reaches them |
+| 4 | Retention listed only what expires | Avatars have no sweep, and neither do `content_reports` or `audit_log`. A list of things that expire, with no mention of what does not, reads as though everything does |
+| 5 | Deletion mentioned only the check-in carve-out | It also leaves a report and an admin-access record behind with the user link nulled, and it *does* delete the avatar object, which the page never said. Both are now stated |
+| 6 | "the only thing it does with them", in Terms | Contradicted two sections later by the reporting flow, where an administrator reads one reported note or photo. Qualified in place |
+
+**And one near-miss worth recording.** Brevo was almost deleted from `PROCESSORS`, because nothing in the repository sends email and a grep says so. It is configured as Supabase's auth SMTP sender in project settings, outside the codebase, and `architecture/app.md` had it documented all along. **A processor is named for what it is wired to receive, not for what it happened to handle this month.** The entry now says both halves: configured, and unused while Google is the only way in.
+
+`legal.spec.ts` gained four assertions from this: every `PROCESSORS` name appears on the page, the export section still says what it leaves out, and the phrase "told in the app" appears nowhere.
+
+### And the sufficiency pass, same day
+
+Four decisions, taken for an audience of friends who are mostly in the US, and each one is a commitment rather than a wording choice.
+
+| | Decision | What it cost |
+|---|---|---|
+| **Controller** | Named: `CONTROLLER_NAME` in `lib/legal.ts` | A name without a postal address. The usual position for an individual, and the strongest argument for forming an entity is the address question, not this one |
+| **Response window** | `RESPONSE_DAYS = 30`, the GDPR month rather than the CCPA's 45 | **A personal commitment with no team behind it**, including during a holiday. Chosen because export and deletion are both instant and self-serve, so the only requests arriving by hand are the six things the export omits |
+| **Transfers** | `DATA_REGION`, stated plainly | Nothing, and its absence was conspicuous. `us-west-1`, plus US-hosted Vercel and Upstash |
+| **Cookies** | A section saying they are all functional | Shorter than the banner would have been, and it explains why there is no banner |
+
+**Written as things you can do, not as articles.** The rights section leads with the two that are buttons in the app, because a rights list that reads as a formality buries the fact that deletion is one click. The lawful bases are recoverable from the wording without the phrase appearing: a service you asked for is contract, a switch you turned on is consent, stopping abuse is legitimate interests.
+
+Four more assertions in `legal.spec.ts`: the controller name, the response window, the cookie heading, and the data region, three of them read from `lib/legal.ts` so editing a constant without the page fails.
 
 **The specific things a reviewer should be pointed at**, rather than handed the pages cold:
 
 - **18+ with no verification.** The terms state it; nothing enforces it, because Google sign-in asks nothing. That gap is normal, but it should be a deliberate position rather than an accident, and it changes if you ever market to students.
 - **Photos of other people.** The terms say do not post someone who has not agreed. A product whose whole point is sharing photos with a small group is a product that will eventually host a photo of someone who did not consent, and there is currently no reporting path — that is step 15.
 - **Deletion is partial, on purpose.** Check-ins survive anonymised so other members' streaks are not rewritten. This is defensible and unusual, and it is exactly the sentence a regulator would ask about. It is stated plainly on the page, which is the right call, but it is worth confirming that "anonymised" is doing the work you think it is: the row still ties to a Circle and a date.
-- **Processors and transfers.** Supabase, Vercel, Upstash, Google and Brevo are named. Whether any of them need a signed DPA, and where the data physically sits, are questions nobody has asked yet.
+- **Processors and transfers.** Supabase, Vercel, Upstash, Google and Brevo are named, each with the data that reaches it. Whether any of them need a signed DPA, and where the data physically sits, are questions nobody has asked yet.
+- **An export that is not complete.** The page now says so, which is the honest fix. The better one is extending `export_user_data()` to cover notifications, push subscriptions, blocks, reports and the preference columns, which is one migration and would let the page make the stronger claim.
 - **No company.** Everything above lands on you personally. Forming an entity is the single change that alters the whole risk picture, and it is a decision, not a task.
 
 **The cheap version**, if a full review is not proportionate yet: keep the audience to people you know, keep the pages accurate, and revisit before the first stranger signs up. The expensive version is discovering the gap after that.
@@ -265,7 +298,7 @@ Keep the posture deny-by-default: enumerate what is *public*, so a forgotten rou
 | 1 | **The first admin, by SQL** | Two minutes. `/admin` is unreachable and untestable by hand until it runs; the statement is at the top of this file |
 | 2 | **A device pass for avatars** | Rows 1–6 of the manual pass. The only feature shipped with no run on real hardware, in the one pipeline that has failed on a device three times |
 | 3 | **Regenerate `graphify-out/`** | Stale since steps 15–17 added roughly thirty files. `graphify . update`, then `node scripts/graph-freshness.mjs` |
-| 4 | **The legal review** | The only unbounded item. `/privacy` and `/terms` were rewritten on 28 Aug for profiles, avatars, blocking, reporting and admin access, so a reviewer is reading something current. The section below says what to hand them |
+| 4 | ~~**The legal review**~~ | **Accuracy and sufficiency both done, 31 Aug.** Six defects fixed, then the controller, reasons, rights, transfer and cookie sections added. What remains is **exposure**, which is not a writing task: "no guarantees" and "we can close your account" are the two clauses most often unenforceable as written, and a one-person operation with no entity is personally liable for whatever they fail to cover. That is a decision about forming a company, not a paragraph |
 
 **Also worth a run before any deploy:** `E2E_PROD=1 npm run test:e2e:ios`, which is the only pass that sees the CSP that ships.
 

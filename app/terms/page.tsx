@@ -1,6 +1,11 @@
 import Link from "next/link"
 import { PolicyPage, PolicySection } from "@/components/policy-page"
-import { CONTACT_EMAIL, MINIMUM_AGE, TERMS_VERSION } from "@/lib/legal"
+import {
+  CONTACT_EMAIL,
+  CONTROLLER_NAME,
+  MINIMUM_AGE,
+  TERMS_VERSION,
+} from "@/lib/legal"
 
 export const metadata = {
   title: "Terms — Solarity",
@@ -28,8 +33,9 @@ export default function TermsPage() {
           them. Circles are invite-only and hold at most ten people.
         </p>
         <p className="opacity-70">
-          It is run by one person, early in its life, and free. Expect it to
-          change.
+          It is run by {CONTROLLER_NAME}, one person, early in its life, and
+          free. Expect it to change. There is no company behind it, which is
+          worth knowing before you rely on it for anything.
         </p>
       </PolicySection>
 
@@ -43,8 +49,10 @@ export default function TermsPage() {
       <PolicySection heading="What you put in it">
         <p>
           Your goals, notes and photos stay yours. You give Solarity permission
-          to store them and to show them to the Circles you chose, which is the
-          only thing it does with them.
+          to store them and to show them to the Circles you chose. It does
+          nothing else with them, with one exception: if somebody reports a note
+          or a photo, an administrator can read that one thing in order to judge
+          the report.
         </p>
         <p>
           <strong>Do not post</strong> anything illegal, anything that harasses
@@ -111,15 +119,41 @@ export default function TermsPage() {
         </p>
         <p>
           Solarity can close an account that breaks these terms, and can shut
-          down entirely. If it shuts down, you will be told with enough notice to
-          export your data.
+          down entirely. If it shuts down, the notice will be on this site, and
+          the export in your settings keeps working for as long as the site is
+          up.
+        </p>
+        <p className="opacity-70">
+          {/*
+            This used to promise you would "be told with enough notice". There
+            is no mechanism: the app sends no email and has no announcement
+            surface, so the only place notice can appear is the site itself.
+            Better to say where to look than to promise a message that cannot
+            be sent.
+          */}
+          Solarity sends you no email, so it has no way to reach you off the
+          site. If that matters to you, export your data now and again rather
+          than relying on being warned.
         </p>
       </PolicySection>
 
       <PolicySection heading="Changes">
         <p>
-          These may change. The date at the top says when they last did, and a
-          change that matters will be shown in the app before it takes effect.
+          These may change. The date at the top says when they last did, and
+          continuing to use Solarity after that date is what agreement to the
+          new version looks like.
+        </p>
+        <p className="opacity-70">
+          {/*
+            Nothing records acceptance: Google sign-in never shows a checkbox,
+            so there is no moment at which anyone agrees. `TERMS_VERSION` exists
+            for the signup flow to compare against when there is one. Until
+            then, saying so is more useful than a sentence claiming consent
+            that was never collected.
+          */}
+          You have never been shown a box to tick, because signing in with
+          Google does not offer one, and nothing here records that you read
+          this. That is worth knowing rather than glossing over.
         </p>
       </PolicySection>
 

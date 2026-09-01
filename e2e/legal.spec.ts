@@ -1,4 +1,10 @@
 import { test, expect } from "@playwright/test"
+import {
+  CONTROLLER_NAME,
+  DATA_REGION,
+  PROCESSORS,
+  RESPONSE_DAYS,
+} from "@/lib/legal"
 
 /**
  * The public surface: the two policy pages, and the two files that describe the
@@ -58,6 +64,74 @@ test("the privacy policy states what it must", async ({ page }) => {
   // Contact, as a real mailto rather than plain text.
   const contact = page.getByRole("link", { name: /@/ }).first()
   await expect(contact).toHaveAttribute("href", /^mailto:/)
+
+  /**
+   * **Every processor, named.** The 31 Aug review found one entry describing a
+   * service and nearly deleted another that was real, so the list is the part
+   * of this page most likely to drift in both directions. Asserting each name
+   * fails when somebody edits `PROCESSORS` and never looks at the page.
+   *
+   * The names come from `lib/legal.ts`, so this cannot pass by containing the
+   * word "Supabase" somewhere unrelated: `PolicySection` renders them as list
+   * items and nothing else on the page mentions a vendor.
+   */
+  for (const p of PROCESSORS) {
+    await expect(
+      page.getByRole("listitem").filter({ hasText: p.name }),
+      `${p.name} is in PROCESSORS and not on the page`,
+    ).not.toHaveCount(0)
+  }
+
+  /**
+   * **The export claim, which is the sentence a data access request is judged
+   * against.** It read "everything Solarity holds about you" while the RPC
+   * returned six things and omitted six more. The page now lists what the file
+   * contains and names what it does not, so this asserts the disclaimer is
+   * still there rather than the list being quietly widened back to a claim.
+   */
+  await expect(
+    page.getByText(/Not in the file:/),
+    "the export section no longer says what it leaves out",
+  ).toBeVisible()
+
+  /**
+   * **No promise of a notice nobody can send.** Both pages used to say a change
+   * would be shown in the app before it took effect. There is no acceptance
+   * record, no banner and no email, so the sentence had no machinery behind it.
+   */
+  await expect(
+    page.getByText(/told in the app/i),
+    "the page promises in-app notice, which nothing implements",
+  ).toHaveCount(0)
+
+  /**
+   * **The four sufficiency facts**, added on 31 Aug for the half of the review
+   * a lawyer would ask about rather than the half the code answers.
+   *
+   * Each is a claim a reader or a regulator would look for by name, and each
+   * would be dropped silently by a rewrite that was only tidying prose. The
+   * controller and the window come from `lib/legal.ts`, so editing the constant
+   * without editing the page fails here.
+   */
+  await expect(
+    page.getByText(CONTROLLER_NAME),
+    "no named controller, so the page says who runs it only in the abstract",
+  ).not.toHaveCount(0)
+
+  await expect(
+    page.getByText(new RegExp(`${RESPONSE_DAYS} days`)),
+    "no response window for requests that are not self-serve",
+  ).toBeVisible()
+
+  await expect(
+    page.getByRole("heading", { name: "Cookies" }),
+    "no cookie section, which is the first absence a reviewer notices",
+  ).toBeVisible()
+
+  await expect(
+    page.getByText(new RegExp(DATA_REGION)),
+    "the page does not say where the data physically is",
+  ).not.toHaveCount(0)
 })
 
 test("a signed-out visitor can reach the policies from the front door", async ({
