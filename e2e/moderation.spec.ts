@@ -3,7 +3,9 @@ import {
   admin,
   assertOk,
   circleName,
+  createCircleViaApi,
   deleteE2ECircles,
+  inviteTokenFor,
   requireEnv,
   sessionFor,
   userIdByEmail,
@@ -216,5 +218,70 @@ test("a report needs a shared Circle, and cannot be about yourself", async () =>
   } finally {
     await clearReports(ownerId)
     await deleteE2ECircles()
+  }
+})
+
+/**
+ * Step 18a. A block hides you from the invite search too.
+ *
+ * **Here rather than in `invite-user.spec.ts`**, because this is a claim about
+ * blocking rather than about inviting: the other guarantees blocking makes live
+ * in this file, and a block that leaked through one surface while holding on
+ * three is exactly the drift a scattered assertion misses.
+ *
+ * **One direction only, deliberately.** The joiner blocks the owner, and the
+ * owner must then be unable to find the joiner. Mutual invisibility means the
+ * person who blocked disappears from the blocker's view *and* the blocked
+ * person's, and it is the second half that is easy to get wrong: the owner
+ * never asked for this and the app has to enforce it anyway.
+ */
+test("a blocked account cannot be found in the invite search", async () => {
+  const ownerId = await userIdByEmail(OWNER())
+  const joinerId = await userIdByEmail(JOINER())
+  const joinerName = await usernameOf(joinerId)
+
+  await clearBlocks(ownerId, joinerId)
+  const owner = await sessionFor(OWNER())
+  const joiner = await sessionFor(JOINER())
+
+  try {
+    // The control first, and it is the whole test: without it, "the search
+    // returns nothing" would pass against a search that never works.
+    const before = await owner.rpc("search_users", { p_query: joinerName })
+    expect(before.error, "search errored before any block existed").toBeNull()
+    expect(
+      (before.data ?? []).some((u) => u.id === joinerId),
+      "the search could not find them before the block, so the block proves nothing",
+    ).toBe(true)
+
+    assertOk(
+      await joiner
+        .from("user_blocks")
+        .insert({ blocker_user_id: joinerId, blocked_user_id: ownerId })
+        .select("blocker_user_id"),
+      "block the owner",
+    )
+
+    const after = await owner.rpc("search_users", { p_query: joinerName })
+    expect(
+      (after.data ?? []).some((u) => u.id === joinerId),
+      "somebody who blocked you still turns up in your invite search",
+    ).toBe(false)
+
+    // And the button behind the search agrees, answered as "no such person"
+    // rather than as "they blocked you". A different message here would make
+    // the invite flow a detector for being blocked.
+    const { groupId } = await createCircleViaApi(OWNER(), "blocked invite")
+    await inviteTokenFor(OWNER(), groupId)
+    const refused = await owner.rpc("invite_user_to_circle", {
+      p_group_id: groupId,
+      p_user_id: joinerId,
+    })
+    expect(
+      refused.error?.hint,
+      "inviting somebody who blocked you was allowed, or was refused in a way that names the block",
+    ).toBe("NOT_FOUND")
+  } finally {
+    await clearBlocks(ownerId, joinerId)
   }
 })

@@ -531,3 +531,48 @@ export async function deleteAccount(
    */
   redirect("/?notice=account-deleted")
 }
+
+/**
+ * Step 19. Which kinds of notification may interrupt you.
+ *
+ * **One action, four columns, one form**, rather than four actions. They are
+ * saved together because they are read together: somebody deciding how noisy
+ * this app should be makes one decision about four switches, and four separate
+ * Save buttons would turn that into four round trips and four chances for the
+ * page to disagree with the database.
+ *
+ * **Absence is off**, the same convention as `updatePushShowsCircleName`: a
+ * checkbox sends nothing when unticked, so every field has to be read as a
+ * presence test rather than a value.
+ *
+ * **No `revalidatePath`.** The only readers are the triggers in migration 103,
+ * which query when they run.
+ */
+export async function updateNotificationPrefs(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: "Please sign in again." }
+
+  const { data, error } = await supabase
+    .from("users")
+    .update({
+      notify_goal_achieved: formData.get("goal_achieved") === "on",
+      notify_first_finisher: formData.get("first_finisher") === "on",
+      notify_last_one_left: formData.get("last_one_left") === "on",
+      notify_circle_activity: formData.get("circle_activity") === "on",
+    })
+    .eq("id", user.id)
+    .select("id")
+
+  if (error) return { ok: false, error: toMessage(error) }
+  // **`.select("id")` is the only proof the write landed.** RLS filters rather
+  // than erroring, so a refused update returns success and zero rows.
+  if (!data?.length) return { ok: false, error: "Couldn't save that." }
+
+  return { ok: true, data: undefined }
+}

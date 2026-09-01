@@ -41,3 +41,43 @@ export async function getCirclePreview(
   // Declared `returns table`, so PostgREST hands back an array of one row.
   return (data as CirclePreview[] | null)?.[0] ?? null
 }
+
+export type PreviewMember = {
+  username: string
+  avatar_url: string | null
+  role: string
+}
+
+/**
+ * Step 18c. Who is already in the Circle this token opens.
+ *
+ * **Same exemption, same condition as `getCirclePreview` above**: it is called
+ * from `/join/[token]` only, after that page has already metered the request by
+ * IP and by token hash. Adding a second unmetered `anon` RPC would have been
+ * the way this exemption stopped being narrow.
+ *
+ * **The access rule is entirely inside the function.** It returns no rows
+ * unless the link is enabled, unexpired and on an active Circle, so a revoked
+ * token stops naming members in the same breath it stops working. Nothing here
+ * re-checks that, because a second copy of a rule is a second place for it to
+ * drift.
+ *
+ * An empty list on failure, never a throw. The page has already decided whether
+ * the link is usable from `circle_preview`; a roster that will not load is a
+ * missing section, not a dead invite.
+ */
+export async function getCirclePreviewMembers(
+  supabase: SupabaseClient<Database>,
+  token: string,
+): Promise<PreviewMember[]> {
+  const { data, error } = await supabase.rpc("circle_preview_members", {
+    p_token: token,
+  })
+
+  if (error) {
+    console.error("circle_preview_members failed", error)
+    return []
+  }
+
+  return (data as PreviewMember[] | null) ?? []
+}

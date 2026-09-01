@@ -21,7 +21,7 @@ Sibling documents: `../build-plan.md` (what is left), `../patterns.md` (the twen
 
 **And since then**: the dashboard became five route segments under one never-unmounted bar, goals gained deadlines and an achieved state, accounts gained self-serve deletion (step 14); profiles arrived for any signed-in user with avatars, an opt-in stats toggle, blocking and reporting (step 15); a goal record kept every check-in day with its note and photo (step 16); and site roles gave `content_reports` its reader, in an admin dashboard scoped to the reported item and nothing else (step 17).
 
-**95 migrations.** The database is the source of truth for every rule: caps, dates, visibility, streaks, and who may moderate. The app cannot bypass one by mistake, because RLS and grants are checked before any query it writes.
+**104 migrations.** The database is the source of truth for every rule: caps, dates, visibility, streaks, who may moderate, and who hears about what. The app cannot bypass one by mistake, because RLS and grants are checked before any query it writes.
 
 ---
 
@@ -36,7 +36,7 @@ These hold everywhere. Breaking one is a bug even if nothing fails.
 | Goal titles and notes reach only their owner, unless shared | `goals`/`progress_entries` scoped to `user_id = auth.uid()`; `circle_roster` is the only cross-member reader |
 | Masking never applies to yourself | `is_self` exemptions in `circle_roster` and `can_view_checkin_photo` |
 | Hiding conceals the title, never the commitment | Hidden goals still count in `total_count` and `daily_completion` |
-| Every refusal carries a `HINT`, and the app branches on that | **29 raised by the deployed database, 29 resolved in `lib/errors.ts`, and the two sets match exactly — verified against `pg_proc` rather than against the migrations** |
+| Every refusal carries a `HINT`, and the app branches on that | **32 raised by the deployed database, 32 resolved in `lib/errors.ts`, and the two sets match exactly — verified against `pg_proc` rather than against the migrations, on 1 September** |
 | A notification naming a Circle carries `group_id` **and** `circle_name` | `notifications_payload_names_its_circle` |
 | Grants are checked **before** RLS | So no policy rescues a missing grant, and a new column needs one deliberately |
 | An admin can read only what was **reported**, never a person's account | `admin_report_detail` returns one item, chosen by a third party. `users.role` is in no client grant at all |

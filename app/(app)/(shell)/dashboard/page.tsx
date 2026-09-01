@@ -1,9 +1,9 @@
+import Link from "next/link"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { getCheckinDate } from "@/lib/supabase/checkin-date"
 import { getTodayData } from "@/lib/supabase/today"
 import { getDigestDays } from "@/lib/supabase/digests"
-import { GoalsSummary } from "./goals-summary"
 import { TodayPanel } from "./today-panel"
 import { DigestPanel } from "./digest-panel"
 import { Notice } from "@/components/notice"
@@ -19,8 +19,10 @@ export const metadata = { title: "Solarity" }
  * `layout.tsx` and is not re-rendered when you move between sections. This file
  * is the body for `/dashboard` and nothing else knows about it.
  *
- * Where you stand: today's check-in, your goals, and how the last five days
- * ended in each Circle.
+ * Where you stand: today's check-in, and how the last five days ended in each
+ * Circle. **Two panels and a link out**, after the manual pass found Overview
+ * naming every goal twice: once in Today with its controls, once again in a
+ * summary below with nothing to do to them.
  *
  * **`?tab=` still works**, as a redirect. Bookmarks, existing specs and any link
  * written before this split keep landing in the right place, and an unrecognised
@@ -50,27 +52,19 @@ export default async function OverviewPage({
   if (!user) redirect("/auth/sign-in")
   const userId = user.id
 
-  const [{ active, inactive }, { data: goals }, { data: categories }, today] =
-    await Promise.all([
-      readMemberships(supabase, userId),
-
-      // Goals are user-owned, and since migration 64 RLS agrees:
-      // `goals_select_own` is `user_id = auth.uid()`. The filter is kept anyway
-      // because the policy is a ceiling, not a statement of intent, and a
-      // reader should not have to check the policy to know this panel shows
-      // your goals.
-      supabase
-        .from("goals")
-        .select(
-          "id, title, archived_at, achieved_at, deadline, hidden_everywhere, goal_categories(name, color_hex)",
-        )
-        .eq("user_id", userId)
-        .order("created_at", { ascending: true }),
-
-      supabase.from("goal_categories").select("slug, name, color_hex").order("name"),
-
-      getCheckinDate(supabase),
-    ])
+  /**
+   * **Two queries, down from four.** The goals list and the category list were
+   * both read here for the summary that Today already covers, and neither had
+   * a reader left once it went. Overview is the screen every session opens
+   * with, so a query it does not need is paid for on every visit.
+   *
+   * `/dashboard/goals` runs both, which is where the list and the add-goal
+   * form now live.
+   */
+  const [{ active, inactive }, today] = await Promise.all([
+    readMemberships(supabase, userId),
+    getCheckinDate(supabase),
+  ])
 
   /**
    * The panel's numbers come from the shared read, not from four queries
@@ -81,10 +75,6 @@ export default async function OverviewPage({
    * implementation per rule; see `patterns.md`.
    */
   const todayData = await getTodayData(supabase, userId, today)
-
-  // Active only, and the summary shows nothing else. Retired goals live at
-  // `/dashboard/goals/archived`, where there is room for what they were.
-  const overviewGoals = (goals ?? []).filter((g) => !g.archived_at && !g.achieved_at)
 
   /**
    * Step 11. Five days of digests, grouped into boxes.
@@ -165,11 +155,23 @@ export default async function OverviewPage({
       )}
 
       {/*
-        Step 16. **A summary, not the panel.** Every control moved to `/dashboard/goals`:
-        Overview is about today, and managing the list is a different job that
-        was crowding it.
+        **A link, not a list, and the second time this section has shrunk.**
+
+        Step 16 replaced the goals *panel* with a read-only summary. The manual
+        pass then found the obvious thing: Today already names every active
+        goal, one per row, with the controls that matter. The summary underneath
+        printed the same titles again with nothing to do to them, so Overview
+        said everything twice and neither copy was the authoritative one.
+
+        What is left is the way out. Right-aligned and quiet, because it is a
+        destination rather than an action: the reason to open Overview is the
+        two panels around it.
       */}
-      <GoalsSummary goals={overviewGoals} today={today} />
+      <div className="flex justify-end">
+        <Link href="/dashboard/goals" className="text-sm underline opacity-70">
+          View goals
+        </Link>
+      </div>
 
       <DigestPanel days={digestDays} viewerId={userId} today={today} />
     </>

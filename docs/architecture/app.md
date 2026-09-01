@@ -108,6 +108,8 @@ Keyed by user id, enforced in server actions via `lib/ratelimit.ts`.
 | Delete account | 5 / hour. Not about abuse: it bounds a stuck form retrying against the auth admin API |
 | Invite attempt | 20 / hour, keyed by **client IP**. Preview and join |
 | Single invite token | 60 / hour, keyed by a **hash of the token**. Preview only |
+| Search for somebody to invite | 120 / hour. Ten rows a call, so 1,200 handles an hour against a keyspace of every prefix of every username |
+| Invite a named person | 30 / day. Lower than the search that feeds it, because it writes into somebody else's list |
 
 **Never use a secret as a rate-limit key.** Invite tokens are bearer credentials, and a key name reaches Redis keyspace and every log line that touches it. Hash first: SHA-256, truncated to 32 hex characters.
 
@@ -116,6 +118,8 @@ Keyed by user id, enforced in server actions via `lib/ratelimit.ts`.
 **Never meter a kill switch.** Revoking an invite link is the sole unmetered write in the app, and the reason is the same principle from the other side: a cap on revocation means a leaked bearer token can outlive the owner's ability to turn it off. It is cheap, idempotent and admin-only, so there is nothing worth bounding anyway.
 
 This is the app's primary abuse control, not Turnstile. A Google account is already a higher barrier than a CAPTCHA; what needs bounding is a signed-in user hammering the RPCs.
+
+**And it bounds the app, not the API.** Every RPC is reachable directly at `/rest/v1/rpc/` by anyone holding a session, so these limits describe what the product does rather than what a determined caller can. That is why `search_users` — the app's only directory, and the first endpoint that answers "who exists" for a partial string — keeps its real defences in the database instead: three characters minimum, `%` and `_` escaped before they reach `like`, ten rows, self and blocked accounts and existing members excluded. A limit in an action is a courtesy; a limit in a `security definer` function is a rule.
 
 **Where `enforce()` goes in an action matters.** It runs *after* cheap local validation and immediately *before* the first call that leaves the process. Placing it first, which is the obvious reading of "check the limit before doing work", charges a token for every rejected attempt: mistype a Circle name twice and two of your five daily creations are gone. Since length and profanity checks touch nothing but memory, leaving them unmetered protects nothing and costs a person their allowance for a typo. The limits exist to bound expensive operations, not keystrokes.
 
@@ -302,7 +306,26 @@ Notifications are the app's re-engagement loop, and on iOS they only work for an
 
 Turning it off unsubscribes the browser **first**, then deletes the row: a half-failure then converges, because the sender prunes dead endpoints on 404 or 410. The reverse order leaves a live subscription with no row and nothing to notice.
 
-**`notifications` is two things at once, and the split is deliberate.** For the four event types it is an outbox: written by the database, rendered on the Notifications tab, marked read when shown, counted by the badge. For `digest` it is a **delivery queue**: written by `build_daily_digests`, read once by `send-digest-push`, and never rendered — the day boxes on Overview show that content from `digest_snapshots` instead. So `read_at` never applies to a digest and stays `null`; a timestamp would claim you read something the app never showed you. The type list lives in `lib/notification-types.ts` and is imported by all three readers, because a drift between them is silent in every direction.
+**`notifications` is two things at once, and the split is deliberate.** For the tab types it is an outbox: written by the database, rendered on the Notifications tab, marked read when shown, counted by the badge. For `digest` and `circle_activity` it is a **delivery queue**: written by the database, read once by `send-digest-push`, and never rendered. So `read_at` never applies to those two and stays `null`; a timestamp would claim you read something the app never showed you. The type list lives in `lib/notification-types.ts` and is imported by all three readers, because a drift between them is silent in every direction.
+
+**Step 19 added four types and put only three of them in the tab.** `circle_activity` can arrive every hour, and the badge counts unread tab rows: a badge that is never zero is a badge nobody reads, which would cost the other three the attention they exist for. So it interrupts once and leaves nothing to clear, exactly as `digest` does.
+
+**Every ceiling is structural rather than remembered**, because the obvious version of this feature is 180 rows a day inside one full Circle:
+
+| Type | Ceiling, and what enforces it |
+|---|---|
+| `goal_achieved` | Once per goal, ever. Migration 83 refuses to clear or move `achieved_at` |
+| `circle_first_finisher` | Once per Circle per day. Fires only when the completed count reaches exactly one, guarded on the payload's date |
+| `last_one_left` | Once per Circle per day, to one person. Fires only when exactly one member has not finished |
+| `circle_activity` | One row per recipient per Circle per delivery cycle. **It appends rather than inserts**: a new name joins an undelivered row's payload, so the ceiling falls out of the hourly cron rather than from a number somebody maintains |
+
+**`circle_activity`'s four-hour window is not belt and braces.** A recipient with no push subscription may never have `pushed_at` set at all, and without a bound their row would accumulate names indefinitely.
+
+**Each member is measured against their own check-in date.** `private.checkin_date_for` resolves the 2 AM boundary in that member's timezone, so a Circle spanning two timezones never reports somebody as unfinished because it is already tomorrow for them.
+
+**Who may hear about whom lives in one place.** `private.eligible_peers` holds the three exclusions that apply to every type — never the actor, never across a block in either direction, never somebody who switched that kind off — because three copies is three chances to forget one. The preference is a `CASE` over column names rather than dynamic SQL: interpolating a column name into a `security definer` function to save four lines is an injection surface.
+
+**Four preference columns on `users`**, one per type, defaulting on. All-or-nothing is what makes people disable notifications entirely and lose the digest with them.
 
 **Registration deliberately does NOT request notification permission.** Browsers effectively allow one ask: a denial is sticky and cannot be re-prompted, only reversed by the user digging through settings. Asking on first page load, before anyone knows what Solarity is, mostly buys a permanent no. The prompt belongs in onboarding, **after** the add-to-home-screen step, once the reason is obvious.
 

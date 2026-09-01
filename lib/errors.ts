@@ -68,6 +68,29 @@ export const BY_HINT: Record<string, string> = {
   ALREADY_ARCHIVED: "That Circle is already archived.",
   ALREADY_OWNER: "You already own that Circle.",
 
+  // Step 18b. Inviting a named person.
+  ALREADY_MEMBER: "They're already in this Circle.",
+
+  // Names the fix, because there is a button for it on the same screen. The
+  // RPC refuses rather than minting a link, since `create_invite_link` disables
+  // every existing one and a silent regeneration would revoke the link members
+  // are already passing around.
+  INVITE_LINK_MISSING:
+    "This Circle has no live invite link. Generate one below, then invite them.",
+
+  /**
+   * **Deliberately the same answer for "blocked" and "no such account".**
+   *
+   * `invite_user_to_circle` raises this when either of you has blocked the
+   * other, and also when the id names nobody. Two messages would turn the
+   * invite button into a detector for being blocked, which is the one thing
+   * blocking must never announce. Same masking as `profile_by_username`.
+   *
+   * Distinct from `NO_SUCH_ACCOUNT` above, which answers a username somebody
+   * typed and can afford to be literal.
+   */
+  NOT_FOUND: "That person isn't available to invite.",
+
   // Cycles and deadlines
   NO_ACTIVE_CYCLE: "That Circle has no cycle running right now.",
   NO_PENDING_DECISION: "There's no streak decision waiting on that Circle.",

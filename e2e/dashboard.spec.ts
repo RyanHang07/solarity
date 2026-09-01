@@ -58,8 +58,17 @@ test("every section is addressable, and an unknown tab lands on Overview", async
 }) => {
   const p = await ownerPage(browser)
 
+  // **"Recent days", not "Your goals".** Overview stopped rendering a goals
+  // region when the summary was removed: Today already lists every active goal
+  // with its controls, so the summary was the same titles twice. The digest
+  // panel is now the landmark that says this section rendered.
   await p.goto("/dashboard")
-  await expect(p.getByRole("region", { name: "Your goals" })).toBeVisible()
+  await expect(p.getByRole("region", { name: "Recent days" })).toBeVisible()
+
+  // The way out, and the only thing left of the summary. A tab bar link and a
+  // page link are different affordances: this one is where the eye is when it
+  // finishes reading Today.
+  await expect(p.getByRole("link", { name: "View goals" })).toBeVisible()
 
   await p.goto("/dashboard/circles")
   await expect(p.getByRole("region", { name: "Your Circles" })).toBeVisible()
@@ -84,7 +93,7 @@ test("every section is addressable, and an unknown tab lands on Overview", async
   // `/circles/[id]`. A section bar that renders blank for a stale bookmark is
   // worse than one that ignores it.
   await p.goto("/dashboard?tab=nonsense")
-  await expect(p.getByRole("region", { name: "Your goals" })).toBeVisible()
+  await expect(p.getByRole("region", { name: "Recent days" })).toBeVisible()
 
   await expect(p.getByRole("link", { name: "Account settings" })).toBeVisible()
 })

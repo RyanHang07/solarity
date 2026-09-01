@@ -99,6 +99,35 @@ function describe(n: NotificationRow): string {
       const who = typeof p.joined_username === "string" ? p.joined_username : "Someone"
       return `${who} joined ${name}`
     }
+    // Step 18b. The one row here that is an *offer* rather than a report.
+    // Named by whoever sent it, because "you were invited to Runners" from
+    // nobody in particular is how an invite from a stranger reads.
+    case "invited": {
+      const who =
+        typeof p.inviter_username === "string" ? p.inviter_username : "Someone"
+      return `${who} invited you to ${name}`
+    }
+    /**
+     * Step 19. The three intraday types that are worth finding again.
+     *
+     * **No `circle_activity` case, and that is deliberate**, the same shape as
+     * `digest` above: the tab query filters by type and that one is push-only,
+     * so a branch for it would be code with no reader.
+     *
+     * **These name the goal no more than the push does.** In-app is inside the
+     * masking rules, but a second phrasing of the same event that happened to
+     * include a title would be the one place the rule was written twice.
+     */
+    case "goal_achieved": {
+      const who = typeof p.who === "string" ? p.who : "Someone"
+      return `${who} achieved a goal in ${name}`
+    }
+    case "circle_first_finisher": {
+      const who = typeof p.who === "string" ? p.who : "Someone"
+      return `${who} finished first in ${name}`
+    }
+    case "last_one_left":
+      return `${name} is waiting on you`
     case "kicked":
       return `You were removed from ${name}`
     case "group_locked_renewal":
@@ -120,6 +149,24 @@ function describe(n: NotificationRow): string {
 /** Where a row goes, or null when it should not be a link at all. */
 function hrefFor(n: NotificationRow): string | null {
   const { gone } = circleLabel(n)
+
+  /**
+   * Step 18b. **An invite goes to the invite page, not to the Circle.**
+   *
+   * You are not a member yet, so `/circles/<id>` would bounce you straight
+   * back out. The token in the payload is what makes this row a working invite
+   * rather than a note about one, and `/join/<token>` is the page that already
+   * knows how to preview a Circle, refuse a dead link and take you in.
+   *
+   * Checked before `gone`, because the token stands on its own: `circle_preview`
+   * resolves it without the payload's copy of the name, and the join page has
+   * better copy for a dead link than this list does.
+   */
+  if (n.type === "invited") {
+    const token = n.payload.token
+    return typeof token === "string" && token ? `/join/${token}` : null
+  }
+
   if (gone || !n.groupId) return null
   // Not `kicked`: you are no longer a member, so the link would land on a
   // redirect, and offering it reads as a way back in.

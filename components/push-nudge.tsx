@@ -48,8 +48,12 @@ export function PushNudge({ dismissed }: { dismissed: boolean }) {
       // The server's answer, not just the browser's: an endpoint can belong to
       // another account after a shared sign-in. Same reason the settings toggle
       // asks.
-      const already = await pushEnabledHere()
-      if (alive && !already) setShow(true)
+      // **Only a definite "off" earns the nudge.** `unknown` means the check
+      // did not complete, and prompting someone to turn on what may already be
+      // on is the same lie the settings toggle was telling. Staying quiet costs
+      // one missed prompt; the alternative costs trust in the prompt.
+      const here = await pushEnabledHere()
+      if (alive && here === "off") setShow(true)
     })()
 
     return () => {

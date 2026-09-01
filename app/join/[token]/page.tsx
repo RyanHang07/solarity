@@ -1,7 +1,12 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
-import { getCirclePreview } from "@/lib/supabase/circle-preview"
+import {
+  getCirclePreview,
+  getCirclePreviewMembers,
+} from "@/lib/supabase/circle-preview"
+import { signAvatars } from "@/lib/supabase/avatar-urls"
+import { Avatar } from "@/components/avatar"
 import { enforce, RateLimitError } from "@/lib/ratelimit"
 import { clientIp, inviteTokenKey } from "@/lib/request-identity"
 import { JoinButton } from "./join-button"
@@ -131,6 +136,37 @@ export default async function JoinPage({
    * Signed out this stays null. There are no goals to count, and rendering a
    * line about "your goals" to someone without an account implies one exists.
    */
+  /**
+   * Step 18c. Who is already inside, with pictures when the viewer can have
+   * them.
+   *
+   * **Read after the dead-link redirect above**, so a revoked token costs one
+   * RPC rather than two. The function refuses on its own as well; this is about
+   * not paying for an answer nobody will see.
+   *
+   * Signing is skipped entirely for a signed-out visitor. `signAvatars` would
+   * return an empty map anyway, and a round trip to Storage to be told no is
+   * one the join page should not make.
+   */
+  const previewMembers = await getCirclePreviewMembers(supabase, token)
+  const memberAvatars = user
+    ? await signAvatars(
+        supabase,
+        previewMembers.map((m) => m.avatar_url),
+      )
+    : new Map<string, string>()
+
+  const members = previewMembers.map((m) => ({
+    username: m.username,
+    role: m.role,
+    avatarUrl: m.avatar_url ? (memberAvatars.get(m.avatar_url) ?? null) : null,
+  }))
+
+  // `circle_preview_members` orders owner first, so this is a find rather than
+  // a sort. Null when the roster could not be read, which is a missing phrase
+  // rather than a missing page.
+  const owner = members.find((m) => m.role === "owner")?.username ?? null
+
   let goalCounts: { total: number; visible: number } | null = null
   if (user && !profileIncomplete) {
     const { data: myGoals } = await supabase
@@ -151,12 +187,60 @@ export default async function JoinPage({
     <main className="flex min-h-full flex-1 flex-col items-center justify-center gap-6 p-8">
       <div className="flex w-full max-w-sm flex-col gap-4 rounded border px-4 py-5">
         <div className="flex flex-col gap-1">
-          <p className="text-sm opacity-70">You&apos;ve been invited to</p>
+          {/*
+            **The owner, not the inviter, and the difference is not a detail.**
+            A token is shared: the same link reaches somebody through a direct
+            invite, a pasted message and a forward, and nothing in it records
+            who sent it *to you*. `invite_links.created_by` is who made the
+            link, which is a different person as soon as one member generates
+            a link and another passes it on.
+
+            So the honest name here is whose Circle it is, which the roster
+            already knows and cannot be wrong about. Who invited *you*
+            specifically is in the notification that brought you here, where it
+            is a fact rather than a guess.
+          */}
+          <p className="text-sm opacity-70">
+            You&apos;ve been invited to{owner ? ` ${owner}'s Circle` : ""}
+          </p>
           <h1 className="text-xl font-semibold">{name}</h1>
           <p className="text-sm opacity-70">
             {count} of 10 {count === 1 ? "member" : "members"}
           </p>
         </div>
+
+        {/*
+          Step 18c. **The question an invitee actually has**, which the count
+          never answered: do I know these people. A number tells you the size
+          of a room and nothing about who is in it.
+
+          Rendered above the join button rather than below it, because it is
+          something to read before deciding rather than after.
+        */}
+        {members.length > 0 ? (
+          <section aria-label="Already here" className="flex flex-col gap-2">
+            <h2 className="text-sm font-medium opacity-70">Already here</h2>
+            <ul className="flex flex-col gap-1">
+              {members.map((m) => (
+                <li key={m.username} className="flex items-center gap-2 text-sm">
+                  {/*
+                    **Initials for a signed-out visitor, and that is not a
+                    fallback firing by accident.** `avatars_select` is
+                    `bucket_id = 'avatars'` for *authenticated* readers, so
+                    nobody signed out can be handed a signed URL, and reaching
+                    for the service key to make one would put the app in the
+                    business of deciding what Storage already decides.
+                  */}
+                  <Avatar url={m.avatarUrl} name={m.username} size={24} />
+                  <span className="truncate">{m.username}</span>
+                  {m.role !== "member" ? (
+                    <span className="text-xs opacity-50">· {m.role}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         {explanation ? (
           <>

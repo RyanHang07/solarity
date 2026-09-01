@@ -228,7 +228,8 @@ export async function resubscribeIfPermitted(): Promise<PushResult> {
 }
 
 /**
- * Whether notifications are actually on **for this browser and this account**.
+ * Whether notifications are on **for this browser and this account**, or
+ * whether we could not find out.
  *
  * Three things have to agree, and asking only the first two is how a toggle
  * starts lying: the browser must allow it, this browser must hold a
@@ -236,15 +237,45 @@ export async function resubscribeIfPermitted(): Promise<PushResult> {
  * The third is not pedantry. `subscribe_push` hands an endpoint to whoever
  * subscribed last, so on a shared browser the local subscription outlives the
  * row it used to match.
+ *
+ * ## Why this is no longer a boolean
+ *
+ * **Found by the manual pass: settings offered "Turn on notifications" on a
+ * device that already had them on**, with the row sitting in
+ * `push_subscriptions` the whole time. Two of the four ways this could answer
+ * "no" are not "no" at all:
+ *
+ * - `readyWorker()` resolves to `null` after ten seconds if the service worker
+ *   never becomes ready. That is a slow or wedged worker, not an absent
+ *   subscription.
+ * - `pushSubscribed` used to discard its error and return `false`, so a refused
+ *   or failed read was indistinguishable from a genuine miss.
+ *
+ * Both rendered as an off switch. **A control that offers to start something
+ * already running is the same class of lie as one that claims success it did
+ * not get**, which is the rule at the top of this file, and it had a hole in it
+ * on the "we do not know" side.
+ *
+ * `"unknown"` is deliberately not `"off"`: the caller shows what it means
+ * rather than guessing, and the guess was the bug.
  */
-export async function pushEnabledHere(): Promise<boolean> {
-  if (!pushSupported() || Notification.permission !== "granted") return false
+export type PushHereState = "on" | "off" | "unknown"
+
+export async function pushEnabledHere(): Promise<PushHereState> {
+  if (!pushSupported() || Notification.permission !== "granted") return "off"
 
   const registration = await readyWorker()
-  const subscription = await registration?.pushManager.getSubscription()
-  if (!subscription) return false
+  // Ten seconds elapsed without a ready worker. Nothing here says the person is
+  // unsubscribed, and saying so is how the button appeared.
+  if (!registration) return "unknown"
 
-  return pushSubscribed(subscription.endpoint)
+  const subscription = await registration.pushManager.getSubscription()
+  // This one *is* a real "no": the browser holds no subscription, so there is
+  // nothing for a row to match.
+  if (!subscription) return "off"
+
+  const known = await pushSubscribed(subscription.endpoint)
+  return known === null ? "unknown" : known ? "on" : "off"
 }
 
 /**

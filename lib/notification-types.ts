@@ -39,6 +39,27 @@ export const TAB_NOTIFICATION_TYPES = [
   "invite_accepted",
   "group_locked_renewal",
   "deadline_changed",
+  // Step 18b. **One edit, three readers**, which is the whole reason this list
+  // exists: the tab query, the unread badge and mark-read all read it, and an
+  // invite that appeared in the list without counting in the badge would be an
+  // offer nobody was told about.
+  "invited",
+
+  /**
+   * Step 19. Three of the four new types, and the omission is the point.
+   *
+   * These are events worth finding again: somebody achieved something, somebody
+   * was first, the Circle is waiting on you. `circle_activity` is **not** here,
+   * for the same reason `digest` never was. It can arrive every hour, the badge
+   * counts unread tab rows, and a badge that is never zero is a badge nobody
+   * reads — which would cost the three types above the attention they are for.
+   *
+   * So `circle_activity` is push-only: it interrupts once, in the moment it is
+   * useful, and leaves nothing behind to clear.
+   */
+  "goal_achieved",
+  "circle_first_finisher",
+  "last_one_left",
 ] as const satisfies readonly NotificationType[]
 
 /**

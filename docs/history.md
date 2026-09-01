@@ -3001,3 +3001,229 @@ From the manual pass. The "Archived and achieved" `<details>` on Overview lists 
 **The counts are one grouped read, not one per goal.** Active goals stop at ten; retired ones have no cap, so a count per goal is unbounded round trips.
 
 ---
+
+---
+
+## Step 18: inviting a person, not a link ✅ done
+
+**Built, typechecking and linting clean; the e2e specs have not been run yet.** Five migrations, all proved rolled back with negative controls, all files written under the versions the server recorded, all three function bodies verified by `md5(prosrc)`.
+
+**One bug found and fixed inside the step.** Migration 99's `circle_preview_members` resolved the token to a group id and then never filtered by it: it returned the first ten rows of `group_members` across **every Circle in the database** to anybody holding any live invite link. Migration 100 adds the `where`. It is in `patterns.md` under "a definer function that resolves an id and never filters by it", and `invite-user.spec.ts` compares the returned count against the Circle's own so it cannot come back.
+
+
+**The gap.** Every invite today is a URL you have to carry somewhere else: generate it in Circle settings, then find the person in a messaging app and paste it. Solarity knows who its users are and cannot introduce two of them. The whole product is people you already know, and the one flow that adds a person leaves the product to do it.
+
+**The shape.** Search a username, pick the person, they get a notification, tapping it lands them on the invite page they would have reached from a pasted link, which now also shows who is already inside.
+
+Four decisions taken before writing any of it, each with a cost:
+
+| Decision | Chosen | The cost accepted |
+|---|---|---|
+| How search matches | **Prefix, three characters minimum** | This is a directory. Anyone signed in can walk the user table by typing letters, which the app has never allowed before: `/profile/<username>` needs the whole handle. Metered, capped, and `%`/`_` escaped, but the enumeration surface is real and is the price of the feature being usable |
+| What the notification carries | **The invite link itself** | No new table, and the entire join flow is reused unchanged. The token is a bearer credential sitting in a `notifications` payload: readable only by its recipient under RLS, and still valid for anyone it is forwarded to. A `circle_invites` row with Accept and Decline was the alternative, and it is the v2 shape if invites ever need revoking |
+| Who may invite | **Any member** | Matches the link, which any member can already generate and pass around. A tighter rule here would be a guard with an open door beside it |
+| Who the invitee sees | **Usernames and pictures** | The roster is exposed to whoever holds the token, which is already true of the Circle's name and member count. It is also the question an invitee actually has: do I know these people |
+
+### 18a. Finding somebody — migration 96, `search_users`
+
+`SECURITY DEFINER`, `set search_path = ''`, revoked from `public` and `anon`, granted to `authenticated`. Returns id, username, avatar key, capped at **10 rows**.
+
+- **Refuses under three characters.** Not a UI nicety: one character returns a slice of the whole table, so the floor belongs where the rows are.
+- **`%`, `_` and `\` are escaped** before the `like`. Without it, typing `%` is a request for every user in the system, which is the whole enumeration hole arriving through the front door.
+- **Case-insensitive**, reusing the existing `lower(username)` index rather than adding one.
+- **Excludes**: yourself, anyone blocked in either direction, and anyone already in the Circle being invited to. The last is what stops the results being a list of people the button will refuse.
+- Metered at the action, per user, alongside the existing limits in `lib/ratelimit.ts`.
+
+### 18b. The invite — migration 97 (enum), migration 98 (`invite_user_to_circle`)
+
+**`invited` is a new `notification_type` value, and it gets its own migration.** An enum value added inside a transaction cannot be used in that transaction, which is why 88 exists as its own file; this is the same rule, not a preference.
+
+`invite_user_to_circle(p_group_id uuid, p_user_id uuid)`, `SECURITY DEFINER`, refusing with named hints so `lib/errors.ts` has copy for each:
+
+| Refusal | Hint |
+|---|---|
+| You are not in that Circle | `NOT_A_MEMBER` |
+| The Circle is locked or archived | `CIRCLE_INACTIVE` |
+| Ten people already | `CIRCLE_FULL` |
+| They are already in it | `ALREADY_MEMBER` |
+| Either of you has blocked the other | `NOT_FOUND`, deliberately indistinguishable from a username that does not exist |
+| No live invite link on the Circle | `INVITE_LINK_MISSING` |
+
+**It reads the Circle's current link rather than minting one.** `create_invite_link` disables every existing link before inserting, so a direct invite that quietly generated one would revoke the link members are already sharing. If there is no live link, the panel says so and offers the existing generate button.
+
+**One unread invite per person per Circle.** A second call while the first is unread is a no-op returning success, because the alternative is a button that spams somebody's notification list.
+
+### 18c. Who is already in it — migration 99, `circle_preview_members`
+
+A companion to `circle_preview`, not an extension of it: changing that function's return type means dropping and recreating something granted to `anon`, and the two answer different questions.
+
+- Returns username, avatar key and role, ordered owner first then by join date.
+- **Zero rows unless the link is live.** A revoked or expired token stops showing the roster in the same breath it stops working, so this cannot become a way to watch a Circle you were removed from.
+- Granted to `anon` as well as `authenticated`, because the join page serves signed-out visitors and asking someone to make an account before telling them what they are joining is the wrong order.
+- **Pictures only for signed-in visitors.** `avatars_select` is `bucket_id = 'avatars'` for authenticated readers, so a signed-out visitor cannot sign a URL. `components/avatar.tsx` already falls back to an initial, so this costs nothing and keeps signing as the caller rather than reaching for the service key.
+
+### 18d. The surfaces
+
+- **`/circles/[id]/settings`** gains a search box above the existing link panel: type, see up to ten matches with their pictures, press Invite. Results are a list of buttons, one action each.
+- **The Notifications tab** renders `invited`, and `TAB_NOTIFICATION_TYPES` gains it so the badge, the list and mark-read keep agreeing. That constant exists precisely so this is one edit and not three.
+- **`/join/[token]`** gains an "Already here" section under the count, and names the Circle's **owner** above the title. Not the inviter: a token is shared, and nothing in it records who sent it to *you*. `invite_links.created_by` is who made the link, which is a different person the moment one member generates a link and another forwards it. Who invited you specifically is in the notification that brought you here, where it is a fact rather than a guess.
+- **The push teaser names the inviter**, under `push_shows_circle_name` like the Circle's name. It shipped naming nobody and that was wrong: see `notification-copy.md` row 8b.
+
+### 18f. Copy variance ✅ **the three digest bodies are live; step 19's types land with step 19**
+
+**The staleness problem.** A digest arrives every day, forever, and says the same sentence every time. The Circle name made four Circles distinguishable from each other; nothing makes today distinguishable from yesterday. Two hundred identical notifications is a notification people stop reading.
+
+**Every string a person can receive**, which is the complete list and the thing to choose from. `{circle}`, `{who}`, `{done}`, `{total}` and `{streak}` are the only placeholders any of them can fill, because they are the only values in the payloads.
+
+| # | Type | Condition | Today | Vary? |
+|---|---|---|---|---|
+| 1 | `digest` | nobody finished | `{circle}`: nobody checked in yesterday | **yes**, daily |
+| 2 | `digest` | everyone finished | `{circle}`: everyone checked in yesterday | **yes**, daily |
+| 3 | `digest` | some finished | `{circle}`: `{done}` of `{total}` checked in yesterday | **yes**, daily |
+| 4 | `deadline_changed` | cleared | `{circle}` is now open-ended | no, rare |
+| 5 | `deadline_changed` | otherwise | `{circle}` changed its deadline | no, rare |
+| 6 | `kicked` | | There's an update about one of your circles | **never** |
+| 7 | `group_locked_renewal` | | `{circle}` has finished its cycle — tap to decide what's next | no, rare |
+| 8 | `invite_accepted` | | Someone joined your circle, `{circle}` | no, rare |
+| 8b | `invited` | | `{who}` invited you to `{circle}` | no, rare |
+| 9 | unknown type | | You have a new notification | **never** |
+| 10–16 | in-app lines | | see `notification-copy.md` | no: durable copy, read once |
+| 17–20 | step 19's four | | not built | **yes**, 17 and 20 repeat |
+
+**Vary what repeats, and only that.** A message you see daily goes stale; one you see twice a year does not, and rewording it three ways only makes the product's voice inconsistent for no gain. That splits the list cleanly: the three digest bodies, plus `circle_activity` and `circle_first_finisher` from step 19.
+
+**Two that must never vary.** Row 6 is deliberately vague because being removed from a Circle may be read by the person who removed you, and a set of playful alternatives is exactly the wrong instinct there. Row 9 is the fallback for a type whose copy has not landed; it should stay dull, because it is the branch most likely to meet something unfamiliar.
+
+**One caution about tone.** Row 1 is the "nobody managed it" message, and it is the one a variance set can quietly turn into a voice that punishes people for a bad day. Forward-looking or neutral; never disappointed.
+
+**`{streak}` is available and unused.** `group_streak` has been in the digest payload since step 11 and no push has ever read it. A variant that says how long the run is gives the copy somewhere to go that is not just rephrasing.
+
+#### Chosen: seeded by notification id
+
+**`teaser()` gains the row's id and picks by hashing it.** The sender already selects `id` alongside `type` and `payload`, so nothing new is read.
+
+This is the choice that keeps the copy testable. `lib/teaser.test.ts` asserts exact strings, and a genuinely random pick would make every one of those assertions flaky; a date rotation would make four Circles read identically again on any given day, which is the problem this file was opened for. Hashing the id gives **one stable answer per notification** — a redelivery says what the first attempt said, a re-render never flickers — while reading as random across days, because the ids are.
+
+A small non-cryptographic hash, in `teaser.ts`, with no imports: this file is unit-tested precisely because it depends on nothing.
+
+#### Chosen: the three digest sets
+
+Written `{circle}` first wherever it fits, so the Circle stays the scannable part.
+
+| Row | Variants |
+|---|---|
+| 2, everyone finished | `{circle}`: everyone checked in yesterday · Clean sweep in `{circle}` yesterday · All of `{circle}` finished yesterday · `{circle}` went `{total}` for `{total}` yesterday · `{circle}`: everyone finished, `{streak}` days running |
+| 1, nobody finished | `{circle}`: nobody checked in yesterday · A quiet day in `{circle}` · `{circle}` had a quiet one · Nothing logged in `{circle}` yesterday |
+| 3, some finished | `{circle}`: `{done}` of `{total}` checked in yesterday · `{done}` of `{total}` finished in `{circle}` · `{circle}` came in at `{done}` of `{total}` · `{done}` of `{total}` made it in `{circle}` |
+
+**The streak variant needs a guard.** `{streak}` is 0 on a Circle's first perfect day and on any day after a reset, and "everyone finished, 0 days running" is worse than the sentence it replaced. It is skipped when the streak is under two, which also makes it the one variant whose availability depends on the payload rather than on the seed.
+
+**Row 1 stays neutral by decision, not by accident.** Four ways of saying a day was quiet, none of them disappointed. The set has no variant that implies anybody let anybody down, because this is the message most likely to arrive three days running.
+
+#### Chosen: step 19's three repeating types
+
+| Type | Variants |
+|---|---|
+| `circle_activity`, one name | `{who}` got started in `{circle}` · `{who}` is off the mark in `{circle}` · `{who}` has begun in `{circle}` |
+| `circle_activity`, two | `{who}` and `{who}` got started in `{circle}` (same three verbs) |
+| `circle_activity`, three or more | `{who}` and `{n}` others got started in `{circle}` (same three verbs) |
+| `circle_first_finisher` | `{who}` is first to finish in `{circle}` · `{who}` is out of the gate first in `{circle}` · `{who}` got there first in `{circle}` · First one done in `{circle}`: `{who}` |
+| `last_one_left` | You're the last one in `{circle}` · `{circle}` is waiting on you · Everyone else is done in `{circle}` · Just you left in `{circle}` |
+
+**The verb varies and the shape does not**, for `circle_activity`. It is the only message with three grammatical forms, and letting the sentence structure move as well as the wording would give three ways to be wrong about plurals instead of one.
+
+**`circle_first_finisher` names an achievement, never a comparison.** The competitive framing ("`{who}` beat you to it") was on the table and is not what a Circle of friends is for: it addresses the recipient as losing on a day they may simply not have got to yet.
+
+**`last_one_left` states the fact and stops.** No "still time" tail. The fact is the motivation, and a tail turns a friend's nudge into an app's.
+
+#### Chosen: the name-withheld fallbacks vary too
+
+Someone who turned lock-screen detail off still gets a notification every day, and theirs are the ones that read most identically, because the Circle name is the thing that distinguishes them. Same seed, same conditions, names removed.
+
+| Condition | Variants |
+|---|---|
+| Nobody finished | Nobody checked in yesterday · A quiet day · Nothing logged yesterday · A quiet one yesterday |
+| Everyone finished | Everyone checked in yesterday · A clean sweep yesterday · Everyone finished yesterday · `{total}` for `{total}` yesterday |
+| Some finished | `{done}` of `{total}` checked in yesterday · `{done}` of `{total}` finished yesterday · `{done}` of `{total}` made it yesterday · Came in at `{done}` of `{total}` yesterday |
+| Activity | Someone got started · A few people got started · Somebody is under way |
+| First finisher | Someone finished first · Somebody is done already |
+| Last one left | A circle is waiting on you · You're the last one in a circle · Everyone else is done in a circle |
+
+**Counts stay, names go.** `{done}`, `{total}` and `{streak}` are numbers, not identifiers, and the current fallback already prints them; `{who}` is a handle and is withheld with the Circle name, the rule settled for `invited` in 18b.
+
+**`{n}` counts people whose names are being withheld, and that is a deliberate yes.** "and 3 others got started" tells the recipient how many people moved without naming them, on a lock screen where they asked for no names. It is safe because everybody counted is in a Circle the recipient is already in: the number reveals nothing they could not learn by opening the app, and the whole point of the coalesced message is that it is a count rather than three separate buzzes.
+
+**The nameless variants keep "tap to see" where they had it.** Without a name there is no reason to open the app, which is the job that tail was doing before the names arrived. It stays on the variants that would otherwise be a bare statement.
+
+#### Not varied, and why
+
+`goal_achieved` is rare by construction, so it keeps one line: `{who}` achieved a goal in `{circle}`. **Never the goal's title** — masking is per Circle and a lock screen is outside every check the app has.
+
+The in-app lines, rows 10 to 16, all stay fixed. They are the durable copy, read once, in a list where two phrasings of the same event would read as two different events.
+
+### 18e. Tests
+
+- **Unit:** the `like`-escaping helper, because `%` is the whole hole and a regression there is silent.
+- **Migration proofs**, rolled back, each with a negative control: search refuses two characters, search escapes `%`, an invite from a non-member is refused, a blocked pair is refused as `NOT_FOUND`, a second invite is a no-op, `circle_preview_members` returns nothing for a revoked token.
+- **e2e (`invite-user.spec.ts`):** owner searches the joiner, invites, the notification appears for the joiner, tapping it reaches the join page, the join page names the owner, and the joiner joins. Plus the refusal path: invite somebody already in the Circle and read the message rather than a raw Postgres error.
+- **e2e (`moderation.spec.ts`):** a blocked account does not appear in search results. This belongs there rather than in the new file, because that is where blocking's other guarantees live.
+
+---
+
+## Step 19: a Circle that talks back ✅ done
+
+**Database and copy are done and proved; the e2e spec is not written.** Nine rolled-back assertions passed with controls, all four function bodies verified by `md5(prosrc)`, and every teaser body was run through node because vitest cannot start in the sandbox.
+
+**Two assertions failed first and both were mine, not the triggers'.** "Total activity rows stays at 2" was wrong: a second person checking in *should* create a row for the first, who had none. The real invariant is **at most one row per recipient per Circle**, which is what the proof asserts now. And "nobody else gets `last_one_left`" caught a row from a *different* Circle these accounts share, which is the feature working. An assertion scoped more loosely than the thing it describes reports the code as broken.
+
+
+**The gap.** A Circle is silent between rollovers. You check in, and the next thing you hear is tomorrow's digest telling you how yesterday went. The premise is friends watching each other's days; the product currently lets them watch a day that has already ended.
+
+**Four events, chosen because each is self-limiting by construction.** The rejected version is instructive: "notify on everyone's first and last goal" is 2 events × 9 recipients in a full Circle, 180 rows a day inside one Circle, 72 pushes a day for somebody in four. That is not a stricter version of the same idea, it is a different product. Each event below either concerns one person or can only fire once per Circle per day.
+
+| | Type | Fires | Recipients | Ceiling |
+|---|---|---|---|---|
+| 1 | `goal_achieved` | `goals.achieved_at` goes from null to set | Members of Circles the goal is **not hidden in** | Rare on its own: achieving is final (migration 83), so a person does this a handful of times ever |
+| 2 | `circle_first_finisher` | The first member of a Circle to complete their whole day | Everyone else in the Circle | One per Circle per day, whatever the size |
+| 3 | `last_one_left` | Everyone else has finished and you have not | **You alone** | One per Circle per day, and only for one person |
+| 4 | `circle_activity` | Somebody's first check-in of the day | Everyone else, **coalesced** | See below |
+
+### The one deviation, and why
+
+You asked for a notification on somebody's first goal of the day, and added that arriving late is fine. Taken literally that is 90 rows a day in a full Circle, nine pushes each. **Because late is acceptable, they can be coalesced instead**, and the mechanism is already in the schema: `send-digest-push` delivers every row with `pushed_at is null` on an hourly cron.
+
+So `circle_activity` **appends rather than inserts**. If the recipient already has an undelivered `circle_activity` row for that Circle, the new name joins its payload; only if there is none does a row appear. The ceiling falls out of the delivery schedule rather than from a rule someone has to remember: **at most one push per Circle per hour**, naming everyone who moved in it. "Ryan and two others got started in Runners" is also better copy than three separate buzzes saying the same thing.
+
+### Where each one lands
+
+**`circle_activity` is push-only, like `digest`.** It stays out of `TAB_NOTIFICATION_TYPES`, because the badge counts unread tab rows and a permanently non-zero badge is a badge nobody reads. The other three are events worth finding later, so they go in both.
+
+**Nothing names a goal.** `send-digest-push` has said "a goal is never named here, ever" since step 13, and `goal_achieved` is the first type that would be tempted to. The copy is "Ryan achieved a goal in Runners", and the goal's title stays where the masking rules can see it.
+
+### What has to change around it
+
+- **The settings copy is a promise, and it becomes false.** "At most one a day: how your Circle did, and whether anyone is waiting on you" is on `/settings` today. It becomes a description of the digest plus a list of what else can arrive.
+- **Four per-type toggles**, as boolean columns on `users` in the house style of `push_shows_circle_name`, defaulting on. All-or-nothing is what makes people switch off notifications entirely and lose the digest with them.
+- **Masking is per Circle, not per person.** A goal hidden in one Circle and visible in another must announce its achievement in exactly one of them, which means the recipient list is computed per Circle rather than once.
+- **Blocked pairs are skipped both ways**, consistent with everything else blocking does.
+- **Archived and locked Circles are silent.** Nothing there can change.
+
+### Tests
+
+- **Migration proofs**, rolled back with negative controls: a hidden goal's achievement does not reach the Circle it is hidden in but does reach the one it is visible in; the second finisher in a Circle produces no `circle_first_finisher`; `last_one_left` fires for exactly one person and only when everyone else is done; a second `circle_activity` in the same Circle appends to the undelivered row rather than inserting; a toggle set to false stops the row being written at all.
+- **Unit:** `teaser` copy for four new types, in both name states, plus the coalesced plural forms.
+- **e2e:** two accounts in one Circle, the joiner checks in, and the owner's notifications tab is asserted to be unchanged for `circle_activity` (push-only) while `circle_first_finisher` appears.
+
+---
+
+### The audit, 1 September
+
+**One real defect, found by the platform's own linter rather than by reading.** Migration 103 created three trigger functions in `public`, and a function in that schema is a PostgREST endpoint: `trg_goal_achieved_notify`, `trg_day_completed_notify` and `trg_first_checkin_notify` shipped callable by `anon` and by `authenticated`. Migration 7 wrote this rule down in August, for `handle_new_user`, and I did not follow it.
+
+Not exploitable — plpgsql refuses a trigger function invoked outside a trigger — and that is not the point. Three `security definer` functions were sitting on the public API surface relying on a language check instead of a grant, and the next one might not be a trigger function. **Migration 104** revokes all three; every one of the ten `trg_*` functions in `public` is now closed to both roles, and the triggers were re-proved to still fire afterwards.
+
+**Two limits that are real and are not being fixed.** `search_users` and `invite_user_to_circle` are rate limited in the server actions that call them, and both are also reachable directly at `/rest/v1/rpc/` by anyone holding a session. That is true of every RPC in the app and is the reason the limits are described as bounding enumeration rather than preventing it. The invite path is additionally bounded at the database: one unread invite per person per Circle, and five Circles a day.
+
+**Accepted behaviour, not a bug.** Somebody whose whole day is one goal produces `circle_activity` *and* `circle_first_finisher` from a single check-in, so their Circle hears twice about one event. Both are true, both have their own switch, and suppressing one would mean the trigger guessing which the reader would rather have.
+
+**Pre-existing and deliberate:** `audit_log` and `username_history` have RLS on with no policies, which is deny-all by design, and leaked-password protection is off because there is no password auth to protect.

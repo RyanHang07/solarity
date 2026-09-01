@@ -2,6 +2,7 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { InvitePanel } from "./invite-panel"
+import { InvitePersonPanel } from "./invite-person-panel"
 import { ArchivePanel } from "./archive-panel"
 
 export const metadata = { title: "Circle settings — Solarity" }
@@ -68,6 +69,17 @@ export default async function CircleSettingsPage({
           You are {me?.role === "owner" ? "the owner" : "an admin"}.
         </p>
       </header>
+
+      {/*
+        Step 18. **Above the link, because it is the better answer to the same
+        question.** Somebody opening this page wants another person in their
+        Circle; the link is the fallback for a person who is not on Solarity
+        yet, and the search is the direct route for one who is.
+
+        Only while the Circle is active, and the RPC refuses anyway: a search
+        box on an archived Circle would be a control that can only fail.
+      */}
+      {circle.group_status === "active" ? <InvitePersonPanel groupId={id} /> : null}
 
       {circle.group_status === "active" ? (
         <InvitePanel

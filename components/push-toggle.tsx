@@ -4,17 +4,22 @@ import { useEffect, useState } from "react"
 import { disablePush, enablePush, pushEnabledHere, pushSupported } from "@/lib/push-client"
 import { PushDenied } from "@/components/push-denied"
 
-type ToggleState = "loading" | "on" | "off" | "denied" | "unsupported"
+type ToggleState = "loading" | "on" | "off" | "denied" | "unsupported" | "unknown"
 
 /**
  * Module level, and awaited before anything is set, so the effect below never
  * calls `setState` synchronously. The three questions in order: can this browser
  * do it, is it allowed to, and is it still ours.
+ *
+ * **`unknown` is passed straight through rather than folded into `off`.** The
+ * manual pass found this screen offering to turn on notifications that were
+ * already on, because every way of failing to find out rendered as an off
+ * switch. See `pushEnabledHere`.
  */
 async function readToggleState(): Promise<ToggleState> {
   if (!pushSupported()) return "unsupported"
   if (Notification.permission === "denied") return "denied"
-  return (await pushEnabledHere()) ? "on" : "off"
+  return await pushEnabledHere()
 }
 
 /**
@@ -138,10 +143,18 @@ export function PushToggle() {
   return (
     <section id="notifications" aria-label="Notifications" className="flex flex-col gap-2">
       <h2 className="text-lg font-semibold">Notifications on this device</h2>
+      {/*
+        **"At most one a day" was true until step 19 and is not any more.** It
+        was a promise on a settings screen, and the honest replacement names
+        both halves: the digest that always arrives, and the intraday updates
+        that have their own switches below. Leaving the old sentence would have
+        been the same class of drift as the policy pages promising notice
+        nothing implements.
+      */}
       <p className="text-sm opacity-70">
-        At most one a day: how your Circle did, and whether anyone is waiting on
-        you. Each device is separate, so turning this on here doesn&apos;t turn
-        it on anywhere else.
+        Your daily digest, plus whichever updates you keep switched on below.
+        Each device is separate, so turning this on here doesn&apos;t turn it on
+        anywhere else.
       </p>
 
       {state === "denied" ? <PushDenied /> : null}
@@ -151,6 +164,33 @@ export function PushToggle() {
           This browser can&apos;t send notifications. On an iPhone, add Solarity
           to your home screen and open it from there.
         </p>
+      ) : null}
+
+      {/*
+        **Neither a switch nor silence.** The check did not complete, usually a
+        service worker that never became ready, so the honest thing is to say
+        what happened and offer the check again. Drawing an off switch here is
+        the bug this state exists to end: it invited a tap that would have
+        re-subscribed a device already subscribed, and told the person their
+        notifications were off when they were not.
+      */}
+      {state === "unknown" ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm opacity-80">
+            Couldn&apos;t check whether notifications are on for this device.
+            They may well be. This usually means the app was still waking up.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setState("loading")
+              void refresh()
+            }}
+            className="self-start rounded border px-4 py-2 text-sm font-medium"
+          >
+            Check again
+          </button>
+        </div>
       ) : null}
 
       {state === "on" || state === "off" ? (

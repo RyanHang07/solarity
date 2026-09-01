@@ -853,6 +853,10 @@ export type Database = {
           id: string
           last_rollover_date: string | null
           pending_checkin_timezone: string | null
+          notify_circle_activity: boolean
+          notify_first_finisher: boolean
+          notify_goal_achieved: boolean
+          notify_last_one_left: boolean
           push_shows_circle_name: boolean
           role: Database["public"]["Enums"]["user_role"]
           today_screen_mode: Database["public"]["Enums"]["today_screen_mode"]
@@ -868,6 +872,10 @@ export type Database = {
           id: string
           last_rollover_date?: string | null
           pending_checkin_timezone?: string | null
+          notify_circle_activity?: boolean
+          notify_first_finisher?: boolean
+          notify_goal_achieved?: boolean
+          notify_last_one_left?: boolean
           push_shows_circle_name?: boolean
           role?: Database["public"]["Enums"]["user_role"]
           today_screen_mode?: Database["public"]["Enums"]["today_screen_mode"]
@@ -883,6 +891,10 @@ export type Database = {
           id?: string
           last_rollover_date?: string | null
           pending_checkin_timezone?: string | null
+          notify_circle_activity?: boolean
+          notify_first_finisher?: boolean
+          notify_goal_achieved?: boolean
+          notify_last_one_left?: boolean
           push_shows_circle_name?: boolean
           role?: Database["public"]["Enums"]["user_role"]
           today_screen_mode?: Database["public"]["Enums"]["today_screen_mode"]
@@ -974,6 +986,14 @@ export type Database = {
           status: string
         }[]
       }
+      circle_preview_members: {
+        Args: { p_token: string }
+        Returns: {
+          avatar_url: string
+          role: string
+          username: string
+        }[]
+      }
       circle_roster: {
         Args: { p_group_id: string }
         Returns: {
@@ -1043,6 +1063,10 @@ export type Database = {
           path: string
         }[]
       }
+      invite_user_to_circle: {
+        Args: { p_group_id: string; p_user_id: string }
+        Returns: undefined
+      }
       join_circle: { Args: { p_token: string }; Returns: string }
       my_pending_checkin_timezone: { Args: never; Returns: string }
       profile_by_username: {
@@ -1078,6 +1102,14 @@ export type Database = {
         Returns: {
           digests_deleted: number
           notifications_deleted: number
+        }[]
+      }
+      search_users: {
+        Args: { p_group_id?: string; p_query: string }
+        Returns: {
+          avatar_url: string
+          id: string
+          username: string
         }[]
       }
       set_checkin_timezone: { Args: { p_timezone: string }; Returns: undefined }
@@ -1136,6 +1168,11 @@ export type Database = {
         | "invite_accepted"
         | "group_locked_renewal"
         | "deadline_changed"
+        | "invited"
+        | "goal_achieved"
+        | "circle_first_finisher"
+        | "last_one_left"
+        | "circle_activity"
       today_screen_mode: "every_open" | "once_daily" | "never"
       user_role: "standard" | "admin"
     }
@@ -1302,6 +1339,11 @@ export const Constants = {
         "invite_accepted",
         "group_locked_renewal",
         "deadline_changed",
+        "invited",
+        "goal_achieved",
+        "circle_first_finisher",
+        "last_one_left",
+        "circle_activity",
       ],
       today_screen_mode: ["every_open", "once_daily", "never"],
       user_role: ["standard", "admin"],

@@ -119,7 +119,14 @@ Deno.serve(async (req: Request) => {
       continue;
     }
 
-    const { title, body } = teaser(n.type, n.payload ?? {}, showsName.get(n.user_id) ?? true);
+    // `n.id` seeds the copy variance added in 18f: one stable sentence per
+    // notification, so a retry says what the first attempt said.
+    const { title, body } = teaser(
+      n.type,
+      n.payload ?? {},
+      showsName.get(n.user_id) ?? true,
+      n.id,
+    );
     const message = JSON.stringify({
       title,
       body,

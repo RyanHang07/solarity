@@ -39,6 +39,31 @@ const LIMITS = {
   // let a shared link lock out the people it was shared with.
   inviteToken: [60, "1 h"],
 
+  /**
+   * Step 18a. **The meter on the directory**, keyed by user id.
+   *
+   * `search_users` is the first endpoint in the app that answers "who exists"
+   * for a partial string, and it returns ten rows a call. Without a ceiling,
+   * one account can walk the username space at request speed. 120 an hour is
+   * generous for a person typing a handle they already know and slow for
+   * anything trying to enumerate: ten rows a call is 1,200 handles an hour
+   * against a keyspace that is every prefix of every username.
+   *
+   * It does not make enumeration impossible, and nothing keyed by user id can.
+   * It makes it slow enough to notice and cheap enough to tighten.
+   */
+  searchUsers: [120, "1 h"],
+
+  /**
+   * Sending an invite to a named person, keyed by user id.
+   *
+   * Lower than the search that feeds it, because this one writes a row into
+   * somebody else's notification list. `invite_user_to_circle` already refuses
+   * a second unread invite for the same Circle, so this bounds the *breadth*:
+   * how many different people one account can put an invite in front of.
+   */
+  inviteUser: [30, "1 d"],
+
   // CSP violation reports, keyed by client IP. Generous on purpose: one broken
   // page can emit a report per blocked resource per load, and the point of the
   // endpoint is to hear about exactly that. Refusal is silent — the route

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
 import { enforce } from "@/lib/ratelimit"
+import { signAvatars } from "@/lib/supabase/avatar-urls"
 import { toMessage, type ActionResult } from "@/lib/errors"
 
 /**
@@ -96,5 +97,114 @@ export async function revokeInviteLink(
   }
 
   revalidatePath(`/circles/${groupId}/settings`)
+  return { ok: true, data: undefined }
+}
+
+/**
+ * Step 18a. Somebody to invite, by the start of their username.
+ *
+ * **A read, and still a server action.** It could have been a route handler,
+ * but every other database call the invite panel makes is an action and the
+ * rate limit has to live on the server either way. One shape for the panel to
+ * call.
+ *
+ * **`p_group_id` is passed so the results are actionable.** Without it, the
+ * people already in the Circle come back and every one of them is a button
+ * that will refuse. `search_users` does the exclusion in the same query rather
+ * than the panel filtering afterwards, because the ten-row cap is applied by
+ * the database: filtering here would silently return fewer than ten.
+ *
+ * **An empty array for a refusal, never an exception.** A search box that
+ * throws is a search box that breaks the page under someone's fingers. The
+ * limit and the three-character floor both come back as "nothing found", which
+ * is also what they look like.
+ */
+export type FoundUser = { id: string; username: string; avatarUrl: string | null }
+
+export async function searchUsers(
+  query: string,
+  groupId: string,
+): Promise<ActionResult<FoundUser[]>> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: "Please sign in again." }
+
+  try {
+    await enforce("searchUsers", user.id)
+  } catch (e) {
+    return { ok: false, error: toMessage(e) }
+  }
+
+  const { data, error } = await supabase.rpc("search_users", {
+    p_query: query,
+    p_group_id: groupId,
+  })
+
+  if (error) return { ok: false, error: toMessage(error) }
+
+  const rows = data ?? []
+
+  /**
+   * **Signed here, in one batch, because the results arrive after render.**
+   *
+   * Every other avatar surface signs in a server component, where the keys are
+   * known before the page exists. A search result is not: it comes back from
+   * this action, and a client that received bare keys could not turn them into
+   * anything. `signAvatars` returns a map and drops failures, so a key that
+   * will not sign is a set of initials rather than a broken row.
+   */
+  const signed = await signAvatars(
+    supabase,
+    rows.map((r) => r.avatar_url),
+  )
+
+  return {
+    ok: true,
+    data: rows.map((row) => ({
+      id: row.id,
+      username: row.username,
+      avatarUrl: row.avatar_url ? (signed.get(row.avatar_url) ?? null) : null,
+    })),
+  }
+}
+
+/**
+ * Step 18b. Put an invite in front of a named person.
+ *
+ * **Every refusal is a hint with copy**, so `ALREADY_MEMBER`,
+ * `INVITE_LINK_MISSING`, `CIRCLE_FULL`, `CIRCLE_INACTIVE`, `NOT_A_MEMBER` and
+ * `NOT_FOUND` all read as sentences. The last of those covers a blocked pair
+ * *and* an id that names nobody, deliberately: see `lib/errors.ts`.
+ *
+ * **No `revalidatePath`.** Nothing on this page changes. The row lands in the
+ * recipient's notifications, which is their render, not ours, and the panel
+ * says what happened from the action's own result.
+ */
+export async function inviteUser(
+  groupId: string,
+  userId: string,
+): Promise<ActionResult> {
+  if (!groupId || !userId) return { ok: false, error: "Missing Circle or person." }
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: "Please sign in again." }
+
+  try {
+    await enforce("inviteUser", user.id)
+  } catch (e) {
+    return { ok: false, error: toMessage(e) }
+  }
+
+  const { error } = await supabase.rpc("invite_user_to_circle", {
+    p_group_id: groupId,
+    p_user_id: userId,
+  })
+
+  if (error) return { ok: false, error: toMessage(error) }
   return { ok: true, data: undefined }
 }

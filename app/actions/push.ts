@@ -123,18 +123,38 @@ export async function unsubscribePush(endpoint: string): Promise<ActionResult> {
  * One indexed lookup, and it is the difference between a toggle that reports a
  * fact and one that reports a hope.
  */
-export async function pushSubscribed(endpoint: string): Promise<boolean> {
+export async function pushSubscribed(endpoint: string): Promise<boolean | null> {
   const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  if (!user) return false
+  // Not signed in is not "no row". The caller renders it as "we could not tell"
+  // rather than as an off switch.
+  if (!user) return null
 
-  const { count } = await supabase
+  const { count, error } = await supabase
     .from("push_subscriptions")
     .select("id", { count: "exact", head: true })
     .eq("user_id", user.id)
     .eq("endpoint", endpoint)
+
+  /**
+   * **`error` was discarded, and that was the bug.** A failed read returns
+   * `count: null`, `(null ?? 0) > 0` is `false`, and the settings toggle drew an
+   * off switch for a device whose row was sitting in the table. One `??` turned
+   * "the read did not happen" into a confident "you are not subscribed".
+   *
+   * Logged as well as returned: this runs on the server, where the reason is
+   * visible, and the browser only ever learns that the answer is unknown.
+   */
+  if (error) {
+    console.error("pushSubscribed read failed", {
+      userId: user.id,
+      code: error.code,
+      message: error.message,
+    })
+    return null
+  }
 
   return (count ?? 0) > 0
 }

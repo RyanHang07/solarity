@@ -6,6 +6,7 @@ import {
   UsernameForm,
   TimezoneForm,
   TodayScreenForm,
+  NotificationPrefsForm,
   PushNameForm,
   StatsVisibilityForm,
 } from "./settings-forms"
@@ -45,7 +46,7 @@ export default async function SettingsPage() {
   const { data: profile } = await supabase
     .from("users")
     .select(
-      "username, display_name, avatar_url, checkin_timezone, today_screen_mode, push_shows_circle_name",
+      "username, display_name, avatar_url, checkin_timezone, today_screen_mode, push_shows_circle_name, notify_goal_achieved, notify_first_finisher, notify_last_one_left, notify_circle_activity",
     )
     .eq("id", user.id)
     .maybeSingle()
@@ -127,6 +128,18 @@ export default async function SettingsPage() {
         {/* Per account, unlike the device toggle below: what a notification may
             say does not change with the phone you are holding. */}
         <PushNameForm current={profile.push_shows_circle_name} />
+
+        {/*
+          Step 19. Under "what notifications say", because the two answer the
+          same question from opposite ends: that one governs how much a
+          notification reveals, this one governs which arrive at all.
+        */}
+        <NotificationPrefsForm
+          goalAchieved={profile.notify_goal_achieved}
+          firstFinisher={profile.notify_first_finisher}
+          lastOneLeft={profile.notify_last_one_left}
+          circleActivity={profile.notify_circle_activity}
+        />
       </section>
 
       {/* Client-only: whether this browser is permitted, subscribed, and still

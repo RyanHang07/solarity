@@ -211,9 +211,10 @@ test("a snapshot with no roll call still shows its counts", async ({ browser }) 
     await expect(panel.locator("summary").filter({ hasText: name })).toBeVisible()
     await expect(panel.getByText("1 of 3 finished").first()).toBeVisible()
 
-    // And the other panels are still there: one malformed row must not take
-    // the page down.
-    await expect(page.getByRole("region", { name: "Your goals" })).toBeVisible()
+    // And the rest of the page is still there: one malformed row must not take
+    // it down. Today rather than a goals region, which Overview stopped
+    // rendering when the summary was removed.
+    await expect(page.getByRole("heading", { name: "Today" })).toBeVisible()
   } finally {
     await deleteDigests(groupId)
     await context.close()

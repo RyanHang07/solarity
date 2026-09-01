@@ -17,7 +17,7 @@
 
 ## Verify
 
-Cheapest first. `lib/database.types.ts` is **current as of migration 95**; regenerate it after the next one.
+Cheapest first. `lib/database.types.ts` is **current as of migration 104**, hand-patched as a delta for steps 18 and 19: three RPCs, five enum values and four preference columns. Regenerate it properly after the next migration, preserving `graphql_public`, which the MCP generator omits.
 
 ```
 rm -rf .next/dev
@@ -74,7 +74,7 @@ After that: `/admin` appears, a link shows up at the bottom of Settings, and fur
 
 ## The manual pass
 
-**Everything below has failed in a browser while passing headless.** The avatar pipeline is the one piece with no device run at all yet.
+**Everything below has failed in a browser while passing headless**, which is why the list exists at all. Rows 1 to 15 passed on 1 September; they are kept as the regression pass to repeat before a deploy, not as outstanding work.
 
 ### On a real iPhone, installed to the home screen
 
@@ -101,7 +101,14 @@ After that: `/admin` appears, a link shows up at the bottom of Settings, and fur
 | 14 | Open the delete-account panel and **cancel** | Confirm the submit stays disabled until the username matches exactly |
 | 15 | **Goals → a retired goal → its record.** Check a past day shows its note | Step 16. Photos older than 90 days are gone by retention, and the page must say so rather than show a broken frame |
 
-**Still unverified anywhere:** every avatar row above, and a portrait/HEIC check-in photo.
+**Rows 1 to 15 all passed on 1 September, on a real iPhone installed to the home screen.** The avatar pipeline was the last feature shipped with no run on hardware, and it needed no fixes: the label-opened picker, EXIF rotation, HEIC, all four render sites, the fixed key across two reloads.
+
+### Found by the second manual pass
+
+| Report | Cause |
+|---|---|
+| Settings offered "Turn on notifications" on a device that already had them on | **A `??` that turned "the read failed" into a confident "no".** `pushSubscribed` discarded its error, so `count` came back null and `(null ?? 0) > 0` said `false`. `pushEnabledHere` had a second one: `readyWorker()` resolves to `null` after ten seconds, and a wedged service worker rendered identically to an absent subscription. Both now return `unknown`, which the toggle draws as a sentence and a **Check again** button rather than as an off switch, and which the nudge treats as "say nothing" |
+| Overview named every goal twice | Today lists every active goal with its controls; the summary underneath printed the same titles with nothing to do to them. **The summary is gone**, replaced by a right-aligned *View goals* link, and Overview is two panels and a way out. Two queries came out of the page with it |
 
 ### Found by the first manual pass, and fixed
 
@@ -132,8 +139,10 @@ After that: `/admin` appears, a link shows up at the bottom of Settings, and fur
 | 15 | Profiles, and the moderation surface they carry | ✅ migrations 85–90. `/profile`, avatars, the stats toggle, blocking, reporting |
 | 16 | The goal record | ✅ **no migration.** A fifth tab: `/dashboard/goals`, `/archived`, `/[id]` — every control, and a row per check-in day |
 | 17 | The admin dashboard | ✅ migrations 91–95. Site roles, the report queue, triage, and who may moderate |
+| 18 | Inviting a person, not a link | ✅ migrations 96–100. Username search, an invite that arrives as a notification, and a join page that says who is already inside |
+| 19 | A Circle that talks back | ✅ migrations 101–104. Four intraday notification types, four per-type switches, coalesced activity, and the copy variance that stops a daily notification going stale |
 
-**What that means.** A person can sign in, set goals, check them off with a note and a photo, invite friends into a Circle, see who finished today, keep a streak, get a push when it matters, and read a five-day digest. **The premise the product exists to test is now testable.**
+**What that means.** A person can sign in, set goals, check them off with a note and a photo, invite a friend **by name** into a Circle, see who finished today, hear about it while the day is still going, keep a streak, and read a five-day digest. **The premise the product exists to test is now testable.**
 
 **What it does not mean.** Nothing has shipped to anyone yet. The rest of this file is what stands between here and that.
 
@@ -291,25 +300,26 @@ Keep the posture deny-by-default: enumerate what is *public*, so a forgotten rou
 
 ### Before launch
 
-**Four things, and only one of them is unbounded.**
+**Two things left, and neither is a feature.**
 
 | | | |
 |---|---|---|
-| 1 | **The first admin, by SQL** | Two minutes. `/admin` is unreachable and untestable by hand until it runs; the statement is at the top of this file |
-| 2 | **A device pass for avatars** | Rows 1–6 of the manual pass. The only feature shipped with no run on real hardware, in the one pipeline that has failed on a device three times |
-| 3 | **Regenerate `graphify-out/`** | Stale since steps 15–17 added roughly thirty files. `graphify . update`, then `node scripts/graph-freshness.mjs` |
-| 4 | ~~**The legal review**~~ | **Accuracy and sufficiency both done, 31 Aug.** Six defects fixed, then the controller, reasons, rights, transfer and cookie sections added. What remains is **exposure**, which is not a writing task: "no guarantees" and "we can close your account" are the two clauses most often unenforceable as written, and a one-person operation with no entity is personally liable for whatever they fail to cover. That is a decision about forming a company, not a paragraph |
+| 1 | **Run the suite** | Steps 18 and 19 added `invite-user.spec.ts` and `circle-activity.spec.ts` and neither has been run. `npm run test:run` also covers the teaser copy, which was verified by hand through node because vitest cannot start in the sandbox that wrote it |
+| 2 | **Regenerate `graphify-out/`** | `node scripts/graph-freshness.mjs` reports **37 files out of date**. `graphify . update`, then run it again |
 
-**Also worth a run before any deploy:** `E2E_PROD=1 npm run test:e2e:ios`, which is the only pass that sees the CSP that ships.
+**Also worth a run before any deploy:** `E2E_PROD=1 npm run test:e2e:ios`, which is the only pass that sees the CSP that ships, and the fifteen-row manual pass above as a regression check.
 
 **Closed since this list was written**
 
 - ~~Security headers~~ — step 12.
 - ~~`pushsubscriptionchange` handler~~ — step 10f. `sw.js` listens and `resubscribeIfPermitted` repairs a rotated endpoint without ever prompting.
-- ~~Wire rate limits into each new action~~ — **every limit in `lib/ratelimit.ts` now has a caller.** `report` and `deleteAccount` were the last two, and neither was missing one by oversight.
+- ~~Wire rate limits into each new action~~ — **every limit in `lib/ratelimit.ts` now has a caller.** `searchUsers` and `inviteUser` were the last two.
 - ~~A custom domain~~ — never needed. `*.vercel.app` is accepted as a Google OAuth authorized domain.
+- ~~The first admin, by SQL~~ — done 31 Aug. The statement is kept at the top of this file because it is the only way to make another one from scratch.
+- ~~A device pass for avatars~~ — done 1 Sept on a real iPhone, rows 1–6. It needed no fixes.
+- ~~The legal review~~ — **accuracy and sufficiency both done, 31 Aug.** Six defects fixed, then the controller, reasons, rights, transfer and cookie sections added. What remains is **exposure**, which is not a writing task: "no guarantees" and "we can close your account" are the two clauses most often unenforceable as written, and a one-person operation with no entity is personally liable for whatever they fail to cover. That is a decision about forming a company, not a paragraph.
 
-
+**The one standing risk, written down rather than fixed.** Every RPC in the app is reachable directly at `/rest/v1/rpc/` by anyone holding a session, so the rate limits in `lib/ratelimit.ts` bound what the *app* does rather than what a determined caller can. `search_users` is the one where that matters most, because it is the app's only directory. Its real defences are in the database: three characters minimum, escaped wildcards, ten rows, and blocks excluded.
 
 ### Deferred to v2
 

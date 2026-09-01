@@ -29,6 +29,19 @@ const RETIRED_HINTS = new Set([
   // Renamed to CIRCLE_INACTIVE by migration 65. The two were the same
   // condition, down to the message text, under two names.
   "CIRCLE_NOT_ACTIVE",
+
+  /**
+   * **Deleted by migration 95, and this test is the reason it was noticed at
+   * all.** Migration 93's `set_role` refused any self-change, which made its own
+   * `LAST_ADMIN` guard unreachable and stopped the only administrator from
+   * standing down after promoting a successor. 95 replaced the body: self
+   * demotion is allowed, and the count is scoped to admin targets.
+   *
+   * The copy came out of `BY_HINT` in the same change. The literal stays in
+   * migration 93's file forever, because migrations are history, so it is
+   * retired here rather than resurrected there.
+   */
+  "ROLE_SELF_CHANGE",
 ])
 
 /**
