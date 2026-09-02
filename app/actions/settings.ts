@@ -7,6 +7,7 @@ import { enforce } from "@/lib/ratelimit"
 import { containsProfanity } from "@/lib/profanity"
 import { AVATAR_BUCKET, AVATAR_URL_TTL_SECONDS, avatarKey } from "@/lib/avatar"
 import { toMessage, type ActionResult } from "@/lib/errors"
+import { TERMS_VERSION } from "@/lib/legal"
 
 /** Mirrors users_username_format, so a refusal is a sentence and not a 23514. */
 const USERNAME_RE = /^[A-Za-z0-9_]{3,30}$/
@@ -96,6 +97,9 @@ export async function updateUsername(
   const { error } = await supabase.rpc("complete_onboarding", {
     p_username: username,
     p_timezone: profile.checkin_timezone,
+    // Step 20a. The RPC `coalesce`s this, so a rename never moves an existing
+    // acceptance; only a first one writes.
+    p_terms_version: TERMS_VERSION,
   })
   if (error) return { ok: false, error: toMessage(error) }
 

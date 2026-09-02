@@ -26,4 +26,4 @@ Start at [`docs/README.md`](docs/README.md), which says which file answers which
 | [`docs/patterns.md`](docs/patterns.md) | The nineteen bug shapes this codebase keeps producing, and the standing checks |
 | [`docs/testing.md`](docs/testing.md) | Running, testing, verifying |
 | [`docs/product-and-design.md`](docs/product-and-design.md) | What the product is meant to be |
-| [`docs/deferred.md`](docs/deferred.md) · [`docs/history.md`](docs/history.md) | Designed-not-built, and why past decisions went that way |
+| [`docs/history.md`](docs/history.md) | Why past decisions went that way. Designed-not-built folded into `build-plan.md` on 1 Sept |

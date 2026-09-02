@@ -130,7 +130,13 @@ Deno.serve(async (req: Request) => {
     const message = JSON.stringify({
       title,
       body,
-      data: { notification_id: n.id, ...(n.payload ?? {}) },
+      // **`type` explicitly, and it has never been here.** `sw.js` branches on
+      // `d.type === "digest"` to open a Circle's Overview tab, and `data` was
+      // only ever `{ notification_id, ...payload }` — no payload has ever
+      // carried a `type` key, verified against all 138 rows in the table. That
+      // branch has therefore never run once since step 10. Spread last would
+      // let a payload key shadow it; spread first means the real type wins.
+      data: { notification_id: n.id, ...(n.payload ?? {}), type: n.type },
     });
 
     // Fan out to every device — a user may have the PWA on phone and laptop.

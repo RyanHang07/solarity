@@ -4,6 +4,7 @@ import fs from "node:fs"
 import { AUTH_DIR, statePath, type E2EAccount } from "./auth-state"
 import { admin, requireEnv, userIdByEmail } from "./db"
 import { saveModes, type TodayMode } from "./saved-modes"
+import { TERMS_VERSION } from "@/lib/legal"
 
 /**
  * Signs all three test accounts in without touching Google.
@@ -160,3 +161,56 @@ for (const [who, email] of Object.entries(ACCOUNTS)) {
     )
   })
 }
+
+/**
+ * Step 20c. Gets the three fixture accounts past the terms interstitial.
+ *
+ * ## Why this exists
+ *
+ * The gate in `app/(app)/layout.tsx` sends anybody with no `terms_accepted_at`
+ * to `/onboarding/terms`. All three accounts predate migration 105, so on the
+ * first run after it every signed-in spec in the suite failed — ten tests
+ * across four files, each reporting a missing landmark on a page that was
+ * actually the terms screen. **One unmet precondition, ten unrelated-looking
+ * failures**, which is the same shape as `/today` above and is why that one is
+ * two paragraphs long.
+ *
+ * ## Why writing it directly is honest here
+ *
+ * The whole argument for the interstitial was that backfilling acceptance
+ * writes a claim about a person's consent that nobody gave. **A fixture account
+ * is not a person.** Nothing is being consented to on anyone's behalf; a
+ * precondition is being met so the suite can reach the screens it tests, in the
+ * same spirit as `parkActiveGoals` and `ensureUnfinishedDay`.
+ *
+ * **Not put back afterwards**, unlike `today_screen_mode`. Acceptance is a fact
+ * that only moves forwards, and restoring null would mean the three accounts
+ * used for manual testing met the interstitial after every run.
+ *
+ * ## What still tests the interstitial
+ *
+ * `sign-up.spec.ts` builds the state deliberately on a throwaway account:
+ * confirm, onboard, null the columns, then meet the screen. That is the only
+ * way to test it without consuming the state of an account the rest of the
+ * suite depends on.
+ */
+setup("get the fixture accounts past the terms interstitial", async () => {
+  for (const email of Object.values(ACCOUNTS)) {
+    const id = await userIdByEmail(email)
+
+    const { data, error } = await admin
+      .from("users")
+      .update({
+        terms_accepted_at: new Date().toISOString(),
+        terms_accepted_version: TERMS_VERSION,
+      })
+      .eq("id", id)
+      .select("id")
+
+    if (error) throw error
+    // `.select("id")` is the only proof the write landed: RLS filters rather
+    // than erroring, and the service key silently matching nothing would leave
+    // the suite failing exactly as it did before.
+    if (!data?.length) throw new Error(`terms acceptance did not apply to ${email}`)
+  }
+})

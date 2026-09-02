@@ -4,7 +4,9 @@
 
 **Scope rule**: this doc governs *build phasing*, *user-facing language* and *visual design*. It never renames schema. `groups` and `group_cycles` stay as they are in the database even though they display as "Circles" and "Cycles."
 
-> **Only sections 1–3 apply to v1.** Naming affects copy and schema mapping, so it is live now. Everything about appearance waits for v2, and the galaxy waits for v3.
+> **v1 is complete as of 1 September**: all twenty build steps, a green suite, and the public surface up. **v2 is now the live phase**, so the sections about appearance are no longer deferred — they are the current brief. The galaxy still waits for v3, alongside turning Turnstile on.
+>
+> Sections 1–3 governed v1 and stay in force: naming affects copy and schema mapping, and nothing in a design pass renames a table.
 
 ---
 
@@ -14,9 +16,9 @@
 
 | Phase | Scope |
 |---|---|
-| **v1: functional** | Every feature works. **No visual design at all**: unstyled or near-unstyled markup, default Tailwind, no layout polish, no animation. The goal is proving the product works end to end. |
-| **v2: design** | Visual identity, layout, polish, responsive behaviour, empty states, transitions. Applied to screens whose behaviour is already settled. |
-| **v3: galaxy** | The visualization and its cosmetics system (section 5). |
+| **v1: functional** ✅ **done, 1 Sept** | Every feature works. **No visual design at all**: unstyled or near-unstyled markup, default Tailwind, no layout polish, no animation. The goal is proving the product works end to end. |
+| **v2: design** ← **current** | Visual identity, layout, polish, responsive behaviour, empty states, transitions. Applied to screens whose behaviour is already settled. |
+| **v3: galaxy** | The visualization and its cosmetics system (section 5), plus turning Turnstile on. |
 
 **Why design is deferred past v1.** Styling a screen whose behaviour is still moving means doing it twice. The functional core is large: Circles, check-ins, streaks, digests, invites, moderation, and every one of those screens will change shape as it meets real use. Design applied afterwards is applied once, to something that has stopped moving. v1 is therefore judged on "does the streak increment correctly", not "does it look right". **Ugly and correct is the target.**
 

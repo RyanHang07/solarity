@@ -183,6 +183,11 @@ const PUBLIC_PREFIXES = [
   "/join",
   "/privacy",
   "/terms",
+  // Step 20d. Reachable signed out, because half of what it explains — how to
+  // delete an account, what a photo's retention is — is what somebody wants to
+  // read *before* signing up, and the other half is what somebody who cannot
+  // sign in needs.
+  "/support",
   "/robots.txt",
   "/sitemap.xml",
   "/_next",

@@ -7,6 +7,19 @@ import { Redis } from "@upstash/redis"
  *
  * Only applies to calls made through server actions, which is why `.rpc(` is
  * lint-confined to `app/actions/`.
+ *
+ * **Most limits key on `auth.uid()`, and four do not.** That sentence used to
+ * read "keyed by user id" without qualification, which was true when every
+ * action required a session. It stopped being true twice: `/join/[token]` serves
+ * signed-out visitors, and step 20 added signing up, signing in with a password
+ * and asking for a reset — none of which have a session to key on.
+ *
+ * Those key on the forwarded client IP or on the email address instead. **An IP
+ * is a weaker key**: it groups a household, an office and a mobile carrier's NAT
+ * together, so those numbers are deliberately generous. They bound a script, not
+ * a family. An address is a *better* key for the two that send mail, because the
+ * thing worth bounding there is how often Solarity can be made to email one
+ * inbox.
  */
 
 type Window = Parameters<typeof Ratelimit.slidingWindow>[1]
@@ -38,6 +51,49 @@ const LIMITS = {
   // 60, not the 10 the plan originally specified. See the note below: 10 would
   // let a shared link lock out the people it was shared with.
   inviteToken: [60, "1 h"],
+
+  /**
+   * Step 20e. **The three limits with no session to key on.**
+   *
+   * Every other entry in this table keys on `auth.uid()`, which is coherent
+   * because every other action requires one. Signing up, signing in with a
+   * password and asking for a confirmation email all happen before a session
+   * exists, so these key on the forwarded client IP instead.
+   *
+   * That is a **weaker key**: it groups a household, an office and a mobile
+   * carrier's NAT together, so the numbers are generous on purpose. They bound
+   * a script, not a family.
+   */
+  signUp: [10, "1 h"],
+  signInWithPassword: [20, "1 h"],
+
+  /**
+   * Keyed by **address**, not IP, and it is not really abuse control.
+   *
+   * Without it, anyone can use Solarity to send repeated mail to somebody
+   * else's inbox — which is how a sending domain gets flagged, and the sending
+   * domain is the one `email-heartbeat.yml` exists to keep warm. Supabase
+   * separately enforces 60 seconds between emails to one address; this bounds
+   * the hour.
+   */
+  resendConfirmation: [3, "1 h"],
+
+  /**
+   * Step 20f. **Two keys for one action**, and they stop different things.
+   *
+   * `passwordReset` is per IP and bounds somebody working through a list of
+   * addresses. `passwordResetAddress` is per address and bounds how often
+   * Solarity can be made to email *one* inbox — which is not abuse control so
+   * much as deliverability: repeatedly mailing a stranger who never asked is
+   * how a sending domain gets flagged, and that domain is the one
+   * `email-heartbeat.yml` exists to keep warm.
+   *
+   * Neither may reveal which addresses exist. Both are enforced before the
+   * Supabase call and refuse with the same sentence the success path returns,
+   * so a refusal is indistinguishable from an email nobody received.
+   */
+  passwordReset: [5, "1 h"],
+  passwordResetAddress: [3, "1 h"],
 
   /**
    * Step 18a. **The meter on the directory**, keyed by user id.

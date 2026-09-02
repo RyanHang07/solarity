@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test"
 import { admin, requireEnv, userIdByEmail } from "./db"
 import { storageStateFor } from "./session"
+import { errorAlert } from "./ui"
 
 /**
  * Step 10c. The permission screen, and the promises it must not break.
@@ -166,9 +167,9 @@ test("a granted browser either subscribes or says why, and never pretends", asyn
     const success = page.getByRole("heading", { name: "Notifications are on" })
     // **Not `getByRole("alert")`.** Next's dev overlay renders an empty alert
     // node on every page, which matched a previous test and made it pass for
-    // the wrong reason. This names the paragraph the screen actually renders
-    // and requires it to say something.
-    const failure = page.locator('p[role="alert"]').filter({ hasText: /\S/ })
+    // the wrong reason. The reasoning now lives in `e2e/ui.ts`, because the
+    // sign-in spec met it again and read `""` from the overlay's node.
+    const failure = errorAlert(page)
     await expect(success.or(failure)).toBeVisible({ timeout: 20_000 })
 
     // The endpoint this browser actually holds, so the row is matched to the

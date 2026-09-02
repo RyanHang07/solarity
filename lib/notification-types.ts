@@ -25,7 +25,7 @@ type NotificationType = Database["public"]["Enums"]["notification_type"]
  *
  * A shared constant is not much of a guard, but it is the guard that fits the
  * size of the risk. The structural fix — digests leaving this table entirely —
- * is in `deferred.md`.
+ * is in `build-plan.md`, under Deferred.
  *
  * ## `read_at` does not apply to a digest
  *

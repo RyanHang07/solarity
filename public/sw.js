@@ -46,9 +46,24 @@ self.addEventListener("notificationclick", (event) => {
 
   const d = event.notification.data || {}
 
-  let target = "/"
+  // **`/dashboard`, not `/`.** Step 20i put a real landing page at the root, so
+  // a tap with nothing to route on used to open the marketing page from inside
+  // the installed app. Signed out, `/dashboard` redirects to sign-in anyway.
+  let target = "/dashboard"
+
   if (d.group_id) target = `/circles/${d.group_id}`
   if (d.type === "digest" && d.group_id) target = `/circles/${d.group_id}?tab=overview`
+
+  /**
+   * **An invite goes to the invite page, and this was wrong until the step 20
+   * audit.** Step 18 made the in-app notification link to `/join/<token>`
+   * because the recipient is not a member yet — and left this file routing by
+   * `group_id`, so tapping the *push* landed them on a Circle they cannot see.
+   *
+   * Last, so it beats the `group_id` branch above rather than being beaten by
+   * it. The token is what makes the notification actionable at all.
+   */
+  if (d.type === "invited" && d.token) target = `/join/${d.token}`
 
   event.waitUntil(
     self.clients

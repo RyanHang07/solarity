@@ -98,9 +98,26 @@ describe("contentSecurityPolicy", () => {
   it("forbids framing, plugins, base tags and foreign form posts", () => {
     const csp = policy()
     expect(directive(csp, "frame-ancestors")).toBe("frame-ancestors 'none'")
-    expect(directive(csp, "frame-src")).toBe("frame-src 'none'")
     expect(directive(csp, "object-src")).toBe("object-src 'none'")
     expect(directive(csp, "base-uri")).toBe("base-uri 'none'")
+
+    /**
+     * **`frame-src` was `'none'` until step 20h and is now one origin.**
+     *
+     * That is a real widening and this assertion is what makes it a *decision*
+     * rather than a drift: the Turnstile challenge renders in an iframe, so the
+     * host has to be named, and naming it here means the next person to add a
+     * second origin has to change a test that says why.
+     *
+     * The guarantee this test was making is unchanged in the direction that
+     * matters — **nothing may frame us**, which is `frame-ancestors` above.
+     * `frame-src` governs what *we* may embed, and the answer is: one hosted
+     * challenge, and nothing else. Asserted exactly in the `Turnstile` block
+     * below, including that `'self'` is still absent.
+     */
+    expect(directive(csp, "frame-src")).toBe(
+      "frame-src https://challenges.cloudflare.com",
+    )
   })
 
   it("permits the whole sign-in redirect chain in form-action", () => {
@@ -200,5 +217,35 @@ describe("FIXED_HEADERS", () => {
     expect(byKey("X-Content-Type-Options")).toBe("nosniff")
     expect(byKey("X-Frame-Options")).toBe("DENY")
     expect(byKey("Referrer-Policy")).toBe("strict-origin-when-cross-origin")
+  })
+})
+
+/**
+ * Step 20h. Turnstile is the one origin the policy lets in.
+ *
+ * **Both directives, because the widget needs both and the failure modes
+ * differ.** A missing `script-src` entry blocks the loader and the widget never
+ * appears; a missing `frame-src` entry loads the script, mounts the element,
+ * and renders nothing — no error, no challenge, no token. The second is the
+ * quiet one, and it surfaces as `no captcha_token found` from Supabase, which
+ * points at the form rather than at the policy.
+ */
+describe("Turnstile", () => {
+  const TURNSTILE = "https://challenges.cloudflare.com"
+
+  it("is allowed to load and to frame, in both environments", () => {
+    for (const dev of [true, false]) {
+      expect(directive(policy({ dev }), "script-src"), `dev=${dev}`).toContain(TURNSTILE)
+      expect(directive(policy({ dev }), "frame-src"), `dev=${dev}`).toContain(TURNSTILE)
+    }
+  })
+
+  it("did not widen the policy beyond that one host", () => {
+    // `frame-src` was `'none'` before this. It must now name exactly one
+    // origin rather than having been opened up.
+    expect(directive(policy(), "frame-src")).toBe(`frame-src ${TURNSTILE}`)
+
+    // And nothing may frame *us*, which is a separate directive and unchanged.
+    expect(directive(policy(), "frame-ancestors")).toContain("'none'")
   })
 })

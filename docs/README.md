@@ -6,13 +6,13 @@ Friends in invite-only Circles (max 10) see each other's daily progress.
 
 | You want to… | Go to |
 |---|---|
-| Build the next thing | [`build-plan.md`](build-plan.md) — open work only. **The core loop is closed and the public surface is up. What remains is the deferred auth routes, five orphaned routes, and one manual pass** |
+| Build the next thing | [`build-plan.md`](build-plan.md) — open work only. **All twenty steps are built and the suite is green.** Verify commands, the manual pass, the route map, and what is deferred |
+| Work on the design pass | [`build-plan/`](build-plan/README.md) — six parts. The design system, the app restyle, and porting the PixiJS galaxy. **This is the current work** |
 | Understand how something works | [`architecture/`](architecture/README.md) — schema, security, time, app |
-| Avoid a bug this codebase keeps having | [`patterns.md`](patterns.md) — twenty-seven shapes, plus the standing checks |
+| Avoid a bug this codebase keeps having | [`patterns.md`](patterns.md) — forty-nine shapes, plus the standing checks |
 | Run it, test it, or verify a release | [`testing.md`](testing.md) |
 | Know what the product is for | [`product-and-design.md`](product-and-design.md) |
 | Change what a notification says | [`notification-copy.md`](notification-copy.md) — every string, both surfaces |
-| Find something designed but not built | [`deferred.md`](deferred.md) |
 | Know why a past decision went that way | [`history.md`](history.md) — append-only |
 
 ## Before you change the schema

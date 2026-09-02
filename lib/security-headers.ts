@@ -96,6 +96,14 @@ export const CSP_REPORT_GROUP = "csp"
  * is *not* the one most test runs see. `e2e/headers.spec.ts` asserts the
  * invariants in both modes and the strict form only under `E2E_PROD`.
  */
+/**
+ * Cloudflare Turnstile's origin, named once because two directives need it.
+ *
+ * Serving the widget from our own origin is not an option — it is a hosted
+ * challenge, and its script and iframe both come from here.
+ */
+const TURNSTILE = "https://challenges.cloudflare.com"
+
 export function contentSecurityPolicy(opts: {
   nonce: string
   dev: boolean
@@ -168,9 +176,20 @@ export function contentSecurityPolicy(opts: {
      * `e2e/headers.spec.ts` asserts the strict form only under `E2E_PROD`, and
      * that is the run that has to pass before this goes out.
      */
+    /**
+     * **`challenges.cloudflare.com` is Turnstile, added in step 20h.** The
+     * widget loads its own script from that origin, and `'strict-dynamic'` is
+     * not in play here, so the host has to be listed explicitly.
+     *
+     * It is the narrowest widening available: one host, script and frame only,
+     * and it is reachable on exactly three routes. The alternative — no CAPTCHA
+     * — leaves signup, password sign-in and reset as the app's only
+     * unauthenticated write endpoints with nothing but an IP limit in front of
+     * them.
+     */
     "script-src": dev
-      ? ["'self'", "'unsafe-inline'", "'unsafe-eval'"]
-      : ["'self'", `'nonce-${nonce}'`],
+      ? ["'self'", "'unsafe-inline'", "'unsafe-eval'", TURNSTILE]
+      : ["'self'", `'nonce-${nonce}'`, TURNSTILE],
 
     // **Not nonced, on purpose.** A nonce on `style-src` switches off
     // `'unsafe-inline'` for styles, and two things here need it: `next/font`
@@ -211,9 +230,18 @@ export function contentSecurityPolicy(opts: {
     "worker-src": ["'self'", "blob:"],
     "manifest-src": ["'self'"],
 
-    // Sign-in is a full-page redirect, not a popup or an iframe. Nothing in
-    // this app frames anything, and nothing may frame it.
-    "frame-src": ["'none'"],
+    /**
+     * Sign-in is a full-page redirect, not a popup or an iframe, and nothing
+     * may frame this app.
+     *
+     * **Turnstile is the one exception, and it renders in an iframe.** Without
+     * this the widget is blocked and the failure is the quiet kind: the script
+     * loads, the element mounts, and no challenge ever appears — so the token
+     * is never produced and every password endpoint refuses with
+     * `no captcha_token found`, which reads as a wiring bug rather than a
+     * policy one.
+     */
+    "frame-src": [TURNSTILE],
     "frame-ancestors": ["'none'"],
 
     "object-src": ["'none'"],

@@ -46,6 +46,15 @@ const INTRADAY = [
 
 type Intraday = (typeof INTRADAY)[number]
 
+/**
+ * Circle names are fixture-generated (`E2E push only 733058`) and safe today,
+ * but a name reaches a `RegExp` here and a name is user input everywhere else.
+ * Escaping costs one line and removes the question.
+ */
+function escapeRegExp(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
 /** Rows of one kind, for one person, in one Circle. */
 async function rowsFor(userId: string, groupId: string, type: Intraday) {
   const { data } = await admin
@@ -368,8 +377,22 @@ test("activity never reaches the notifications tab", async ({ browser }) => {
     await page.goto("/dashboard/notifications")
     const panel = page.getByRole("region", { name: "Notifications" })
 
-    // The one that belongs there is there.
-    await expect(panel.getByText(/finished first in/)).toBeVisible()
+    /**
+     * **Scoped to this test's Circle, because the account is in several.**
+     *
+     * The unscoped version resolved to six rows and failed as a strict-mode
+     * violation. That is not leakage: `circle_first_finisher` is per Circle, the
+     * two accounts still shared five earlier fixture Circles that only
+     * `afterAll` removes, and one check-in correctly told each of them. The
+     * database assertions above were already scoped by `group_id` and read 1;
+     * only this locator was asking a question about the whole account.
+     *
+     * Naming the Circle also makes it a stronger assertion than before: it can
+     * no longer be satisfied by a notification from some other Circle entirely.
+     */
+    await expect(
+      panel.getByText(new RegExp(`finished first in ${escapeRegExp(s.name)}`)),
+    ).toBeVisible()
 
     // And the one that does not, is not. Asserted on the wording only this type
     // produces, so it cannot pass because the list happens to be empty.

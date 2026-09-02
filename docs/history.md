@@ -2144,7 +2144,7 @@ That is the argument for the shared constant in one line: three readers, and the
 
 #### The residual risk, and what guards it
 
-Someone counts unread rows without naming types and sees roughly `circles × 90` digests. `lib/notification-types.ts` is the guard, which is proportionate rather than absolute. The structural fix — the sender reading `digest_snapshots` so digests stop being rows here at all — is written up in `deferred.md`, along with why it was not done now: `pushed_at` lives on the notification row, and moving it means tracking delivery per member on the snapshot instead.
+Someone counts unread rows without naming types and sees roughly `circles × 90` digests. `lib/notification-types.ts` is the guard, which is proportionate rather than absolute. The structural fix — the sender reading `digest_snapshots` so digests stop being rows here at all — is written up under Deferred in `build-plan.md`, along with why it was not done now: `pushed_at` lives on the notification row, and moving it means tracking delivery per member on the snapshot instead.
 
 ---
 
@@ -3227,3 +3227,451 @@ Not exploitable — plpgsql refuses a trigger function invoked outside a trigger
 **Accepted behaviour, not a bug.** Somebody whose whole day is one goal produces `circle_activity` *and* `circle_first_finisher` from a single check-in, so their Circle hears twice about one event. Both are true, both have their own switch, and suppressing one would mean the trigger guessing which the reader would rather have.
 
 **Pre-existing and deliberate:** `audit_log` and `username_history` have RLS on with no policies, which is deny-all by design, and leaked-password protection is off because there is no password auth to protect.
+
+
+---
+
+## Step 20: the front door ✅ done
+
+**Eleven commits, and three of them fixed something the previous one had just broken.** Every sub-step below is marked with what it actually shipped; the ones that changed shape while being built say so where the decision was made.
+
+**Everything built so far assumes you already have an account, and a Google one.** `/` is a placeholder, the only way in is one button, and nothing tells a stranger what a Circle is. This step is the public surface plus email signup, and it is the last functional work before the design system.
+
+**Four decisions taken before any of it was sequenced.**
+
+| Decision | Chosen | What it cost or saved |
+|---|---|---|
+| Email and password auth | **Build the whole flow**, explicitly as a learning exercise | Roughly 80% of this step. Google-only would have been a fifth of the work, and the reason to do it anyway is that every trap below is a real one worth having met once |
+| The signup form's fields | **Email and password only**; username moves to `/onboarding` | Overturns `deferred.md`. An unconfirmed account must not hold a username, and the two paths now share one implementation of the rules |
+| Colliding addresses | **One account, Google keeps it** | Nothing to build. The rescue is a line of copy on `/auth/check-email`, which is the only thing that reaches somebody enumeration protection will not let the form explain |
+| The landing page's finish | **Plain, mobile-first, and deliberately unstyled** | Its job is to explain and to get out of the way. Design lands later, with everything else. **Nothing in it may depend on styling to make sense** |
+| Accounts that already exist | **Prompted once, at next sign-in** | A one-screen interstitial and a small RPC. The alternative was a backfill writing a timestamp claiming somebody agreed to something they were never shown, in the one column whose whole purpose is proving they did |
+| Who the page is for | **Somebody you invited** | Not a stranger being persuaded. It answers what a Circle is, what a day looks like, and what the streak rule costs. Matches the ten-person cap and the audience the legal review assumed |
+
+---
+
+### The PWA question, because it changes the manifest
+
+**A landing page at `/` does not break the PWA. `start_url` does.**
+
+The manifest says `start_url: "/"`, harmless while `/` was a placeholder. The moment `/` becomes a real page, **every cold launch of the installed app opens on it**: a signed-in person gets a flash of the hero and a redirect, on the screen they open every morning.
+
+| Field | Now | After | Why |
+|---|---|---|---|
+| `start_url` | `/` | `/dashboard` | The installed app opens the app. Signed out, `/dashboard` already redirects to `/auth/sign-in`, so that case needs no second rule |
+| `scope` | `/` | **unchanged** | The trap in the other direction. Narrowing it would put `/privacy`, `/terms`, `/support` and **`/join/<token>`** outside the installed window, so on iOS an invite tapped inside the app opens in Safari — where that person is not signed in |
+
+**The install prompt stays after signup, where it is.** `/onboarding/install` sits between account creation and the push ask, because push is the only reason installing matters. A landing-page install button targets somebody with no account, who would install an app that opens on a sign-in screen. The page **mentions** that it installs; it does not ask.
+
+**One thing to check on the device rather than assume.** iOS home-screen web apps have historically kept storage separate from Safari's, which would mean signing up in Safari and then installing lands you in a signed-out app. If that still holds, install-before-signup is better on iOS and the paragraph above is wrong for that platform. Fifteen minutes on the iPhone that already has Solarity installed, and it decides whether the landing page gets an install call to action after all.
+
+---
+
+### The order, and why it is this order
+
+Each of these is a commit. The dependencies are real: **20b before 20e** because the flow cannot be tested without the templates, **20h last** because enabling Turnstile before the forms send tokens breaks every password endpoint at once.
+
+#### 20a. Terms acceptance ✅ **done, migrations 105 and 106**
+
+Columns on `users`, `complete_onboarding` gains a parameter, and a small `accept_terms(p_version text)` RPC for accounts that predate all this.
+
+**Adding a parameter to a Postgres function does not modify it, it creates an overload.** `create or replace` only matches an identical signature, so the two-argument version survives, PostgREST sees two candidates for `/rpc/complete_onboarding`, and every signup fails with an ambiguity error. The migration must `drop function public.complete_onboarding(text, text)` **first, in the same migration as the create**.
+
+`TERMS_VERSION` in `lib/legal.ts` has had no writer since the legal pass. This is it, and the paragraph on `/terms` saying nothing records acceptance changes in the same commit.
+
+**Built.** Two columns (`terms_accepted_at`, `terms_accepted_version`), an `accept_terms(p_version)` RPC for accounts that predate this, and `complete_onboarding` dropped and recreated with a third parameter. Both callers pass `TERMS_VERSION`.
+
+**`authenticated` gets SELECT on the two columns and deliberately not UPDATE.** The gate has to read them; nothing but the two definer functions may write them. A column-level update grant would let any client forge a record of consent it never gave, in the one column whose entire purpose is proving it did. Asserted with `has_column_privilege`.
+
+**The `coalesce` is the part that fails silently.** `complete_onboarding` is also the rename path, so without it a person changing their username two months from now would have their acceptance timestamp quietly moved to today. Proved by accepting 60 days ago, renaming, and asserting the timestamp did not move — the first version of that proof compared a value to itself and could not fail.
+
+**Two things went wrong in the ten minutes after it applied, and both are worth keeping.**
+
+**A rename in Settings recorded an acceptance.** `complete_onboarding` is two paths in one function, and the `coalesce` correctly stopped a rename *moving* an existing acceptance while quietly letting one *create* one. So changing a username wrote a timestamp saying that person agreed to terms nothing had shown them: the exact dishonesty the interstitial exists to avoid, arriving through a door nobody was watching, and worse than the backfill we rejected because it looks like a real event. **Migration 106** writes acceptance only when `v_current is null`, which is the branch that means onboarding. The false record was cleared rather than kept.
+
+**And the first rename after 105 failed with "Something went wrong."** Dropping `complete_onboarding(text, text)` and creating `(text, text, text)` leaves PostgREST serving a cached schema, so a three-argument call matches nothing and returns `PGRST202`. The database was correct throughout and retrying could never have helped. `notify pgrst, 'reload schema';` fixes it, `toMessage` now names the schema cache instead of blaming the person, and `lib/errors.test.ts` covers it. **Every signature change is a chance to meet this again, and step 20 makes several.**
+
+**Still to do in a later commit:** the paragraph on `/terms` saying nothing records acceptance is now false and changes with 20c, when the interstitial exists to make it true.
+
+#### 20b. Supabase dashboard — configuration, not code ✅ **done 1 September**
+
+None of it lives in `config.toml`, which configures the local stack only, and **nothing downstream can be tested until it is done**. There is no code in this sub-step; it is the prerequisite for 20e and 20f.
+
+**Authentication → Sign In / Providers → Email**
+
+| Setting | Value | What it breaks if wrong |
+|---|---|---|
+| Enable email provider | **on** | Off by default on a Google-only project. Every `signUp` call fails until it is on |
+| Confirm email | **on** | Off means anyone can register any address, including one that is not theirs, and password reset becomes a takeover |
+| Minimum password length | **8** | Supabase defaults to 6, below current guidance |
+| Password requirements | **letters and digits** | |
+| Leaked password protection | **on if the plan allows** | The linter reports it disabled today. It is a paid-plan feature, so a launch item rather than a prerequisite |
+| CAPTCHA | **leave off** | 20h enables it, *after* the forms send tokens. Enabling now breaks every password endpoint at once |
+
+**Authentication → URL Configuration**
+
+Redirect URLs: `http://localhost:3000/**` and `https://solarity-five.vercel.app/**`. Both set, both correct — the `/**` wildcard is the form Supabase wants.
+
+**Site URL is a different field, holds one value, and is the one that matters here.** It must be `https://solarity-five.vercel.app`, matching what `lib/site-url.ts` resolves to on Vercel via `VERCEL_PROJECT_PRODUCTION_URL`. `{{ .SiteURL }}` in the templates below reads from it, so a stale `http://localhost:3000` there sends every production confirmation link to a host nobody else can reach.
+
+**A friction point to decide in 20e, not now.** Because Site URL is a single value, an email triggered from a local dev server still points at production. Three ways out, in order of preference:
+
+1. **Temporarily point Site URL at `http://localhost:3000` while testing the flow, and put it back.** One field, reversible, and it keeps the templates simple.
+2. Pass `emailRedirectTo` on `signUp` and switch the templates to `{{ .RedirectTo }}`. Per-environment and correct, but `.RedirectTo` is empty for invites sent from the dashboard, which silently produces a broken link.
+3. Copy the `token_hash` out of the email and open it against localhost by hand. Fine once, tedious as a habit.
+
+**Authentication → Email Templates — the line most likely to cost an afternoon**
+
+Supabase's defaults use `{{ .ConfirmationURL }}`, an implicit-flow link that **does not work with the SSR client**. Confirmation appears broken and the failure reads exactly like a code bug in `/auth/confirm`. Replace the link in both templates:
+
+| Template | Link |
+|---|---|
+| Confirm signup | `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email` |
+| Reset password | `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/auth/reset-password` |
+
+Both point at the same route: `/auth/confirm` exchanges the token for a session and then sends people where the `type` implies. That is why 20e builds it once and 20f reuses it.
+
+**Brevo is already the sender and already verified**, so this is settings rather than integration. Two caps apply and they are independent: Brevo allows 300 a day, Supabase separately caps **30 new users an hour**, and that one binds first — worth knowing before wondering why the eleventh test signup did nothing.
+
+**How to check it took**, before any of 20e exists: Authentication → Users → Add user → *Send invite*, to an address you control. An email should arrive through Brevo with a link to `/auth/confirm?token_hash=…`. A 404 on that route is expected and correct at this stage; the link's *shape* is what is being verified. No email at all means the provider or the SMTP settings, not the templates.
+
+#### 20c. The terms interstitial ✅ **done**
+
+`/onboarding/terms`, plus a fourth check in the gate. Existing accounts meet it once; new ones never see it, because `complete_onboarding` records acceptance as part of signup.
+
+**Outside `(app)`, like `/onboarding` and `/onboarding/install`.** The gate redirects people who have not accepted, so a screen inside that group would redirect to itself, and a route cannot opt out of its own group's layout.
+
+**The page summarises and links rather than embedding the terms.** A second copy of the text would be a second thing to keep in step with `TERMS_VERSION`, and the version people read is the short one either way. Both `/terms` and `/privacy` are one tap from the button.
+
+**Two dead ends are closed at the top of the page**: no username sends you to `/onboarding`, which records acceptance itself rather than queueing this behind it; an existing acceptance sends you to `/dashboard`, so the URL asks nobody twice.
+
+**The form posts a hidden `next` and the action redirects.** The first version awaited the action and routed on the client with `useRouter`, which worked and was worse twice over: it needed JavaScript to complete a form that otherwise would not, and it left both `useActionState` arguments unread. ESLint caught the second — `no-unused-vars` only forgives an unused argument when a later one *is* used, which is why every other action in the app gets away with `_prev`. Reading `formData` fixed the design and the warning together.
+
+**`/terms` now says the opposite of what it said yesterday**, and that is the legal pass's own rule applied to itself: when the code changes what happens to somebody's data, the page changes in the same commit. The paragraph explaining that nothing records acceptance was true when written and is now false.
+
+#### 20d. The gate, and `PUBLIC_PREFIXES` ✅ **done**
+
+`app/(app)/layout.tsx` ends up checking four things in order:
+
+```
+!user                       → /auth/sign-in
+!user.email_confirmed_at    → /auth/check-email
+!profile.username           → /onboarding
+!profile.terms_accepted_at  → /onboarding/terms
+```
+
+**A gate rather than a flow**, because any signup can be abandoned midway: close the tab after `signUp` succeeds and there is a real account with an unconfirmed address. Only something evaluated on every protected navigation catches that, and `email_confirmed_at` comes off the object `getUser()` already returns, so it costs no query.
+
+`PUBLIC_PREFIXES` already covers `/auth` and `/`; it gains `/support`.
+
+**The Google accounts were checked against the data, not assumed.** Adding `!user.email_confirmed_at` would have locked every existing account out behind a screen that did not exist yet, had Google sign-in left that column null. All three have it set, because Google verifies the address and Supabase records it at sign-in. That query cost nothing and the alternative was a self-inflicted outage.
+
+**`/auth/check-email` landed here rather than in 20e**, because a redirect to a route that does not exist is a 404 loop dressed as a security check. 20e adds the resend control to it; the page itself belongs with the gate that needs it.
+
+**It is not a signed-out screen.** `signUp` returns a session before confirmation, so whoever reads it has one and simply cannot pass the gate — hence the sign-out link, without which the only escape is clearing cookies.
+
+**The Google rescue line is on it already**, and `legal.spec.ts` asserts it. With enumeration protection on, somebody whose address already has a Google account gets this screen and no email, ever; the form is not allowed to explain, so that button is the only thing that reaches them.
+
+#### 20e. Signup, and signing in with a password ✅ **done**
+
+**The form is email and password. Nothing else.** This overturns `deferred.md`, which had it collecting username and display name too, and the reason is confirm-email: a username taken on the form is a username held by an account nobody has proved they own. With enumeration protection on, somebody can quietly burn handles by signing up and never confirming, and there is no way to tell that from ordinary abandonment.
+
+So **username moves to `/onboarding`, where Google users already set theirs**. One implementation of the rules and the profanity screen instead of two, one screen to change when they change, and an unconfirmed account reserves nothing. Display name follows it: optional, and already editable in Settings. The cost is one extra screen in the signup path, paid once.
+
+The full path, and it converges with Google's at the third step:
+
+```
+/auth/sign-up → /auth/check-email → (email) → /auth/confirm → /onboarding → /onboarding/terms? → /dashboard
+```
+
+**Enumeration protection stays on**, so signup never reveals whether an address is registered. Supabase links identities by verified email, so somebody with a Google account on that address stays **one account, and Google keeps it** — the password signup silently succeeds and no email ever arrives. The whole rescue is copy: **`/auth/check-email` carries "Already have an account? Sign in" with the Google button**, because it is the only thing that reaches that person and the form is not allowed to explain.
+
+**A resend control on `/auth/check-email`**, rate limited per address like the reset. A confirmation link that expires with no way to get another is a dead end, and expiry is the ordinary case for anyone who signs up and reads their email tomorrow.
+
+**Four decisions taken while building it.**
+
+**Password sign-in moved here from 20f**, because shipping signup alone would leave somebody able to create and confirm an account they cannot use. 20f is now purely forgot-and-reset, which is a cleaner boundary anyway: one commit creates accounts, one recovers them. `/auth/sign-in` keeps one route, Google on top, password beneath a divider — a second route would put the `next=` parameter through an extra hop, and that value is what carries somebody back to the Circle they tapped a notification for.
+
+**Display name stays in Settings.** `coalesce(display_name, username)` always renders something, so nothing is missing without it, and asking would turn the shortest screen in the app into a two-field form for a value most people never change.
+
+**The password rules are validated client-side as well as server-side**, which duplicates a policy that lives in the Supabase dashboard. That cost was taken deliberately for instant feedback, and the mitigation is `lib/password.ts`: the hint, the client check, the action and the tests all read one module, so they cannot disagree with each other — only with the dashboard, which is one place to look when they drift. **Change that file in the same sitting as the setting.** `\p{L}` and `\p{Nd}` rather than ASCII classes, because a Cyrillic-and-Arabic-Indic password satisfies Supabase and an ASCII check would refuse what the server accepts.
+
+**`/auth/error` learned two reasons.** It was a passthrough for Supabase's OAuth message; `/auth/confirm` now sends `link` and `missing`, and rendering those as bare words would be worse than saying nothing. Both are mapped to a sentence and a way forward, and an unrecognised value still falls through to the passthrough.
+
+**The e2e spec drives the real token exchange.** `admin.auth.admin.generateLink()` returns the same `hashed_token` the email would have carried without sending anything — the trick `e2e/session.ts` already uses — so `/auth/confirm` is tested with a genuine token, a genuine `verifyOtp` and genuine cookies. Six tests: an unconfirmed account cannot reach `/dashboard`; confirming lands on `/onboarding` because the gate decides, not the route; a link used twice says it expired; a link with nothing in it says so differently; the form states its rules and refuses a weak password with a control proving the button is not simply always disabled; and a wrong password produces the **same** sentence for a real address and an unknown one.
+
+**One naming trap worth keeping.** `generateLink` calls the confirmation token `type: "signup"`, and `/auth/confirm` receives it as `type=email`, which is the `EmailOtpType` that verifies it. The two names are not a mistake.
+
+**A confirmation field and a reveal**, added after the first test drive, and both live in `components/password-fields.tsx` because 20f's reset screen asks the same question and would otherwise grow a second copy.
+
+**One toggle reveals both fields.** Two independent eyes is more chrome and a worse question — nobody wants to see one and hide the other — and revealing both is what makes the confirmation checkable by eye rather than only by its mismatch message. `type="button"`, because a bare `<button>` in a form submits it, and a reveal that submitted a half-typed signup would be memorable.
+
+**The match is checked in the action as well as the browser.** The form works with JavaScript off, and with it off neither the rules nor the match run client-side. A mismatch arriving unchecked would create an account with the *first* password while whoever typed it is certain they used the second, leaving them unable to sign in and unable to say why. A typo-catcher that only works when scripting does is not one.
+
+**The spec needed `{ exact: true }` on the password label**, because "Confirm password" contains "Password" and the locator otherwise resolves to two fields — a strict-mode violation reported as a missing input. Same shape as the prefix-username trap in `invite-user.spec.ts`.
+
+#### 20f. Password reset ✅ **done**
+
+**Identical response and comparable timing for real and unknown addresses.** A timing difference reintroduces exactly the leak enumeration protection exists to prevent.
+
+**Sign-in keeps one page.** `/auth/sign-in` grows a divider and an email/password form beneath the Google button, rather than a second route: one place the `next=` parameter is handled, and it is exactly the sort of value that gets silently dropped across an extra hop, landing somebody on the wrong page after signing in. Google stays on top because it is what almost everybody will use.
+
+**Out of scope, and written down so the decision is not remade:** changing your email address in Settings, and adding a password to an existing Google account. The first is a two-sided confirmation flow with its own traps; the second is a new way to lock yourself out. Both are real features and neither is needed to sign up and use Solarity.
+
+**Built, and three things are worth keeping.**
+
+**The refusal reads exactly like the success.** A rate-limited reset returns "if there's an account, we've sent a link", not "too many attempts", because a distinguishable refusal is still a signal: try an address, get the limit message, and you have learned the earlier attempts were counted against something real. The cost is that somebody genuinely limited is not told why, which is a fair trade for a form used once a year.
+
+**No early return for unknown addresses**, so there is no timing difference either. Every call does the same two limit checks and the same Supabase call, and Supabase does not tell us which case it was. A branch would have leaked by clock even with identical wording.
+
+**`/auth/reset-password` has no token on it.** The email points at `/auth/confirm?…&type=recovery&next=/auth/reset-password`, so the credential is spent before this page renders and the URL is clean — nothing single-use in the address bar, in history or in a referrer. It also lives under `/auth` rather than inside `(app)` on purpose: a recovery session is a real session, so the gate would happily let it through and then send anybody without a username to `/onboarding`, losing the reset.
+
+**There is no "current password" field**, and that is not an oversight. Proving control of the address *is* the authentication; asking for the old password would ask the one thing somebody resetting it does not have. Which makes the session check the whole guard, and no session renders an offer of a new link rather than a form that cannot work.
+
+**Three more e2e tests**, driving a real `type: "recovery"` token. The one that matters signs in with the new password afterwards and then fails to sign in with the old one — everything before that is satisfied by a form that navigates correctly and changes nothing.
+
+**`/auth/forgot-password` names the Google case.** Somebody who signed in with Google and never set a password would otherwise request a link, receive nothing, and conclude the product is broken; enumeration protection forbids the form from explaining, so a static sentence does it instead.
+
+#### 20g. Rate limits without a session ✅ **done, with 20e and 20f**
+
+`lib/ratelimit.ts` documents its limits as keyed by user id, which is true today because every action needs one. **Signup and reset have no session**, so they key on client IP — a weaker key that groups a household, hence generous numbers. The doc comment is corrected in the same change.
+
+| Action | Limit | Key |
+|---|---|---|
+| `signUp` | 10 / hour | IP |
+| `signInWithPassword` | 20 / hour | IP |
+| `resetPasswordForEmail` | 5 / hour | IP, **and** 3 / hour per address — **20f** |
+| Resend confirmation | 3 / hour | address |
+
+**Added with the actions rather than after them**, because an unmetered signup endpoint is exactly the kind of thing that ships. What is left for 20g proper is the reset limit and correcting the module's own doc comment, which still says every limit keys on a user id.
+
+**The per-address limit is not abuse control.** Without it anyone can use Solarity to repeatedly email a stranger, which is how a sending domain gets flagged — and that domain is the one the monthly heartbeat exists to keep warm.
+
+#### 20h. Turnstile ✅ **wired; the switch stays off, deliberately**
+
+Configured and inert since step 12, because Supabase's CAPTCHA only guards endpoints taking a `captchaToken` and a Google-only app called none. Password auth adds three: signup, password sign-in and reset. All three now render the widget and pass the token.
+
+**The trap fired on the way here.** CAPTCHA was switched on during 20b and every password endpoint began refusing with `captcha protection: request disallowed (no captcha_token found)` — because the forms did not send a token yet. That is the whole reason this sub-step was scheduled last, and it cost a debugging detour anyway.
+
+**The CSP needed two directives, and the second is the quiet one.** `script-src` gains `https://challenges.cloudflare.com` or the loader is blocked and no widget appears. `frame-src` gains it too — it was `'none'` — or the script loads, the element mounts, and **nothing renders**: no error, no challenge, no token, and Supabase then refuses with the same `no captcha_token found` that points at the form rather than at the policy. Both are asserted in `lib/security-headers.test.ts`, along with the fact that `frame-src` names exactly one origin and `frame-ancestors` is still `'none'`.
+
+**A token is single-use**, so each form resets the widget after a failed attempt. Without that, a second submit after a wrong password is refused *for the captcha* rather than for the password — the most confusing outcome available.
+
+**No site key renders no widget**, because `next build` runs in CI with no environment variables and a component that needed one would fail a build meant to prove the app compiles.
+
+#### The switch stays off, and this is the decision rather than an oversight
+
+**One Supabase project serves both production and the e2e suite, and Playwright cannot solve a real challenge.** Turning CAPTCHA on would permanently break the six tests covering signup, confirmation and reset — the newest and least exercised code in the app — in exchange for protecting endpoints that already sit behind IP-keyed limits.
+
+Cloudflare's always-pass test keys were the third option and are worse than off: the dashboard would report CAPTCHA enabled while every bot passes, which is a false sense of a control rather than a control.
+
+So the wiring ships and the toggle waits. **The five-step enablement runbook is under Deferred in `build-plan.md`**, to be done after the first design version — it is configuration in three different dashboards, and doing it out of order reproduces the `no captcha_token found` failure this step already met twice. `architecture/app.md` has said since step 12 that rate limiting is the primary abuse control and a Google account is a higher barrier than a CAPTCHA; this does not change that, it just means the option is now real.
+
+#### 20i. The landing page, and the manifest fix ✅ **done**
+
+Seven sections, plain and mobile-first: hero and two buttons; why a small private group beats a solo tracker; how it works in three steps; **what a day looks like**; the streak rule stated honestly up front rather than discovered on day three; a mention that it installs; the footer that already exists as `legal-footer.tsx`, gaining Support.
+
+**The example digest is a rendered component with fixture data, not a screenshot.** The daily-batched model is the least obvious thing about the product and much weaker described than shown — and a screenshot goes stale silently the first time the digest changes.
+
+Signed-in visitors keep being redirected to `/dashboard`, as `/` does today.
+
+**Built plain, and the constraint is what makes the later design pass a restyle rather than a rewrite:** nothing on the page may depend on styling to make sense. Semantic headings, real sections, readable at 375px, only utility classes the app already uses.
+
+**The example digest is `app/example-digest.tsx`, a component with fixture data.** It deliberately does *not* import `DigestPanel`: that takes `DigestDay[]`, a viewer id and a `today`, all of which would have to be faked, and it renders `<details>` roll calls this page has no room for. Reusing it would couple a marketing page to a component answering to the dashboard, and the first change to either would break the other. `formatDay` **is** shared, because the date format is the part a reader later compares against the real thing.
+
+**The date is fixed rather than `new Date()`.** A marketing illustration that renders differently on every request cannot be reasoned about or snapshotted.
+
+**`LegalFooter` gained Support** rather than the landing page inlining its own footer. The inline version lasted about a minute before it was obviously two footers to keep in step, which is the thing that component exists to prevent — and every auth screen gets the link for free, which is where somebody locked out will look.
+
+#### 20j. `/support` ✅ **done**
+
+**Content and a `mailto:`, not a contact form**, which is the one place this step spends less than `deferred.md` budgeted. A form on a one-person product is a spam relay needing its own Turnstile, its own limit and its own sending path, to reach an inbox a `mailto:` reaches for free.
+
+The content is not decoration: the backend implements all of it and **nothing links to any of it.** How to delete your account and what survives; how to export your data; the 90-day photo retention; how reporting works; how blocking differs from being removed; and why an iPhone needs the app installed to receive notifications.
+
+**Seven answers, and `export_user_data` is the sharpest example of the gap.** It has existed since step 14 with exactly one caller — a Settings link nothing pointed at — so the feature was real and undiscoverable. The page also names the six things the export leaves out, matching `/privacy`, because two pages describing one file differently is worse than either alone.
+
+**Added to the sitemap**, since it is the one page answering "what happens to my data" for somebody who does not have an account to ask from.
+
+#### 20k. Tests ✅ **done**
+
+**One precondition broke ten tests, and it was the last thing found.** The terms interstitial sends anybody with no `terms_accepted_at` to `/onboarding/terms`, and all three fixture accounts predate migration 105 — so the first full run after 20c failed ten tests across four files, each reporting a missing landmark on a page that was actually the terms screen. `auth.setup.ts` now writes acceptance for the three accounts, in the same spirit as `parkActiveGoals`: **a fixture account is not a person**, so nothing is being consented to on anyone's behalf, a precondition is being met.
+
+That left the interstitial untested, so `sign-up.spec.ts` builds the state deliberately on a throwaway account — confirm, onboard, null the columns — and asserts the screen appears once, records the version as well as the timestamp, and does not ask again. It could not be tested on the fixture accounts: a test that accepted on their behalf would consume the exact state it was asserting.
+
+The ones that catch something rather than the ones that are easy:
+
+- Abandon signup after submitting. The account must be stuck at `/auth/check-email` and unable to reach `/dashboard` by typing the URL.
+- Click a confirmation link twice. The second reaches `/auth/error` with a comprehensible message.
+- Sign up with an address that already has a Google account, and read the copy as that person would.
+- Sign up, abandon before confirming, then check the username is still free. This is the whole reason the form does not collect one.
+- Password reset for an address that does not exist: identical response, comparable timing.
+- Force `email_confirmed_at` to null in SQL and try to reach `/dashboard`.
+- An existing account meets the terms screen once, and not again.
+- Rename a username two months later and check `terms_accepted_at` has not moved. It is a `coalesce`, and it fails silently.
+- **The manifest**: `start_url` is `/dashboard` and `scope` is `/`. One assertion, and it is the whole PWA answer above.
+
+**Written across three files rather than one.** `sign-up.spec.ts` covers signup, confirmation and reset (nine tests, driving real tokens via `generateLink`); `legal.spec.ts` covers the public surface, `/support`, `/auth/check-email` and the manifest; `lib/security-headers.test.ts` covers the two CSP directives Turnstile needed.
+
+**Not covered, and named rather than pretended:** the terms interstitial has no e2e test, because the only accounts that can see it are the three real ones and a test that accepted on their behalf would consume the exact state it was asserting. It was verified by hand instead.
+
+---
+
+## The audit over steps 19 and 20
+
+Run on 1 September, after 20k. **Two real defects, both in the service worker, both invisible from the code that changed.**
+
+**A branch that has never once run.** `sw.js` routes digest taps to `?tab=overview` when `d.type === "digest"`. The sender builds `data` as `{ notification_id, ...payload }`, and no notification payload has ever carried a `type` key — verified against all 138 rows. So the branch has been dead since step 10, with no symptom: taps landed on the Circle's default tab, which is a reasonable place to be. Fixed by putting `type: n.type` in `data` explicitly, spread last so a payload key cannot shadow it.
+
+**An invite push landing where the invite cannot be accepted.** Step 18 pointed the *in-app* `invited` row at `/join/<token>`, because the recipient is not a member and `/circles/<id>` bounces them. The worker routes by `group_id` and was never updated, so the push went to a Circle they cannot see. One event, two renderers, one of them outside the diff.
+
+**And a third, caught by the same read:** the worker's fallback target was `/`, which step 20i turned into a marketing page — so a tap with nothing to route on would have opened the landing page from inside the installed app. Now `/dashboard`.
+
+**What the audit checked and found sound**
+
+| Check | Result |
+|---|---|
+| Supabase security advisors | No new exposures. Migration 104's revokes held; every remaining warning is an intentional RPC |
+| All nine step 19–20 functions vs. their migration files | `md5(prosrc)` matches for all nine, and the newest definition wins in both places |
+| `security definer` + `search_path = ''` on all nine | Yes, all nine |
+| `private.eligible_peers` reachability | Revoked from `anon` *and* `authenticated`; only the definer functions call it |
+| Terms columns | `select` granted, `update` **not** — acceptance is writable only through the two RPCs |
+| Every rate limit has a caller | 19 declared, 0 orphaned |
+| Every `BY_HINT` code is raised, and every raised hint has copy | Both directions clean, allowing for the dynamic and retired lists |
+| Vacuous `toHaveCount(0)` assertions in the new specs | Each has a control proving the page was not simply empty |
+
+**One piece of sloppiness of my own, removed:** the reset test clicked a Sign out button inside `.catch(() => {})`. After a reset that button does not exist, and an empty catch makes "this never ran" and "this failed" the same silence.
+
+**Left as known and accepted:** `notifications.payload->>'group_id'` has no index, which is fine at 90-day retention and small volumes; leaked-password protection is still off, which now matters more than it did because passwords exist — it is a paid-plan feature and belongs on the launch list rather than here.
+
+---
+
+## The public surface ✅ done
+
+`/privacy`, `/terms`, `robots.txt`, `sitemap.xml`, and links from `/`, `/auth/sign-in` and `/settings`. **This was the gate on the Google OAuth consent screen** — until a privacy URL was publicly reachable, nobody outside the test accounts could sign in.
+
+
+|                              |                                                                                                                                                                                                                                              |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/legal.ts`               | Every number the pages assert, annotated with the job that enforces it. `TERMS_VERSION` is a dated constant; **nothing records acceptance**, because Google sign-in never shows a checkbox and a column now would be declared with no writer |
+| `components/policy-page.tsx` | One frame, so the two pages cannot drift apart                                                                                                                                                                                               |
+| `lib/site-url.ts`            | The only place in the app that needs to know its own hostname. `NEXT_PUBLIC_SITE_URL`, then Vercel's, then localhost — the fallback is what keeps CI's **env-less** build working                                                            |
+| `PUBLIC_PREFIXES`            | Extracted from the inline boolean in `proxy.ts`, matched as whole segments so `/termsomething` does not become public because `/terms` is                                                                                                    |
+
+
+**The copy describes only what exists.** Account deletion is a deployed Edge Function with no UI, so the page gives an address rather than promising a button. **That sentence becomes a link in 14e's commit**, not later — a policy offering a slower path than the product does is the same drift in the other direction.
+
+**Decisions:** individual rather than a company, contact `ryanhang07@gmail.com`, **18+**, dated version constant with no acceptance tracking.
+
+**The assertion the whole spec exists for:** the sitemap must never contain `/join`. An invite token is a bearer credential, so enumerating them would publish every Circle. `sitemap.ts` cannot reach the database today and must never gain the ability — the test fails the moment somebody adds a helpful-looking `groups.map(...)`.
+
+### The legal review, in more detail than "get it reviewed"
+
+The pages say they are not legal advice. That is honest, and it is also not a plan. What a review is actually for, and when it starts mattering:
+
+**Three different things are bundled under "legal review", and they have different urgency.**
+
+| | What it is | When it bites |
+|---|---|---|
+| **Accuracy** | Do the pages describe what the code does? | ✅ **Done 31 Aug**, and it found six defects; they are listed below. This was the part that was your problem rather than a lawyer's. Every number lives in `lib/legal.ts`, and `EXPORT_CONTENTS` and `PROCESSORS` now join them, but nothing enforces that the *prose* keeps up beyond the four assertions added to `legal.spec.ts` |
+| **Sufficiency** | Do they contain what the law requires of you? | ✅ **Done 31 Aug**, at the level chosen for the audience: friends, mostly US. Named controller, the three reasons processing happens, the rights list with a **30-day** window, US storage stated as a transfer, and a cookie section. Written in the pages' own voice rather than as articles, on the grounds that a reader needs the answer more than a regulator needs the vocabulary. **Not done:** a CCPA notice-at-collection and an explicit do-not-sell heading, deliberately, since a "does not sell" sentence already sits under *What is collected*. Revisit if the audience stops being people you know |
+| **Exposure** | Do the terms actually protect you? | **When someone is unhappy.** "No guarantees" and "we can close your account" are the two clauses most often unenforceable as written, and both are in there. A one-person operation with no company is personally liable, which is the real reason this matters more here than it would behind an LLC |
+
+### What the accuracy pass found, 31 August
+
+Six defects, in a set of pages that had been written carefully six days earlier. Every one was a sentence describing a thing the code does not do.
+
+| | Was | Is |
+|---|---|---|
+| 1 | "Everything Solarity holds about you is downloadable as one JSON file" | `export_user_data()` returns six things and omits notifications, push subscriptions, blocks, reports, the notification and screen preferences, and the email address in `auth.users`. **The single worst sentence to have wrong**, because it is the one a data access request is judged against. The page now lists what the file holds, from `EXPORT_CONTENTS`, and names what it does not |
+| 2 | "a change that matters will be shown in the app before it takes effect", on both pages | Nothing implements it. No acceptance record, no banner, and the app sends no email. **A policy that overstates its own machinery is the failure these pages exist to avoid.** Now: the date is the notice, said plainly |
+| 3 | IP addresses unmentioned | `clientIp()` sends the caller's IP to Upstash as a rate-limit key on the two signed-out paths, and Vercel logs it with every request. Now a bullet under *What is collected*, and both processor roles say which data reaches them |
+| 4 | Retention listed only what expires | Avatars have no sweep, and neither do `content_reports` or `audit_log`. A list of things that expire, with no mention of what does not, reads as though everything does |
+| 5 | Deletion mentioned only the check-in carve-out | It also leaves a report and an admin-access record behind with the user link nulled, and it *does* delete the avatar object, which the page never said. Both are now stated |
+| 6 | "the only thing it does with them", in Terms | Contradicted two sections later by the reporting flow, where an administrator reads one reported note or photo. Qualified in place |
+
+**And one near-miss worth recording.** Brevo was almost deleted from `PROCESSORS`, because nothing in the repository sends email and a grep says so. It is configured as Supabase's auth SMTP sender in project settings, outside the codebase, and `architecture/app.md` had it documented all along. **A processor is named for what it is wired to receive, not for what it happened to handle this month.** The entry now says both halves: configured, and unused while Google is the only way in.
+
+`legal.spec.ts` gained four assertions from this: every `PROCESSORS` name appears on the page, the export section still says what it leaves out, and the phrase "told in the app" appears nowhere.
+
+### And the sufficiency pass, same day
+
+Four decisions, taken for an audience of friends who are mostly in the US, and each one is a commitment rather than a wording choice.
+
+| | Decision | What it cost |
+|---|---|---|
+| **Controller** | Named: `CONTROLLER_NAME` in `lib/legal.ts` | A name without a postal address. The usual position for an individual, and the strongest argument for forming an entity is the address question, not this one |
+| **Response window** | `RESPONSE_DAYS = 30`, the GDPR month rather than the CCPA's 45 | **A personal commitment with no team behind it**, including during a holiday. Chosen because export and deletion are both instant and self-serve, so the only requests arriving by hand are the six things the export omits |
+| **Transfers** | `DATA_REGION`, stated plainly | Nothing, and its absence was conspicuous. `us-west-1`, plus US-hosted Vercel and Upstash |
+| **Cookies** | A section saying they are all functional | Shorter than the banner would have been, and it explains why there is no banner |
+
+**Written as things you can do, not as articles.** The rights section leads with the two that are buttons in the app, because a rights list that reads as a formality buries the fact that deletion is one click. The lawful bases are recoverable from the wording without the phrase appearing: a service you asked for is contract, a switch you turned on is consent, stopping abuse is legitimate interests.
+
+Four more assertions in `legal.spec.ts`: the controller name, the response window, the cookie heading, and the data region, three of them read from `lib/legal.ts` so editing a constant without the page fails.
+
+**The specific things a reviewer should be pointed at**, rather than handed the pages cold:
+
+- **18+ with no verification.** The terms state it; nothing enforces it, because Google sign-in asks nothing. That gap is normal, but it should be a deliberate position rather than an accident, and it changes if you ever market to students.
+- **Photos of other people.** The terms say do not post someone who has not agreed. A product whose whole point is sharing photos with a small group is a product that will eventually host a photo of someone who did not consent, and there is currently no reporting path — that is step 15.
+- **Deletion is partial, on purpose.** Check-ins survive anonymised so other members' streaks are not rewritten. This is defensible and unusual, and it is exactly the sentence a regulator would ask about. It is stated plainly on the page, which is the right call, but it is worth confirming that "anonymised" is doing the work you think it is: the row still ties to a Circle and a date.
+- **Processors and transfers.** Supabase, Vercel, Upstash, Google and Brevo are named, each with the data that reaches it. Whether any of them need a signed DPA, and where the data physically sits, are questions nobody has asked yet.
+- **An export that is not complete.** The page now says so, which is the honest fix. The better one is extending `export_user_data()` to cover notifications, push subscriptions, blocks, reports and the preference columns, which is one migration and would let the page make the stronger claim.
+- **No company.** Everything above lands on you personally. Forming an entity is the single change that alters the whole risk picture, and it is a decision, not a task.
+
+**The cheap version**, if a full review is not proportionate yet: keep the audience to people you know, keep the pages accurate, and revisit before the first stranger signs up. The expensive version is discovering the gap after that.
+
+**And one standing rule:** when the code changes what happens to someone's data, the page changes in the same commit. `lib/legal.ts` exists so the numbers cannot drift; the prose has no such guard and needs the discipline instead.
+
+---
+
+## The manual passes, and what they found
+
+
+
+Rows 1 to 15 of the checklist itself live in `build-plan.md`, because they are repeated before every deploy. What follows is what those passes *found* — kept here because each one is a bug that passed headless.
+
+
+
+### Found by the second manual pass
+
+| Report | Cause |
+|---|---|
+| Settings offered "Turn on notifications" on a device that already had them on | **A `??` that turned "the read failed" into a confident "no".** `pushSubscribed` discarded its error, so `count` came back null and `(null ?? 0) > 0` said `false`. `pushEnabledHere` had a second one: `readyWorker()` resolves to `null` after ten seconds, and a wedged service worker rendered identically to an absent subscription. Both now return `unknown`, which the toggle draws as a sentence and a **Check again** button rather than as an off switch, and which the nudge treats as "say nothing" |
+| Overview named every goal twice | Today lists every active goal with its controls; the summary underneath printed the same titles with nothing to do to them. **The summary is gone**, replaced by a right-aligned *View goals* link, and Overview is two panels and a way out. Two queries came out of the page with it |
+
+### Found by the first manual pass, and fixed
+
+| Report | Cause |
+|---|---|
+| Skeleton only appeared moving to and from Profile | **A loading boundary only fires for a navigation that changes the segment it sits in.** 15b moved `dashboard/loading.tsx` up to `(shell)/` on the assumption that one boundary above both covered everything below. It covered the one transition that already felt fast and none of the three 14a existed to fix. Both files are needed |
+| Date picker text invisible on iOS; calendar icon black on black | `globals.css` swapped colour *variables* under `prefers-color-scheme` and never set **`color-scheme`**, which is the only thing that tells the UA which palette to draw its own widgets in. Chromium's calendar indicator is a fixed image rather than a themed control, so it needs an `invert(1)` as well |
+| Avatar upload refused ordinary photos | The input cap was the **bucket's** 2MB. An iPhone photo is 3–5MB, and what actually gets stored is a 256px JPEG of tens of kilobytes. Two different numbers that had been one constant; the input cap is now 10MB and the bucket is unchanged |
+| No photo on a Circle roster row | **Not a bug.** The roster shows *today*; the newest check-in photo in the database is three days old. Attach one today and it appears |
+| Avatars were only on the profile | **The plan promised the roster and I built half of it.** Now on the roster row beside the name, in the header beside the username (linking to `/profile`), on the profile and in settings — all four through one `components/avatar.tsx`, down from two hand-rolled copies. **Migration 90** adds `avatar_url` to `circle_roster`, unmasked: an avatar is not about a goal, and it is the same picture any signed-in user can open on the profile. `getCircleRoster` now signs two batches in parallel, one per bucket |
+
+---
+
+## The index: every numbered step, and where its reasoning is
+
+**All twenty are built, and the suite is green — 15 passed on 1 September.** Step 20 was the last functional work; the next body of work is visual design, which is in `build-plan.md`. Everything in this table is written up above, in this file.
+
+| # | Step | State |
+|---|---|---|
+| 1–7 | Auth, Circles, goals, check-ins, the Circle page, invites | ✅ 12–14 Aug |
+| 8 | Seeing each other | ✅ 17 Aug, migrations 68–75 |
+| 9 | The daily check-in flow | ✅ migration 76. `/today`, the gate, the streak header |
+| 10 | Install nudge, then push permission | ✅ migrations 77–78. **Manual pass done on an iPhone**; its eight flows are kept in `history.md`, because a permission dialog is one-shot per browser |
+| 11 | Digest boxes on Overview | ✅ no migration. Five day boxes, a per-Circle roll call, digests out of the Notifications tab |
+| 12 | Security headers | ✅ no migration. Nonce CSP, HSTS, `Permissions-Policy`. **`E2E_PROD=1 npm run test:e2e:ios` before any deploy**: the dev CSP is not the one that ships |
+| 13 | Check-in photos | ✅ migrations 79–82. **Manual pass complete on a real iPhone**, including portrait EXIF orientation and a HEIC from the camera roll. **JPEG, not WebP** — Safari cannot encode WebP |
+| 14 | What the loop deferred | ✅ migrations 83–84. Dashboard route segments, the code graph, achieving a goal, goal deadlines, account deletion. Also fixed `/robots.txt` and `/sitemap.xml`, which the proxy had been redirecting to sign-in |
+| 15 | Profiles, and the moderation surface they carry | ✅ migrations 85–90. `/profile`, avatars, the stats toggle, blocking, reporting |
+| 16 | The goal record | ✅ **no migration.** A fifth tab: `/dashboard/goals`, `/archived`, `/[id]` — every control, and a row per check-in day |
+| 17 | The admin dashboard | ✅ migrations 91–95. Site roles, the report queue, triage, and who may moderate |
+| 18 | Inviting a person, not a link | ✅ migrations 96–100. Username search, an invite that arrives as a notification, and a join page that says who is already inside |
+| 19 | A Circle that talks back | ✅ migrations 101–104. Four intraday notification types, four per-type switches, coalesced activity, and the copy variance that stops a daily notification going stale |
+| 20 | The front door | ✅ migrations 105–106. Email and password auth, terms acceptance, Turnstile wired, a landing page and `/support` |
+
+**What that means.** A person can sign in, set goals, check them off with a note and a photo, invite a friend **by name** into a Circle, see who finished today, hear about it while the day is still going, keep a streak, and read a five-day digest. **The premise the product exists to test is now testable.**
+
+**What it does not mean.** Nothing has shipped to anyone yet. That sentence used to continue "and the only way in is a Google button on a page that explains nothing" — step 20 closed exactly that, and it is kept here because the gap is what the step was for. What is left before anyone outside the two test accounts sees it is the design pass, a device run over the five new auth screens, and a regenerated code graph.

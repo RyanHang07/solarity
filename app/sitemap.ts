@@ -20,5 +20,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: base, changeFrequency: "monthly", priority: 1 },
     { url: `${base}/privacy`, lastModified: PRIVACY_VERSION, changeFrequency: "yearly" },
     { url: `${base}/terms`, lastModified: TERMS_VERSION, changeFrequency: "yearly" },
+    // Step 20j. Public, and the one page that answers "what happens to my data"
+    // before somebody has an account to ask from.
+    { url: `${base}/support`, changeFrequency: "monthly" },
   ]
 }

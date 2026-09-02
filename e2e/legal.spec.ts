@@ -134,6 +134,38 @@ test("the privacy policy states what it must", async ({ page }) => {
   ).not.toHaveCount(0)
 })
 
+/**
+ * Step 20d. `/auth/check-email` is where the gate sends an unconfirmed account,
+ * and `/support` joins `PUBLIC_PREFIXES`.
+ *
+ * **Both are asserted signed out, which is the only interesting case.** A route
+ * missing from `PUBLIC_PREFIXES` does not 404 — it redirects to sign-in, which
+ * looks like a working page to any test that only checks for a 200. That is
+ * exactly how `/robots.txt` and `/sitemap.xml` stayed broken through a green
+ * suite, so these assert the heading they should have rendered.
+ */
+test("the routes that must work signed out, do", async ({ page }) => {
+  const support = await page.goto("/support")
+  expect(support!.status(), "/support did not return 200").toBe(200)
+  await expect(page).toHaveURL(/\/support$/)
+  await expect(page.getByRole("heading", { name: "Support", level: 1 })).toBeVisible()
+
+  const response = await page.goto("/auth/check-email")
+  expect(response!.status(), "/auth/check-email did not return 200").toBe(200)
+  await expect(page).toHaveURL(/\/auth\/check-email$/)
+  await expect(
+    page.getByRole("heading", { name: "Check your email", level: 1 }),
+  ).toBeVisible()
+
+  // The rescue line for the one person enumeration protection cannot help:
+  // somebody whose address already has a Google account gets this screen and no
+  // email, ever. Deleting this button would be silent and would strand them.
+  await expect(
+    page.getByRole("button", { name: "Continue with Google" }),
+    "no Google rescue on the confirmation screen",
+  ).toBeVisible()
+})
+
 test("a signed-out visitor can reach the policies from the front door", async ({
   page,
 }) => {
@@ -173,6 +205,7 @@ test("the sitemap lists the public pages and never an invite", async ({ request 
 
   expect(xml).toContain("/privacy")
   expect(xml).toContain("/terms")
+  expect(xml).toContain("/support")
 
   /**
    * **The assertion this file exists for.**
@@ -203,4 +236,96 @@ test("robots keeps crawlers away from invite links", async ({ request }) => {
   // of a crawler's logs.
   expect(txt).toContain("Disallow: /join/")
   expect(txt).toContain("Sitemap:")
+})
+
+/**
+ * Step 20i and 20j. The public surface a stranger actually meets.
+ *
+ * **Signed out, like everything else in this file.** These pages exist to be
+ * read by somebody with no account, and a route that quietly redirects to
+ * sign-in looks identical to a working one unless the assertion names what
+ * should be on it.
+ */
+test("the landing page explains the product without an account", async ({ page }) => {
+  await page.goto("/")
+
+  await expect(page.getByRole("heading", { name: "Solarity", level: 1 })).toBeVisible()
+
+  // Both ways in, from the page every invited person lands on first.
+  await expect(page.getByRole("link", { name: "Create an account" }).first()).toBeVisible()
+  await expect(page.getByRole("link", { name: "Sign in" })).toBeVisible()
+
+  /**
+   * **The streak rule, stated before somebody meets it.** This is the rule most
+   * likely to feel unfair in the moment — one person missing one goal ends the
+   * group's streak — and a product that hides it loses the Circle the first
+   * time it bites. Asserted because it is exactly the paragraph a later
+   * rewrite would trim for length.
+   */
+  await expect(page.getByRole("heading", { name: "About streaks" })).toBeVisible()
+  await expect(page.getByText(/ends it for the group/i)).toBeVisible()
+
+  // The rendered example, which is a component rather than a screenshot so it
+  // cannot go stale silently.
+  await expect(page.getByLabel("An example day")).toBeVisible()
+})
+
+test("support answers the questions the backend already implements", async ({
+  page,
+}) => {
+  await page.goto("/support")
+
+  /**
+   * Each of these is a feature that shipped with nothing linking to it. The
+   * page exists to close that gap, so the assertions name the gaps rather than
+   * the layout.
+   */
+  for (const heading of [
+    "How do I get my data?",
+    "How do I delete my account?",
+    "What happens to photos I attach?",
+    "Why don't I get notifications on my iPhone?",
+  ]) {
+    await expect(
+      page.getByRole("heading", { name: heading }),
+      `"${heading}" is missing from /support`,
+    ).toBeVisible()
+  }
+
+  // The retention number comes from `lib/legal.ts`, so a change to the job
+  // without a change to the copy fails here as it does on /privacy.
+  await expect(page.getByText(/90 days the image is deleted/)).toBeVisible()
+
+  // A mailto rather than a form, which is the decision this page took.
+  await expect(page.getByRole("link", { name: /@/ }).first()).toHaveAttribute(
+    "href",
+    /^mailto:/,
+  )
+})
+
+/**
+ * Step 20i. The manifest, which is one assertion and the whole PWA answer.
+ *
+ * **`start_url` is the launch target and `scope` is the boundary**, and they
+ * fail in opposite directions. A `start_url` of `/` opens the installed app on
+ * the marketing page every cold start. A `scope` narrower than `/` pushes
+ * `/join/<token>` out of the installed window, so on iOS an invite tapped
+ * inside the app opens in Safari — where that person is not signed in.
+ */
+test("the manifest opens the app and keeps the public pages inside it", async ({
+  request,
+}) => {
+  const response = await request.get("/manifest.webmanifest")
+  expect(response.status()).toBe(200)
+
+  const manifest = await response.json()
+  expect(manifest.start_url, "the installed app does not open the app").toBe(
+    "/dashboard",
+  )
+  expect(
+    manifest.scope,
+    "a narrowed scope sends invites and policy pages to the browser",
+  ).toBe("/")
+  // Installability, which is what makes push possible on iOS at all.
+  expect(manifest.display).toBe("standalone")
 })

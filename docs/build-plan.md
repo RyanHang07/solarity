@@ -8,7 +8,6 @@
 | How it works now                  | `architecture/` |
 | What keeps going wrong            | `patterns.md`   |
 | How to run or verify it           | `testing.md`    |
-| Designed but not built            | `deferred.md`   |
 | Why a past decision went that way | `history.md`    |
 
 
@@ -17,7 +16,7 @@
 
 ## Verify
 
-Cheapest first. `lib/database.types.ts` is **current as of migration 104**, hand-patched as a delta for steps 18 and 19: three RPCs, five enum values and four preference columns. Regenerate it properly after the next migration, preserving `graphql_public`, which the MCP generator omits.
+Cheapest first. `lib/database.types.ts` is **current as of migration 106**, hand-patched as a delta for steps 18 to 20: four RPCs, five enum values and six columns. Regenerate it properly after the next migration, preserving `graphql_public`, which the MCP generator omits.
 
 ```
 rm -rf .next/dev
@@ -103,192 +102,105 @@ After that: `/admin` appears, a link shows up at the bottom of Settings, and fur
 
 **Rows 1 to 15 all passed on 1 September, on a real iPhone installed to the home screen.** The avatar pipeline was the last feature shipped with no run on hardware, and it needed no fixes: the label-opened picker, EXIF rotation, HEIC, all four render sites, the fixed key across two reloads.
 
-### Found by the second manual pass
+---
 
-| Report | Cause |
+## Next: visual design
+
+**The plan is [`build-plan/`](build-plan/README.md)** — six parts, because it is large enough that keeping it here would have doubled this file. This section is the summary; that folder is the work.
+
+Steps 1 to 20 are built and the suite is green — 15 passed on 1 September. Every step's reasoning is in `history.md`.
+
+**The near-term work is the galaxy, not an app-wide restyle.** `pixijs-galaxy` is a finished, portable PixiJS module with its own handoff manual, read on 1 September. It ports well; four defects need fixing before the copy; and the nine `goal_categories` colours seeded in migration 4 match its palette exactly — a decision made three weeks before the renderer existed.
+
+**It lands twice.** A compact personal galaxy on `/dashboard` Overview, then a multi-user Circle galaxy above the roster on a Circle's Today tab — many suns in one sky. The second is the point of the project and needs scene topology the module does not have, which is why it is fourth rather than first. **The restyle is part 6, deferred behind all of it.**
+
+**What "unstyled" currently means.** It is not that nothing has been styled — it is that styling was allowed to be provisional, on the explicit understanding that a design pass would come. Three surfaces named that deferral in writing while they were built:
+
+| Surface | What was deliberately left plain |
 |---|---|
-| Settings offered "Turn on notifications" on a device that already had them on | **A `??` that turned "the read failed" into a confident "no".** `pushSubscribed` discarded its error, so `count` came back null and `(null ?? 0) > 0` said `false`. `pushEnabledHere` had a second one: `readyWorker()` resolves to `null` after ten seconds, and a wedged service worker rendered identically to an absent subscription. Both now return `unknown`, which the toggle draws as a sentence and a **Check again** button rather than as an off switch, and which the nudge treats as "say nothing" |
-| Overview named every goal twice | Today lists every active goal with its controls; the summary underneath printed the same titles with nothing to do to them. **The summary is gone**, replaced by a right-aligned *View goals* link, and Overview is two panels and a way out. Two queries came out of the page with it |
+| `/` | Semantic headings, real sections, readable at 375px, **nothing depending on styling to make sense** — chosen so the design pass is a restyle rather than a rewrite |
+| The five auth screens | 20e to 20j. Forms with borders and gaps and no more |
+| `/support` | Seven `<Answer>` sections and a `mailto:` |
 
-### Found by the first manual pass, and fixed
+**The rest of the app is not plain**, and that is the harder half: the dashboard, the roster, the Circle page and the goal record all carry hand-written Tailwind that was tuned per screen. A design system has to absorb those without regressing them.
 
-| Report | Cause |
+### The one design question the galaxy needs answered
+
+**What colour is the sky in light mode?** `DEFAULT_BACKGROUND` is a hardcoded near-black and Solarity has real light and dark modes. It is a one-line change either way and it has to be decided rather than arrived at. [Part 3, step 3a](build-plan/03-personal-galaxy.md).
+
+**The larger question — what form the design system is in** — is Figma, tokens, references or nothing yet, and is still unanswered. It blocks part 6 and nothing before it.
+
+### What is already in place, and what it constrains
+
+| Fact | Consequence for the design pass |
 |---|---|
-| Skeleton only appeared moving to and from Profile | **A loading boundary only fires for a navigation that changes the segment it sits in.** 15b moved `dashboard/loading.tsx` up to `(shell)/` on the assumption that one boundary above both covered everything below. It covered the one transition that already felt fast and none of the three 14a existed to fix. Both files are needed |
-| Date picker text invisible on iOS; calendar icon black on black | `globals.css` swapped colour *variables* under `prefers-color-scheme` and never set **`color-scheme`**, which is the only thing that tells the UA which palette to draw its own widgets in. Chromium's calendar indicator is a fixed image rather than a themed control, so it needs an `invert(1)` as well |
-| Avatar upload refused ordinary photos | The input cap was the **bucket's** 2MB. An iPhone photo is 3–5MB, and what actually gets stored is a 256px JPEG of tens of kilobytes. Two different numbers that had been one constant; the input cap is now 10MB and the bucket is unchanged |
-| No photo on a Circle roster row | **Not a bug.** The roster shows *today*; the newest check-in photo in the database is three days old. Attach one today and it appears |
-| Avatars were only on the profile | **The plan promised the roster and I built half of it.** Now on the roster row beside the name, in the header beside the username (linking to `/profile`), on the profile and in settings — all four through one `components/avatar.tsx`, down from two hand-rolled copies. **Migration 90** adds `avatar_url` to `circle_roster`, unmasked: an avatar is not about a goal, and it is the same picture any signed-in user can open on the profile. `getCircleRoster` now signs two batches in parallel, one per bucket |
+| `globals.css` swaps colour **variables** under `prefers-color-scheme`, and sets `color-scheme` | Dark mode exists and is real. Any new token has to be defined in both, and `color-scheme` is what makes native controls draw correctly — it was a bug once |
+| The tab bar lives in `(shell)/layout.tsx` and is never unmounted | A restyle must not make it remount. Manual pass row 7 checks exactly this |
+| `env(safe-area-inset-*)` is consumed by the header | The layout already pays for `viewport-fit=cover`. New chrome at the top or bottom has to as well |
+| **`script-src`** is nonce-based; **`style-src`** deliberately keeps `'unsafe-inline'` | Checked rather than assumed, and it came out the opposite way round to the guess: inline styles are fine, because `next/font` and Tailwind need them and a nonce on `style-src` would switch `'unsafe-inline'` off. So a CSS-in-JS library is not a CSP problem. **A design library that ships a `<script>` is**, and it needs a nonce or an origin in `lib/security-headers.ts`. Also: any new origin must go in both the dev and prod arms, which step 20h's Turnstile entry got wrong once |
+| Placeholder icons are still in `public/` | Icons are on the v2 list and belong to this pass |
+| The e2e suite locates by role and accessible name | A restyle that changes markup can break locators. `getByLabel` in particular reads **all** of a `<label>`'s text — see `patterns.md`, "a label that names more than the label" |
+
+### The rule this pass should hold itself to
+
+**A restyle must not change what anything is called.** Every locator in the suite names a heading, a role, a label or a landmark, so the suite is the check that a visual change stayed visual: if a spec goes red during the design pass, either the markup lost something a person needed, or the test was naming a class of thing it should not have been. Both are worth stopping for.
 
 ---
-
-## The core loop is closed
-
-**Every numbered step is built.** Every reason and every bug is in `history.md`; this table is the index. What remains is verification and one unbounded item, both under **Open items** at the foot of this file.
-
-| # | Step | State |
-|---|---|---|
-| 1–7 | Auth, Circles, goals, check-ins, the Circle page, invites | ✅ 12–14 Aug |
-| 8 | Seeing each other | ✅ 17 Aug, migrations 68–75 |
-| 9 | The daily check-in flow | ✅ migration 76. `/today`, the gate, the streak header |
-| 10 | Install nudge, then push permission | ✅ migrations 77–78. **Manual pass done on an iPhone**; its eight flows are kept in `history.md`, because a permission dialog is one-shot per browser |
-| 11 | Digest boxes on Overview | ✅ no migration. Five day boxes, a per-Circle roll call, digests out of the Notifications tab |
-| 12 | Security headers | ✅ no migration. Nonce CSP, HSTS, `Permissions-Policy`. **`E2E_PROD=1 npm run test:e2e:ios` before any deploy**: the dev CSP is not the one that ships |
-| 13 | Check-in photos | ✅ migrations 79–82. **Manual pass complete on a real iPhone**, including portrait EXIF orientation and a HEIC from the camera roll. **JPEG, not WebP** — Safari cannot encode WebP |
-| 14 | What the loop deferred | ✅ migrations 83–84. Dashboard route segments, the code graph, achieving a goal, goal deadlines, account deletion. Also fixed `/robots.txt` and `/sitemap.xml`, which the proxy had been redirecting to sign-in |
-| 15 | Profiles, and the moderation surface they carry | ✅ migrations 85–90. `/profile`, avatars, the stats toggle, blocking, reporting |
-| 16 | The goal record | ✅ **no migration.** A fifth tab: `/dashboard/goals`, `/archived`, `/[id]` — every control, and a row per check-in day |
-| 17 | The admin dashboard | ✅ migrations 91–95. Site roles, the report queue, triage, and who may moderate |
-| 18 | Inviting a person, not a link | ✅ migrations 96–100. Username search, an invite that arrives as a notification, and a join page that says who is already inside |
-| 19 | A Circle that talks back | ✅ migrations 101–104. Four intraday notification types, four per-type switches, coalesced activity, and the copy variance that stops a daily notification going stale |
-
-**What that means.** A person can sign in, set goals, check them off with a note and a photo, invite a friend **by name** into a Circle, see who finished today, hear about it while the day is still going, keep a streak, and read a five-day digest. **The premise the product exists to test is now testable.**
-
-**What it does not mean.** Nothing has shipped to anyone yet. The rest of this file is what stands between here and that.
-
----
-
-## The public surface ✅ **done**
-
-`/privacy`, `/terms`, `robots.txt`, `sitemap.xml`, and links from `/`, `/auth/sign-in` and `/settings`. **This was the gate on the Google OAuth consent screen** — until a privacy URL was publicly reachable, nobody outside the test accounts could sign in.
-
-
-|                              |                                                                                                                                                                                                                                              |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lib/legal.ts`               | Every number the pages assert, annotated with the job that enforces it. `TERMS_VERSION` is a dated constant; **nothing records acceptance**, because Google sign-in never shows a checkbox and a column now would be declared with no writer |
-| `components/policy-page.tsx` | One frame, so the two pages cannot drift apart                                                                                                                                                                                               |
-| `lib/site-url.ts`            | The only place in the app that needs to know its own hostname. `NEXT_PUBLIC_SITE_URL`, then Vercel's, then localhost — the fallback is what keeps CI's **env-less** build working                                                            |
-| `PUBLIC_PREFIXES`            | Extracted from the inline boolean in `proxy.ts`, matched as whole segments so `/termsomething` does not become public because `/terms` is                                                                                                    |
-
-
-**The copy describes only what exists.** Account deletion is a deployed Edge Function with no UI, so the page gives an address rather than promising a button. **That sentence becomes a link in 14e's commit**, not later — a policy offering a slower path than the product does is the same drift in the other direction.
-
-**Decisions:** individual rather than a company, contact `ryanhang07@gmail.com`, **18+**, dated version constant with no acceptance tracking.
-
-**The assertion the whole spec exists for:** the sitemap must never contain `/join`. An invite token is a bearer credential, so enumerating them would publish every Circle. `sitemap.ts` cannot reach the database today and must never gain the ability — the test fails the moment somebody adds a helpful-looking `groups.map(...)`.
-
-### The legal review, in more detail than "get it reviewed"
-
-The pages say they are not legal advice. That is honest, and it is also not a plan. What a review is actually for, and when it starts mattering:
-
-**Three different things are bundled under "legal review", and they have different urgency.**
-
-| | What it is | When it bites |
-|---|---|---|
-| **Accuracy** | Do the pages describe what the code does? | ✅ **Done 31 Aug**, and it found six defects; they are listed below. This was the part that was your problem rather than a lawyer's. Every number lives in `lib/legal.ts`, and `EXPORT_CONTENTS` and `PROCESSORS` now join them, but nothing enforces that the *prose* keeps up beyond the four assertions added to `legal.spec.ts` |
-| **Sufficiency** | Do they contain what the law requires of you? | ✅ **Done 31 Aug**, at the level chosen for the audience: friends, mostly US. Named controller, the three reasons processing happens, the rights list with a **30-day** window, US storage stated as a transfer, and a cookie section. Written in the pages' own voice rather than as articles, on the grounds that a reader needs the answer more than a regulator needs the vocabulary. **Not done:** a CCPA notice-at-collection and an explicit do-not-sell heading, deliberately, since a "does not sell" sentence already sits under *What is collected*. Revisit if the audience stops being people you know |
-| **Exposure** | Do the terms actually protect you? | **When someone is unhappy.** "No guarantees" and "we can close your account" are the two clauses most often unenforceable as written, and both are in there. A one-person operation with no company is personally liable, which is the real reason this matters more here than it would behind an LLC |
-
-### What the accuracy pass found, 31 August
-
-Six defects, in a set of pages that had been written carefully six days earlier. Every one was a sentence describing a thing the code does not do.
-
-| | Was | Is |
-|---|---|---|
-| 1 | "Everything Solarity holds about you is downloadable as one JSON file" | `export_user_data()` returns six things and omits notifications, push subscriptions, blocks, reports, the notification and screen preferences, and the email address in `auth.users`. **The single worst sentence to have wrong**, because it is the one a data access request is judged against. The page now lists what the file holds, from `EXPORT_CONTENTS`, and names what it does not |
-| 2 | "a change that matters will be shown in the app before it takes effect", on both pages | Nothing implements it. No acceptance record, no banner, and the app sends no email. **A policy that overstates its own machinery is the failure these pages exist to avoid.** Now: the date is the notice, said plainly |
-| 3 | IP addresses unmentioned | `clientIp()` sends the caller's IP to Upstash as a rate-limit key on the two signed-out paths, and Vercel logs it with every request. Now a bullet under *What is collected*, and both processor roles say which data reaches them |
-| 4 | Retention listed only what expires | Avatars have no sweep, and neither do `content_reports` or `audit_log`. A list of things that expire, with no mention of what does not, reads as though everything does |
-| 5 | Deletion mentioned only the check-in carve-out | It also leaves a report and an admin-access record behind with the user link nulled, and it *does* delete the avatar object, which the page never said. Both are now stated |
-| 6 | "the only thing it does with them", in Terms | Contradicted two sections later by the reporting flow, where an administrator reads one reported note or photo. Qualified in place |
-
-**And one near-miss worth recording.** Brevo was almost deleted from `PROCESSORS`, because nothing in the repository sends email and a grep says so. It is configured as Supabase's auth SMTP sender in project settings, outside the codebase, and `architecture/app.md` had it documented all along. **A processor is named for what it is wired to receive, not for what it happened to handle this month.** The entry now says both halves: configured, and unused while Google is the only way in.
-
-`legal.spec.ts` gained four assertions from this: every `PROCESSORS` name appears on the page, the export section still says what it leaves out, and the phrase "told in the app" appears nowhere.
-
-### And the sufficiency pass, same day
-
-Four decisions, taken for an audience of friends who are mostly in the US, and each one is a commitment rather than a wording choice.
-
-| | Decision | What it cost |
-|---|---|---|
-| **Controller** | Named: `CONTROLLER_NAME` in `lib/legal.ts` | A name without a postal address. The usual position for an individual, and the strongest argument for forming an entity is the address question, not this one |
-| **Response window** | `RESPONSE_DAYS = 30`, the GDPR month rather than the CCPA's 45 | **A personal commitment with no team behind it**, including during a holiday. Chosen because export and deletion are both instant and self-serve, so the only requests arriving by hand are the six things the export omits |
-| **Transfers** | `DATA_REGION`, stated plainly | Nothing, and its absence was conspicuous. `us-west-1`, plus US-hosted Vercel and Upstash |
-| **Cookies** | A section saying they are all functional | Shorter than the banner would have been, and it explains why there is no banner |
-
-**Written as things you can do, not as articles.** The rights section leads with the two that are buttons in the app, because a rights list that reads as a formality buries the fact that deletion is one click. The lawful bases are recoverable from the wording without the phrase appearing: a service you asked for is contract, a switch you turned on is consent, stopping abuse is legitimate interests.
-
-Four more assertions in `legal.spec.ts`: the controller name, the response window, the cookie heading, and the data region, three of them read from `lib/legal.ts` so editing a constant without the page fails.
-
-**The specific things a reviewer should be pointed at**, rather than handed the pages cold:
-
-- **18+ with no verification.** The terms state it; nothing enforces it, because Google sign-in asks nothing. That gap is normal, but it should be a deliberate position rather than an accident, and it changes if you ever market to students.
-- **Photos of other people.** The terms say do not post someone who has not agreed. A product whose whole point is sharing photos with a small group is a product that will eventually host a photo of someone who did not consent, and there is currently no reporting path — that is step 15.
-- **Deletion is partial, on purpose.** Check-ins survive anonymised so other members' streaks are not rewritten. This is defensible and unusual, and it is exactly the sentence a regulator would ask about. It is stated plainly on the page, which is the right call, but it is worth confirming that "anonymised" is doing the work you think it is: the row still ties to a Circle and a date.
-- **Processors and transfers.** Supabase, Vercel, Upstash, Google and Brevo are named, each with the data that reaches it. Whether any of them need a signed DPA, and where the data physically sits, are questions nobody has asked yet.
-- **An export that is not complete.** The page now says so, which is the honest fix. The better one is extending `export_user_data()` to cover notifications, push subscriptions, blocks, reports and the preference columns, which is one migration and would let the page make the stronger claim.
-- **No company.** Everything above lands on you personally. Forming an entity is the single change that alters the whole risk picture, and it is a decision, not a task.
-
-**The cheap version**, if a full review is not proportionate yet: keep the audience to people you know, keep the pages accurate, and revisit before the first stranger signs up. The expensive version is discovering the gap after that.
-
-**And one standing rule:** when the code changes what happens to someone's data, the page changes in the same commit. `lib/legal.ts` exists so the numbers cannot drift; the prose has no such guard and needs the discipline instead.
-
----
-
-
 
 ## Route map
 
-Every route the app will have, and where each stands. **Orphaned** means the backend implements it and nothing in the app links to it.
+Every route that exists, checked against the filesystem on 1 September rather than remembered. **This section was the stalest thing in the docs**: it carried six routes as "deferred" that step 20 shipped, and three as "orphaned" that have been linked for weeks.
 
 ### Public
 
-
-| Route                       | Status             | Notes                                                                                                                                                                          |
-| --------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `/`                         | built, placeholder | Landing. Redirects signed-in visitors to `/dashboard`. Also renders `Notice`, since a signed-out visitor with a dead invite link lands here. Needs real content; see Deferred. |
-| `/auth/sign-in`             | built              | Google only so far. Gains a password form.                                                                                                                                     |
-| `/auth/callback`            | built              | OAuth code exchange.                                                                                                                                                           |
-| `/auth/error`               | built              | Gains cases for expired and reused confirmation links.                                                                                                                         |
-| `/auth/sign-up`             | deferred           | Email, password, username, name, terms, Turnstile.                                                                                                                             |
-| `/auth/check-email`         | deferred           | Post-signup holding screen. Resend, spam-folder line, and a route back to sign-in.                                                                                             |
-| `/auth/confirm`             | deferred           | Route handler calling `verifyOtp`.                                                                                                                                             |
-| `/auth/forgot-password`     | deferred           | Always reports success.                                                                                                                                                        |
-| `/auth/reset-password`      | deferred           | Reached only with a recovery session.                                                                                                                                          |
-| `/privacy`                  | built              | Reachable signed out, which is what the consent screen requires.                                                                                                               |
-| `/terms`                    | built              | Versioned by `TERMS_VERSION`; nothing records acceptance until signup exists.                                                                                                  |
-| `/support`                  | deferred           | FAQ plus contact form.                                                                                                                                                         |
-| `/join/[token]`             | built              | Preview works **signed out**; join requires sign-in. A dead link redirects with a notice rather than 404ing. `robots: noindex`, `Disallow: /join/`, and never in the sitemap.  |
-| `robots.txt`, `sitemap.xml` | built              | `/join/` disallowed and absent from the sitemap, asserted by `e2e/legal.spec.ts`.                                                                                              |
-
-
-
+| Route | Notes |
+|---|---|
+| `/` | The landing page (20i). Redirects signed-in visitors to `/dashboard`, and renders `Notice` because a signed-out visitor with a dead invite link lands here |
+| `/auth/sign-in` | Google **and** password, one route. Keeping them together is what stops `next=` losing a hop |
+| `/auth/sign-up` | Email and password only. Username moves to `/onboarding` so an unconfirmed account holds no handle |
+| `/auth/check-email` | The holding screen. Resend with a visible 60-second cooldown, spam-folder line, and the Google rescue for the one person enumeration protection cannot help |
+| `/auth/confirm` | Route handler calling `verifyOtp`. Serves both `type=email` and `type=recovery`; the token never survives the redirect |
+| `/auth/error` | Maps `link` and `missing` to sentences; still a passthrough for OAuth messages |
+| `/auth/forgot-password` | Always reports the same thing, for any address, including a rate-limited one |
+| `/auth/reset-password` | Reached only with a session, because `/auth/confirm` already spent the token |
+| `/auth/callback` | OAuth code exchange |
+| `/privacy`, `/terms` | Versioned by `lib/legal.ts`. Acceptance **is** recorded as of migration 105 |
+| `/support` | Content and a `mailto:`. Seven answers, every one a feature that shipped with nothing linking to it |
+| `/join/[token]` | Preview works **signed out**; joining needs sign-in. Shows who is already in the Circle. `robots: noindex`, `Disallow: /join/`, never in the sitemap |
+| `robots.txt`, `sitemap.xml` | `/join/` disallowed and absent; `/support` listed. Asserted by `e2e/legal.spec.ts` |
 
 ### Signed in
 
+| Route | Notes |
+|---|---|
+| `/onboarding` | `complete_onboarding`, which now records terms acceptance on a first username set and **not** on a rename |
+| `/onboarding/install`, `/onboarding/notifications` | The install nudge, then the one push prompt. Outside `(app)` so neither gate fires during signup |
+| `/onboarding/terms` | The interstitial for accounts predating migration 105. Also outside `(app)`, or it would redirect to itself |
+| `/dashboard` | Overview: the check-in panel, a right-aligned *View goals*, and five day boxes. No goals list — Today already names them |
+| `/dashboard/circles`, `/dashboard/notifications`, `/dashboard/goals` (+ `/archived`, `/[id]`) | Sibling segments under a shared layout since 14a. The bar lives in the layout and is never unmounted; `?tab=` still redirects |
+| `/profile`, `/profile/[username]` | Yours and everybody else's. Where blocking and reporting live |
+| `/circles/[id]` | Header, deadline, group streak, Members and Overview tabs, owner streak-decision banner |
+| `/circles/[id]/settings` | Invite by username, invite link, revoke, regenerate, archive |
+| `/settings`, `/settings/export` | Username, timezone, picture, stats visibility, push, **four notification switches**, blocked list, export, deletion |
+| `/admin`, `/admin/people`, `/admin/reports/[id]` | A 404 to everybody but a site admin |
+| `/today` | The check-in screen and its gate |
+| `/api/csp-report` | Early return in the proxy; never reaches the public check |
 
-| Route                     | Status              | Backed by                                                                                                                                                                   |
-| ------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/onboarding`             | built               | `complete_onboarding`, then the install nudge and the one push prompt. Gains the terms checkbox with signup.                                                                |
-| `/dashboard`              | built               | Overview: check-in panel with photos, goals with deadlines, five day boxes.                                                                                                  |
-| `/dashboard/circles`, `/dashboard/notifications` | built | Sibling segments under a shared layout since 14a. The bar lives in the layout and is never unmounted; `?tab=` still redirects. Sections are data in `dashboard/sections.ts`. |
-| `/circles/[id]`           | built               | Header, deadline, group streak, Members and Overview tabs, owner streak-decision banner. Closes the `sw.js` deep link.                                                      |
-| `/circles/[id]/settings`  | built               | Invite link, revoke, regenerate, archive. Still to gain: deadline, roles, and the kick flow's "also block?" step.                                                           |
-| `/notifications`          | orphaned            | `notifications`. The durable channel; push is best-effort.                                                                                                                  |
-| `/profile/[username]`     | orphaned            | `user_lifetime_stats.visible_on_profile`. Where blocking lives.                                                                                                             |
-| `/settings/profile`       | orphaned            | Rename path. Must surface *when* the next rename is allowed, not just refuse.                                                                                               |
-| `/settings/notifications` | **partly absorbed** | The per-device push toggle and the Circle-name setting live on `/settings`. A per-device *list* is still unbuilt.                                                           |
-| `/settings/account` | **absorbed** | Export and deletion both live on `/settings` and work. Deletion is gated on typing your username, warns which Circles change hands, and lands on `/?notice=account-deleted`. Self-serve deletion is an Apple requirement for any future store submission. |
-
-
-
+**Nothing is orphaned any more.** `/support` was the last gap: account deletion, the export, retention, reporting and blocking were all implemented and reachable only by somebody who already knew where to look.
 
 ### Protection
 
-`PUBLIC_PREFIXES` in `lib/supabase/proxy.ts` is the list: `/`, `/auth`, `/join`, `/privacy`, `/terms`, `/_next`, plus an early return for `/api/csp-report` that never reaches the check. The deferred auth routes go under `/auth` and need no new entry.
+`PUBLIC_PREFIXES` in `lib/supabase/proxy.ts`: `/`, `/auth`, `/join`, `/privacy`, `/terms`, `/support`, `/robots.txt`, `/sitemap.xml`, `/_next`.
 
-Keep the posture deny-by-default: enumerate what is *public*, so a forgotten route fails closed as a redirect to sign-in. Enumerating what is protected means a forgotten route fails open, silently.
+Keep the posture **deny-by-default**: enumerate what is *public*, so a forgotten route fails closed as a redirect to sign-in. Enumerating what is protected means a forgotten route fails open, silently.
+
+**And the gate is four checks now**, in `app/(app)/layout.tsx`: session, confirmed address, username, terms. Each is a precondition every signed-in e2e spec has to satisfy — see `testing.md`, which is where the last one cost ten tests.
 
 ---
 
 ---
-
-
 
 ## Open items
-
-
 
 ### Blocking
 
@@ -296,21 +208,20 @@ Keep the posture deny-by-default: enumerate what is *public*, so a forgotten rou
 
 > Apply through the Supabase MCP, then **write the file under the version the server recorded** and prove `md5(prosrc)` matches. Migration 77 was applied and never committed; 79 and 81 were both recorded under a timestamp different from the filename I chose. The verification is the workflow.
 
-
-
 ### Before launch
 
 **Two things left, and neither is a feature.**
 
 | | | |
 |---|---|---|
-| 1 | **Run the suite** | Steps 18 and 19 added `invite-user.spec.ts` and `circle-activity.spec.ts` and neither has been run. `npm run test:run` also covers the teaser copy, which was verified by hand through node because vitest cannot start in the sandbox that wrote it |
-| 2 | **Regenerate `graphify-out/`** | `node scripts/graph-freshness.mjs` reports **37 files out of date**. `graphify . update`, then run it again |
+| 1 | **Regenerate `graphify-out/`** | `graphify . update`, then `node scripts/graph-freshness.mjs` until it exits clean |
+| 2 | **A device pass for the new auth screens** | Signup, confirmation, reset, the landing page and `/support` have only been driven in a desktop browser. The manual pass above is the regression list; these five screens are the new ones. Worth folding into the design pass, since they are the screens most likely to change |
 
-**Also worth a run before any deploy:** `E2E_PROD=1 npm run test:e2e:ios`, which is the only pass that sees the CSP that ships, and the fifteen-row manual pass above as a regression check.
+**Also worth a run before any deploy:** `E2E_PROD=1 npm run test:e2e:ios`, which is the only pass that sees the CSP that ships — and it matters more now, because step 20h added two directives to it.
 
 **Closed since this list was written**
 
+- ~~A green suite~~ — **15 passed, 1 September.** The last full run had failed in three separate ways and every one was the test rather than the app: the terms gate was a new precondition `auth.setup.ts` did not meet; `getByLabel("Password", { exact: true })` could not match a field whose accessible name had absorbed its own hint; and `getByRole("alert")` was reading Next's empty dev-overlay node instead of the error on screen. All three are in `patterns.md`.
 - ~~Security headers~~ — step 12.
 - ~~`pushsubscriptionchange` handler~~ — step 10f. `sw.js` listens and `resubscribeIfPermitted` repairs a rotated endpoint without ever prompting.
 - ~~Wire rate limits into each new action~~ — **every limit in `lib/ratelimit.ts` now has a caller.** `searchUsers` and `inviteUser` were the last two.
@@ -321,9 +232,48 @@ Keep the posture deny-by-default: enumerate what is *public*, so a forgotten rou
 
 **The one standing risk, written down rather than fixed.** Every RPC in the app is reachable directly at `/rest/v1/rpc/` by anyone holding a session, so the rate limits in `lib/ratelimit.ts` bound what the *app* does rather than what a determined caller can. `search_users` is the one where that matters most, because it is the app's only directory. Its real defences are in the database: three characters minimum, escaped wildcards, ten rows, and blocks excluded.
 
+**Leaked-password protection is still off**, and it now matters in a way it did not before step 20: passwords exist. It is a paid-plan toggle in the Supabase dashboard, so it belongs on the launch list rather than in a migration.
+
+### After the first design version
+
+Turning Turnstile on, which is configuration in three dashboards and a decision about the six e2e tests it would break. The runbook is at the bottom of this file.
+
 ### Deferred to v2
 
-- Replace the placeholder icons.
-- All visual design. See `product-and-design.md`.
+- Replace the placeholder icons — **folded into the design pass above.**
+- ~~All visual design~~ — **no longer deferred. It is the current work.** See the plan in [`build-plan/`](build-plan/README.md) and `product-and-design.md`.
 - ~~A moderation console~~ — **pulled out of v2 and made step 17.**
 
+---
+
+## Deferred
+
+**Designed, argued, and not built.** Each item keeps its reasoning so the decision does not have to be made twice.
+
+This was `deferred.md` until 1 September. It stopped earning a file of its own: the public-surface section it was mostly made of shipped as step 20, and what survives is two items, one of which is a runbook for a switch. **A separate file that is one screen long is a file people forget to read.** The reasoning for the shipped section is in `history.md`, including the three decisions overturned while building it — the signup form does not collect a username, `/support` is a `mailto:` rather than a contact form, and Turnstile is wired but off.
+
+### v3 — turn Turnstile on
+
+**The code is done and shipped; the switch is off.** All three password endpoints render the widget and pass a `captchaToken`, and the CSP allows `challenges.cloudflare.com` in `script-src` and `frame-src`. What is left is configuration and one real trade.
+
+**Why it is not on now.** One Supabase project serves both production and the e2e suite, and Playwright cannot solve a real challenge — so enabling it permanently breaks the six tests covering signup, confirmation and reset, which is the newest code in the app. Cloudflare's always-pass test keys were the third option and are worse than off: the dashboard would report CAPTCHA enabled while every bot passes.
+
+**The order matters, and getting it wrong reproduces a bug already met twice.** Enabling before the deployed forms send tokens refuses every password endpoint with `captcha protection: request disallowed (no captcha_token found)`.
+
+| | Step | Why |
+|---|---|---|
+| 1 | **Deploy the current code first** | The CSP change ships with the build. Enabling before deploying breaks production exactly as it broke local on 1 Sept |
+| 2 | **`NEXT_PUBLIC_TURNSTILE_SITE_KEY` in Vercel**, then rebuild | `NEXT_PUBLIC_` values are inlined at build time. Present in `.env.local` is not present in production, and a missing key renders no widget and no token — the same error, a different cause |
+| 3 | **The secret key goes in Supabase**, not the app | Supabase verifies the token. **Nothing in this codebase reads `TURNSTILE_SECRET_KEY`**, so the copy in `.env.local` is inert. Authentication → Attack Protection → CAPTCHA, provider Turnstile, secret from the *same* widget as the site key. A mismatched pair fails verification in a way that reads like a token problem |
+| 4 | **Allowed domains in Cloudflare** must list `solarity-five.vercel.app`, plus `localhost` for dev | |
+| 5 | **Then** enable the toggle, and test signup in a browser immediately | If it refuses, it is almost certainly step 2 or 3. Turning the toggle off restores everything with no code change |
+
+**And decide what happens to the six tests.** Either accept losing that coverage, or stand up a second Supabase project for the suite — which is the real fix and is a bigger piece of work than this one.
+
+### Digests stop being rows in `notifications`
+
+**Why it is deferred rather than dismissed.** After step 11c a digest row exists only to carry a push: nothing renders it, and `read_at` never applies to it. The clean version is for `send-digest-push` to read `digest_snapshots` directly, leaving `notifications` to the four event types alone.
+
+That would make the separation structural instead of a type filter, and would remove the standing risk that someone counts unread rows without excluding digests.
+
+**The cost** is a rewrite of the sender's query and of how it tracks what it has already delivered — `pushed_at` lives on the notification row, so `digest_snapshots` would need an equivalent, per member rather than per Circle. That is a bigger change than step 11 warranted.

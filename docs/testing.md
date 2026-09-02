@@ -220,13 +220,17 @@ They failed the morning the **rollover cron** settled a completed day and made i
 
 The permission dialog does not exist in a headless browser, so the honest split is: stub the **answer** with an init script, and let everything after it run for real, including `pushManager` and the write. `e2e/push.spec.ts` does that. Whether the dialog reads well enough to earn a yes is the manual pass, and always was.
 
-### Two locator rules, both learned expensively
+### Four locator rules, all learned expensively
 
 **`getByRole("button")` is not a list of your buttons in development.** Next injects an "Open Next.js Dev Tools" control, so a broad role query plus `.first()` can click something the app never rendered. The click succeeds, nothing expands, and the failure reports as a missing element several assertions later. Anchor on something the app owns: a member's name, a count, a test id.
 
 **A locator used after an interaction must not describe the state that interaction changes.** `getByRole("button", { expanded: false })` stops matching the instant the click succeeds, so any follow-up assertion on the same locator resolves to nothing and reports as a different failure entirely.
 
 **And assert the interaction landed, not just its consequence.** A click that silently misses looks exactly like a feature that silently broke. One `toHaveAttribute("aria-expanded", "true")` separates them, and its absence is what let a mis-aimed click masquerade as four different bugs across four runs.
+
+**Never `getByRole("alert")`. Use `errorAlert` from `e2e/ui.ts`.** The dev overlay keeps an *empty* alert node on every page, and it is attached before the app does anything. So `getByRole("alert").textContent()` resolves against the decoy instantly and returns `""` — `textContent()` waits for attachment, which the decoy already satisfies. The sign-in spec failed with "no error shown for a wrong password" over a screenshot showing the error on screen. Worse, the decoy matched *alone* precisely when the real alert had not rendered, so the ambiguity never surfaced as a strict-mode violation: the query was least safe exactly when it looked least suspicious. `errorAlert` names the paragraph the app renders and requires it to say something.
+
+**Check the computed accessible name before trusting `{ exact: true }`.** A `<label>` contributes all of its text to the name, so a hint or an error rendered *inside* the label becomes part of what the field is called: the password field was really named "Password At least 8 characters, with a letter and a number." and no exact match could reach it. A non-matching locator waits out the whole timeout rather than failing, so seven tests reported a form that would not enable. The failure snapshot prints the computed name — read it before changing the test, because the fix is usually the markup.
 
 ### Authenticating without Google
 
@@ -548,5 +552,33 @@ The walkthrough is gone; it was a one-time task. What survives is where things l
 ```bash
 node --env-file=.env.local scripts/test-email.mjs you@example.com
 ```
+
+### What `auth.setup.ts` guarantees before any spec runs
+
+Three preconditions, each of which broke a large part of the suite once:
+
+| Precondition | Why it exists |
+|---|---|
+| A session for all three accounts | Google OAuth cannot be driven by Playwright. `generateLink` + `@supabase/ssr` produce cookies the app will actually read |
+| `today_screen_mode = "never"` | Step 9's gate diverts an unfinished day to `/today`, and neither test account finishes its goals |
+| `terms_accepted_at` set | Step 20c's gate diverts to `/onboarding/terms`. Ten tests across four files failed on this once, every one of them reporting a missing landmark rather than a redirect |
+
+**The shape to remember: a gate in `app/(app)/layout.tsx` is a precondition for every signed-in spec in the suite.** Adding one means adding a line here in the same commit, or a dozen tests fail somewhere that never mentions the gate.
+
+Only the middle one is restored afterwards, by `global-teardown.ts`. Acceptance only moves forwards, and restoring null would make the three accounts used for manual testing meet the interstitial after every run.
+
+### Testing the auth email flow locally (step 20)
+
+**One project, one Site URL, two environments.** Supabase Auth has a single `Site URL`, and the email templates build their links from it. There is no per-environment value, so **an email triggered from `localhost:3000` still arrives with a link pointing at production**, where your local changes do not exist. The link works; it just tests the wrong build, which is worse than failing.
+
+Three ways round it, in the order they are worth reaching for:
+
+1. **Point Site URL at `http://localhost:3000` while working on the flow, and put it back when done.** One field, reversible, already permitted by the Redirect URLs list. This is the recommended habit and the reason `https://solarity-five.vercel.app/**` and `http://localhost:3000/**` are both allowlisted.
+2. Pass `emailRedirectTo` on `signUp` and switch the templates to `{{ .RedirectTo }}`. Correct per environment, and `.RedirectTo` is **empty** for invites sent from the dashboard, which silently produces a broken link in the one flow used to smoke-test the setup.
+3. Copy the `token_hash` out of the email and open `http://localhost:3000/auth/confirm?token_hash=…&type=email` by hand. Fine once, tedious as a habit, and it does prove the route in isolation.
+
+**Whichever you choose, put Site URL back before deploying.** A production build whose confirmation links point at localhost is indistinguishable from working, right up until somebody who is not you signs up.
+
+**The 60-second minimum interval above is the other thing that will look like a bug.** Testing signup twice inside a minute silently sends nothing: no error, no email. Wait, or use a different address.
 
 ---

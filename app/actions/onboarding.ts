@@ -6,6 +6,8 @@ import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { enforce } from "@/lib/ratelimit"
 import { containsProfanity } from "@/lib/profanity"
 import { toMessage, type ActionResult } from "@/lib/errors"
+import { TERMS_VERSION } from "@/lib/legal"
+import { safeRedirect } from "@/lib/safe-redirect"
 
 const USERNAME_RE = /^[A-Za-z0-9_]{3,30}$/
 
@@ -72,6 +74,9 @@ export async function completeOnboarding(
   const { error } = await supabase.rpc("complete_onboarding", {
     p_username: username,
     p_timezone: timezone,
+    // Step 20a. The RPC `coalesce`s this, so a rename never moves an existing
+    // acceptance; only a first one writes.
+    p_terms_version: TERMS_VERSION,
   })
 
   if (error) return { ok: false, error: toMessage(error) }
@@ -86,4 +91,49 @@ export async function completeOnboarding(
   // are the only place either is asked for, and both are skippable, so nothing
   // here can strand someone who has just typed their name.
   redirect("/onboarding/install")
+}
+
+/**
+ * Step 20c. Records that an existing account agreed to the terms.
+ *
+ * **Only for accounts that predate migration 105.** A signup records acceptance
+ * as part of `complete_onboarding`, so anybody arriving through the front door
+ * never meets the screen this serves. What is left is everyone who signed in
+ * with Google before there was anything to agree to, and Google never showed
+ * them a checkbox.
+ *
+ * **No rate limit, deliberately.** It writes two columns on your own row, is
+ * idempotent, and the gate stops asking the moment it succeeds. A limit here
+ * could only ever lock somebody out of the screen standing between them and
+ * the app.
+ *
+ * **It redirects rather than returning, which is why it takes `formData`.**
+ * The destination arrives as a hidden field, so the form works with JavaScript
+ * off and the client component needs no router. `redirect` throws, so nothing
+ * after it runs on the happy path — the same shape as `completeOnboarding`
+ * above.
+ *
+ * **`revalidatePath("/", "layout")` before redirecting, because the gate reads
+ * these columns.** Without it the layout renders from cache, sees no
+ * acceptance, and bounces straight back to the screen just completed.
+ */
+export async function acceptTerms(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  const next = safeRedirect(formData.get("next")?.toString())
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: "Please sign in again." }
+
+  const { error } = await supabase.rpc("accept_terms", {
+    p_version: TERMS_VERSION,
+  })
+  if (error) return { ok: false, error: toMessage(error) }
+
+  revalidatePath("/", "layout")
+  redirect(next)
 }

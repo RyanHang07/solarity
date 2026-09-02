@@ -50,6 +50,14 @@ export const BY_HINT: Record<string, string> = {
   LAST_ADMIN:
     "You're the last administrator. Give somebody else the role first, then step down.",
   NO_SUCH_ACCOUNT: "There's no account with that username.",
+
+  /**
+   * Step 20a. `TERMS_VERSION` is a dated constant the app owns, so a version
+   * the database refuses is a caller bug rather than anything a person typed.
+   * The copy still has to exist, because this is reachable the moment somebody
+   * calls the RPC directly, and "Something went wrong" would be the alternative.
+   */
+  TERMS_VERSION_INVALID: "Couldn't record that. Try again, or write to us.",
   REPORT_NOT_FOUND: "That report no longer exists.",
   NOT_AUTHENTICATED: "Please sign in again.",
 
@@ -153,6 +161,26 @@ export function toMessage(error: unknown): string {
     // and the hint is read before this switch.
     case "42501":
       return "You don't have access to that."
+
+    /**
+     * **PostgREST could not find the function.** Not a database refusal at all:
+     * the row exists, the grant is right, and the API is serving a cached
+     * schema that predates the change.
+     *
+     * This cost a puzzling bug report the day migration 105 landed. Dropping
+     * `complete_onboarding(text, text)` and creating `(text, text, text)` is
+     * two DDL statements PostgREST has to notice, and until it does, a
+     * three-argument call matches nothing. The database was correct throughout;
+     * the app said "Something went wrong. Please try again." and retrying could
+     * never have helped.
+     *
+     * **The fix is `notify pgrst, 'reload schema';`**, and it is named in the
+     * copy because the only person who ever sees this is whoever just deployed.
+     * Every signature change is a chance to meet it again, and step 20 makes
+     * several.
+     */
+    case "PGRST202":
+      return "That action isn't available yet — the API is still catching up with a database change. Reload the schema cache."
 
     default:
       return "Something went wrong. Please try again."

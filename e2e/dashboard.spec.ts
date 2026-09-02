@@ -15,6 +15,7 @@ import {
   userIdByEmail,
 } from "./db"
 import { storageStateFor } from "./session"
+import { errorAlert } from "./ui"
 
 /**
  * Step 8f: the dashboard's sections, the notifications reader, and settings.
@@ -406,7 +407,11 @@ test("a deliberate timezone change is queued, not applied to today", async ({
     // failing at 2 AM.
     await field.fill("Not/AZone")
     await tzForm.getByRole("button", { name: "Save" }).click()
-    await expect(p.getByRole("alert")).toBeVisible()
+    // `errorAlert` rather than `getByRole("alert")`: the dev overlay's empty
+    // alert node is page-wide, and an alert saying nothing is not a refusal
+    // being shown. Latent here rather than failing, but the same trap that made
+    // the sign-in spec read the wrong element.
+    await expect(errorAlert(p)).toBeVisible()
     expect((await checkinTimezone(ownerId)).live).toBe(original.live)
   } finally {
     // ---------------------------------------------------------------------

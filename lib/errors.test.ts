@@ -158,3 +158,34 @@ describe("toMessage", () => {
     )
   })
 })
+
+/**
+ * Step 20a. PostgREST's own errors, which are not database refusals.
+ *
+ * **`PGRST202` cost a bug report the day migration 105 landed.** Dropping
+ * `complete_onboarding(text, text)` and creating `(text, text, text)` left the
+ * API serving a cached schema, so a three-argument call matched nothing. The
+ * database was correct the whole time; the app said "Something went wrong.
+ * Please try again." and retrying could never have helped.
+ */
+describe("errors that are not the database's", () => {
+  it("names the schema cache rather than blaming the person", () => {
+    const message = toMessage({
+      code: "PGRST202",
+      message:
+        "Could not find the function public.complete_onboarding(p_terms_version, p_timezone, p_username) in the schema cache",
+      details: null,
+      hint: null,
+      name: "PostgrestError",
+    })
+
+    expect(message).toContain("schema cache")
+    // The distinction that matters: this is not a "try again" condition, and
+    // saying so is what stops the next person retrying a deployment problem.
+    expect(message).not.toContain("Please try again")
+  })
+
+  it("still falls back to something dull for a code nobody has met", () => {
+    expect(toMessage({ code: "PGRST999" })).toBe("Something went wrong. Please try again.")
+  })
+})

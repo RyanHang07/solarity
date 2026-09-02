@@ -71,6 +71,20 @@ proxy.ts            session refresh + anonymous redirect + the nonce CSP
 next.config.ts      the headers with no per-request component
 ```
 
+### The signed-in gate, in order
+
+`app/(app)/layout.tsx` checks three things before rendering anything, and step 20 adds a fourth between them:
+
+```
+!user                       → /auth/sign-in
+!profile.username           → /onboarding
+!profile.terms_accepted_at  → /onboarding/terms
+```
+
+**A gate rather than a flow**, because any of these can be abandoned midway: close the tab after signing in and there is a real account with no username. Only something evaluated on every protected navigation catches that. All three columns come back in one read the layout already does, so the checks are free.
+
+The three `/onboarding*` routes live outside `(app)` for the same reason: each is a destination *of* the gate, and a screen inside that group would redirect to itself.
+
 ### Four enforcement points, in order
 
 **Sign-in always asks which Google account.** `signInWithOAuth` passes `prompt=select_account`, because Google skips its own chooser whenever exactly one account is signed in to the browser — so signing out of Solarity and signing back in silently returns you to the account you just left, and nothing in the app can undo that: the session is Google's, and `signOut` cannot reach it. One extra tap for someone with a single account; the difference between usable and not for anyone with two.
@@ -118,6 +132,8 @@ Keyed by user id, enforced in server actions via `lib/ratelimit.ts`.
 **Never meter a kill switch.** Revoking an invite link is the sole unmetered write in the app, and the reason is the same principle from the other side: a cap on revocation means a leaked bearer token can outlive the owner's ability to turn it off. It is cheap, idempotent and admin-only, so there is nothing worth bounding anyway.
 
 This is the app's primary abuse control, not Turnstile. A Google account is already a higher barrier than a CAPTCHA; what needs bounding is a signed-in user hammering the RPCs.
+
+**Turnstile is wired as of step 20h and switched off.** All three password endpoints render the widget and pass a `captchaToken`, and the CSP allows `https://challenges.cloudflare.com` in `script-src` and `frame-src`. It stays off because one Supabase project serves both production and the e2e suite: enabling it would permanently break the six tests covering signup, confirmation and reset, which is the newest code in the app. Turning it on is one dashboard toggle the day there is a second project.
 
 **And it bounds the app, not the API.** Every RPC is reachable directly at `/rest/v1/rpc/` by anyone holding a session, so these limits describe what the product does rather than what a determined caller can. That is why `search_users` — the app's only directory, and the first endpoint that answers "who exists" for a partial string — keeps its real defences in the database instead: three characters minimum, `%` and `_` escaped before they reach `like`, ten rows, self and blocked accounts and existing members excluded. A limit in an action is a courtesy; a limit in a `security definer` function is a rule.
 

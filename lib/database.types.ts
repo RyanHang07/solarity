@@ -858,6 +858,8 @@ export type Database = {
           notify_goal_achieved: boolean
           notify_last_one_left: boolean
           push_shows_circle_name: boolean
+          terms_accepted_at: string | null
+          terms_accepted_version: string | null
           role: Database["public"]["Enums"]["user_role"]
           today_screen_mode: Database["public"]["Enums"]["today_screen_mode"]
           updated_at: string
@@ -877,6 +879,8 @@ export type Database = {
           notify_goal_achieved?: boolean
           notify_last_one_left?: boolean
           push_shows_circle_name?: boolean
+          terms_accepted_at?: string | null
+          terms_accepted_version?: string | null
           role?: Database["public"]["Enums"]["user_role"]
           today_screen_mode?: Database["public"]["Enums"]["today_screen_mode"]
           updated_at?: string
@@ -896,6 +900,8 @@ export type Database = {
           notify_goal_achieved?: boolean
           notify_last_one_left?: boolean
           push_shows_circle_name?: boolean
+          terms_accepted_at?: string | null
+          terms_accepted_version?: string | null
           role?: Database["public"]["Enums"]["user_role"]
           today_screen_mode?: Database["public"]["Enums"]["today_screen_mode"]
           updated_at?: string
@@ -1012,8 +1018,9 @@ export type Database = {
           username: string
         }[]
       }
+      accept_terms: { Args: { p_version: string }; Returns: undefined }
       complete_onboarding: {
-        Args: { p_timezone: string; p_username: string }
+        Args: { p_terms_version: string; p_timezone: string; p_username: string }
         Returns: undefined
       }
       create_circle: {

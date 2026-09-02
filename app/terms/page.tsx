@@ -145,15 +145,17 @@ export default function TermsPage() {
         </p>
         <p className="opacity-70">
           {/*
-            Nothing records acceptance: Google sign-in never shows a checkbox,
-            so there is no moment at which anyone agrees. `TERMS_VERSION` exists
-            for the signup flow to compare against when there is one. Until
-            then, saying so is more useful than a sentence claiming consent
-            that was never collected.
+            **This paragraph said the opposite until step 20c**, and it was
+            true when it was written: Google sign-in shows no checkbox, so
+            nothing recorded acceptance and `TERMS_VERSION` was a dated constant
+            with no writer. Migration 105 gave it one and 20c gave it a screen,
+            so the honest sentence is now the other one. The rule from the legal
+            pass, applied to itself: when the code changes what happens to
+            somebody's data, the page changes in the same commit.
           */}
-          You have never been shown a box to tick, because signing in with
-          Google does not offer one, and nothing here records that you read
-          this. That is worth knowing rather than glossing over.
+          Solarity records the date you agreed and which version you agreed to,
+          against your account, and nothing else. If you signed in before there
+          was anything to agree to, you were asked once.
         </p>
       </PolicySection>
 
