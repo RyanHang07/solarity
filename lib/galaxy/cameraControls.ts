@@ -131,48 +131,75 @@ export const attachCameraControls = (
     bar.classList.add("galaxy-camera-controls--touch");
   }
 
-  bar.append(
-    ...(opts.touch
-      ? [
-          controlButton("−", "Zoom out", () => {
-            api.zoomBy(0.86);
-          }),
-          controlButton("+", "Zoom in", () => {
-            api.zoomBy(1.16);
-          }),
-          controlButton("◎", "Reset view", () => {
-            api.resetCamera();
-          }),
-        ]
-      : [
-          controlButton("−", "Zoom out", () => {
-            api.zoomBy(0.86);
-          }),
-          controlButton("+", "Zoom in", () => {
-            api.zoomBy(1.16);
-          }),
-          controlButton("◎", "Reset view", () => {
-            api.resetCamera();
-          }),
-          controlButton("⌖", "Change viewing angle", () => {
-            api.setView({ tilt: nextTilt(api.getView().tilt) });
-          }),
-        ]),
-    // Each arrow moves the *view* in its own direction, so the content slides
-    // the other way. See `PAN_STEP`.
+  /**
+   * **Zoom, then reset, then zoom** — and the middle position is the point.
+   *
+   * `− + ◎` put the two halves of one continuous control either side of a
+   * jump-to-nowhere, so a thumb reaching for "less" and "more" crosses a third
+   * button between them. `− ◎ +` reads as a scale with its origin marked.
+   */
+  const primary = opts.touch
+    ? [
+        controlButton("−", "Zoom out", () => {
+          api.zoomBy(0.86);
+        }),
+        controlButton("◎", "Reset view", () => {
+          api.resetCamera();
+        }),
+        controlButton("+", "Zoom in", () => {
+          api.zoomBy(1.16);
+        }),
+      ]
+    : [
+        controlButton("−", "Zoom out", () => {
+          api.zoomBy(0.86);
+        }),
+        controlButton("◎", "Reset view", () => {
+          api.resetCamera();
+        }),
+        controlButton("+", "Zoom in", () => {
+          api.zoomBy(1.16);
+        }),
+        controlButton("⌖", "Change viewing angle", () => {
+          api.setView({ tilt: nextTilt(api.getView().tilt) });
+        }),
+      ];
+
+  /**
+   * **Reading order, not the order they were written in.**
+   *
+   * These were `↑ ↓ ← →` — grouped by axis, which is how someone *writing*
+   * four handlers thinks and not how anyone *looking* at four arrows does. On
+   * one row it produced two vertical arrows next to two horizontal ones, which
+   * has no shape to recognise. `← ↑ ↓ →` is the row every media transport and
+   * every d-pad flattened into a line already uses.
+   *
+   * The first one carries the class that starts a row, because the touch bar
+   * has three buttons above these and four columns to fill: without it the `←`
+   * rides up beside the zoom controls and the rest wrap into a third row, which
+   * is exactly the jumble that was reported. Named rather than `:nth-child(4)`,
+   * so adding a button to `primary` cannot silently break the layout.
+   *
+   * Each arrow moves the *view* in its own direction, so the content slides the
+   * other way. See `PAN_STEP`.
+   */
+  const arrows = [
+    controlButton("←", "Look further left", () => {
+      api.panBy(PAN_STEP, 0);
+    }),
     controlButton("↑", "Look further up", () => {
       api.panBy(0, PAN_STEP);
     }),
     controlButton("↓", "Look further down", () => {
       api.panBy(0, -PAN_STEP);
     }),
-    controlButton("←", "Look further left", () => {
-      api.panBy(PAN_STEP, 0);
-    }),
     controlButton("→", "Look further right", () => {
       api.panBy(-PAN_STEP, 0);
     }),
-  );
+  ];
+  arrows[0]?.classList.add("galaxy-camera-btn--row-start");
+
+  bar.append(...primary, ...arrows);
 
   host.appendChild(bar);
   return () => {

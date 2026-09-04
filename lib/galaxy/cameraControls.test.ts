@@ -37,18 +37,52 @@ describe("the camera bar", () => {
   });
 
   it("gives a mouse everything", () => {
+    /**
+     * **The order is the assertion, not just the membership.** `− ◎ +` puts the
+     * two halves of one continuous control either side of the origin they share
+     * rather than either side of a jump-to-nowhere, and the arrows read
+     * `← ↑ ↓ →` because that is a shape, where the axis-grouped `↑ ↓ ← →` they
+     * were written in is only a list. Both are layout decided by DOM order, so
+     * a test that sorted or ignored order would not see them change.
+     */
     const detach = attachCameraControls(host, api());
     expect(names(host)).toEqual([
       "Zoom out",
-      "Zoom in",
       "Reset view",
+      "Zoom in",
       "Change viewing angle",
+      "Look further left",
       "Look further up",
       "Look further down",
-      "Look further left",
       "Look further right",
     ]);
     detach();
+  });
+
+  it("starts the arrows on a new row, whatever precedes them", () => {
+    /**
+     * **The bug this replaces referred to a position rather than to a button.**
+     * `--touch > :first-child { grid-column: 4 }` was written when the touch set
+     * was five buttons with reset at the front; restoring zoom made it wrong
+     * silently, and the bar wrapped into three ragged rows on a phone.
+     *
+     * Asserted on both bars, because the rule is deliberately not a `--touch`
+     * special case: "controls, then a row of arrows" is the layout in both, and
+     * on the mouse bar it happens to be a no-op.
+     */
+    for (const touch of [true, false]) {
+      const detach = attachCameraControls(host, api(), { touch });
+      const first = host.querySelector(".galaxy-camera-btn--row-start");
+      expect(
+        first?.getAttribute("aria-label"),
+        "the row-start class is not on the first arrow",
+      ).toBe("Look further left");
+      expect(
+        host.querySelectorAll(".galaxy-camera-btn--row-start"),
+        "more than one button claims to start a row",
+      ).toHaveLength(1);
+      detach();
+    }
   });
 
   it("gives a finger zoom, reset and the four pans, and nothing else", () => {
@@ -73,11 +107,11 @@ describe("the camera bar", () => {
     const detach = attachCameraControls(host, api(), { touch: true });
     expect(names(host)).toEqual([
       "Zoom out",
-      "Zoom in",
       "Reset view",
+      "Zoom in",
+      "Look further left",
       "Look further up",
       "Look further down",
-      "Look further left",
       "Look further right",
     ]);
     detach();

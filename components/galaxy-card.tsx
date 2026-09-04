@@ -135,6 +135,47 @@ const probeWebgl = (): string => {
 }
 
 /**
+ * What `env(safe-area-inset-*)` actually resolves to on this device.
+ *
+ * **Because the first fix for the notch changed nothing and there were two
+ * candidates**: the rule not matching, or the inset coming back zero. Reasoning
+ * could not separate them — both produce a Close button under the Dynamic
+ * Island — and `env()` cannot be read from JavaScript directly, so this asks
+ * the layout engine by making an element that uses it and reading back what it
+ * computed.
+ *
+ * `black-translucent` is the suspect: it asks the content to draw under the
+ * status bar, and on some iOS versions the inset that would pay that back
+ * reports as nothing. The floor in `globals.css` covers either answer; this
+ * says which one it was, which is what stops the next person re-deriving it.
+ *
+ * Also reports `display-mode`, because the floor is conditioned on it and "the
+ * padding did not apply" and "the app is not actually running standalone" look
+ * identical from the outside.
+ */
+const probeSafeArea = (): string => {
+  const probe = document.createElement("div")
+  probe.style.cssText =
+    "position:fixed;visibility:hidden;pointer-events:none;" +
+    "padding-top:env(safe-area-inset-top);" +
+    "padding-right:env(safe-area-inset-right);" +
+    "padding-bottom:env(safe-area-inset-bottom);" +
+    "padding-left:env(safe-area-inset-left)"
+  document.body.appendChild(probe)
+  const style = getComputedStyle(probe)
+  const sides = [
+    style.paddingTop,
+    style.paddingRight,
+    style.paddingBottom,
+    style.paddingLeft,
+  ].join(" / ")
+  probe.remove()
+
+  const standalone = window.matchMedia("(display-mode: standalone)").matches
+  return `${sides} — ${standalone ? "standalone" : "browser tab"}`
+}
+
+/**
  * Is the OS asking for less motion, right now?
  *
  * ## Why this is worth a line on screen
@@ -426,6 +467,7 @@ export function GalaxyCard({
                 `css ${Math.round(box.width)} × ${Math.round(box.height)}`,
                 `dpr ${window.devicePixelRatio}`,
                 `webgl ${probeWebgl()}`,
+                `safe area ${probeSafeArea()}`,
                 /*
                   **The value the renderer was actually given**, which is the
                   reason this stays even though the caption below the card now

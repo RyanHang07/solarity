@@ -95,7 +95,8 @@ After that: `/admin` appears, a link shows up at the bottom of Settings, and fur
 
 | | Check | What would fail |
 |---|---|---|
-| A1 | **Installed to the home screen**, expand the galaxy | The frame clears the Dynamic Island, Close is tappable, and the camera bar clears the home indicator. This is the bug a browser tab cannot show |
+| A1 | **Installed to the home screen**, expand the galaxy | The frame clears the Dynamic Island, Close is tappable, and the camera bar clears the home indicator. This is the bug a browser tab cannot show. **Failed once already**: `env(safe-area-inset-top)` changed nothing, so there is now a `display-mode: standalone` floor under it and a `safe area` line in the lab's diagnostics. **Open `/admin/galaxy-lab` while you are in there and read that line** — it says whether the inset is genuinely zero or whether the app is not running standalone, and those look identical from the outside |
+| A1b | The camera bar's shape | `− ◎ +` on top, `← ↑ ↓ →` beneath. It wrapped into three ragged rows because a CSS rule referred to a *position* — the old five-button touch set had reset at the front — rather than to the button it meant |
 | A2 | Same, landscape | The inset moves to the left or right, and the padding is on all four sides for that reason |
 | A3 | Same, then rotate while expanded | The canvas re-measures through the `ResizeObserver`; the frame is `fixed`, so nothing else should move |
 | A4 | **In the card, on touch**: drag one finger, then two | Neither should move the sky, and the page should scroll in both cases. The camera bar is the whole control set here, deliberately |

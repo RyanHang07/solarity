@@ -102,6 +102,38 @@
 }
 
 /*
+ * **A floor, because `env()` alone did not move anything in the installed app.**
+ *
+ * The rule above shipped and the Dynamic Island still sat on the Close button,
+ * which leaves two candidates: `env(safe-area-inset-top)` resolving to `0`, or
+ * the rule not matching. It matches — `data-open` is on the element and the
+ * selector is unlayered — so the inset is coming back zero, which is a known
+ * standalone behaviour of `apple-mobile-web-app-status-bar-style:
+ * black-translucent`: the content is *asked* to draw under the status bar, and
+ * on some iOS versions the inset that would pay it back reports as nothing.
+ *
+ * **`display-mode: standalone` is the honest condition**, not "is iOS". In a
+ * browser tab the chrome is above the page and there is nothing to clear; it is
+ * being installed that puts the status bar over the content, on every iPhone,
+ * notch or no notch. So the floor applies exactly where the overlap exists.
+ *
+ * **`max()`, so a device that reports its inset correctly still wins.** 59px on
+ * a Dynamic Island beats the floor and is used; a zero does not.
+ *
+ * **And the floor is generous on purpose, because here it is free.** The frame
+ * paints `--galaxy-sky` across the whole viewport whatever the padding does —
+ * only the canvas and the controls move in, and the canvas clears to the same
+ * colour. There is no band, no seam, and no layout to squeeze: over-reserving
+ * costs nothing and under-reserving costs a button nobody can press.
+ */
+@media (display-mode: standalone) {
+  [data-viewhole][data-open] {
+    padding-top: max(env(safe-area-inset-top), 3.5rem);
+    padding-bottom: max(env(safe-area-inset-bottom), 1.5rem);
+  }
+}
+
+/*
  * The frame morphs between its two rectangles, which is the whole effect: a
  * card-sized window widening in all four directions at once, and narrowing back.
  *

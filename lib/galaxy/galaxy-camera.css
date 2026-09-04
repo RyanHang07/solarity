@@ -24,15 +24,26 @@
 }
 
 /**
- * Reset, then the four arrows: five buttons, so the first row is one button
- * wide and the arrows fill the second.
+ * **The arrows always begin a row.**
  *
- * `grid-column: 1 / -1` on the first child would centre it across four columns
- * and leave a hole; starting it at the last column puts it above the `→` it is
- * nearest, which is where a thumb already is.
+ * Four columns, and the row above them holds three buttons on touch and four on
+ * a mouse. Left to auto-flow, the touch bar put `←` in the fourth column beside
+ * the zoom controls and wrapped the remaining three onto a third row — a `−`
+ * alone, then a mixed row, then two strays. That is what "the buttons are
+ * jumbled" was.
+ *
+ * On the desktop bar this is already true and the rule is a no-op, which is the
+ * reason it is one rule rather than a `--touch` special case: the layout is
+ * "controls, then a row of arrows" in both, and stating it once means the two
+ * cannot drift.
+ *
+ * **This replaced `--touch > :first-child { grid-column: 4 }`**, written when
+ * the touch set was five buttons with reset at the front. Adding zoom back made
+ * it wrong, silently, because it referred to a *position* rather than to the
+ * button it meant. A class names the intent and survives the next change.
  */
-.galaxy-camera-controls--touch > :first-child {
-  grid-column: 4;
+.galaxy-camera-controls > .galaxy-camera-btn--row-start {
+  grid-column: 1;
 }
 
 .galaxy-camera-btn {
