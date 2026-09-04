@@ -117,6 +117,18 @@ export type RosterMember = {
   sky_closed: boolean
   /** Achieved goals across the Circle's current members. The same on every row. */
   achievement_count: number
+  /**
+   * The sun colour this member chose, or `null` for "derive it from my id".
+   *
+   * **Unmasked, like `avatar_url` and for the same reason**: a sun colour is
+   * not about a goal, so nothing in the hiding rules touches it.
+   *
+   * `null` is the common case and is not a missing value — it is what every
+   * account looked like before migration 111, and what a new one looks like
+   * until it reaches the picker. `sunPresetIdForMember` is the fallback and is
+   * stable, so a null renders the same colour on every device.
+   */
+  sun_preset_id: string | null
   goals: RosterGoal[]
 }
 

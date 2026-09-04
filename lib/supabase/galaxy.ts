@@ -45,6 +45,7 @@ export async function getPersonalGalaxy(
     { data: goals, error: goalsError },
     { data: entries, error: entriesError },
     { data: achieved, error: achievedError },
+    { data: profile },
   ] = await Promise.all([
     supabase
       .from("goals")
@@ -76,6 +77,21 @@ export async function getPersonalGalaxy(
       .eq("user_id", userId)
       .not("achieved_at", "is", null)
       .order("achieved_at", { ascending: true }),
+
+    /**
+     * **The chosen sun, and its error is deliberately not fatal.**
+     *
+     * The three reads above decide whether there is a galaxy at all; this one
+     * decides what colour its sun is. A failure here has a correct answer that
+     * needs no read — `sunPresetFor` falls back to the id hash, which is what
+     * every account looked like before migration 111 — so treating it like the
+     * others would remove a whole picture over a cosmetic column.
+     */
+    supabase
+      .from("users")
+      .select("sun_preset_id")
+      .eq("id", userId)
+      .maybeSingle(),
   ])
 
   /**
@@ -95,6 +111,8 @@ export async function getPersonalGalaxy(
   const shining = new Set((entries ?? []).map((entry) => entry.goal_id))
 
   return buildPersonalSnapshot({
+    userId,
+    sunPresetId: profile?.sun_preset_id ?? null,
     goals: (goals ?? []).map((goal) => ({
       id: goal.id,
       categorySlug: goal.goal_categories?.slug ?? "other",

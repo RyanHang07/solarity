@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 import type { RosterMember } from "@/lib/roster"
-import { GOAL_CATEGORIES } from "../data"
+import {
+  GOAL_CATEGORIES,
+  SUN_COLOR_PRESETS,
+  sunPresetIdForMember,
+} from "../data"
 import {
   buildCircleSnapshot,
   buildFirstGoalPreview,
@@ -35,6 +39,7 @@ const member = (over: Partial<RosterMember> = {}): RosterMember => ({
   all_completed: true,
   sky_closed: false,
   achievement_count: 0,
+  sun_preset_id: null,
   goals: [
     {
       id: uuid(9),
@@ -209,6 +214,8 @@ describe("a personal snapshot", () => {
     // A day with zero goals is stored as false, never vacuously true, and the
     // stored value is what the streak is built on.
     const empty = buildPersonalSnapshot({
+      userId: uuid(1),
+      sunPresetId: null,
       goals: [],
       achievements: [],
       dayClosed: false,
@@ -216,6 +223,8 @@ describe("a personal snapshot", () => {
     expect(empty.systems[0]?.dayClosed).toBe(false)
 
     const closed = buildPersonalSnapshot({
+      userId: uuid(1),
+      sunPresetId: null,
       goals: [
         {
           id: uuid(9),
@@ -232,6 +241,8 @@ describe("a personal snapshot", () => {
 
   it("turns achievements into stars, which a Circle never does", () => {
     const snapshot = buildPersonalSnapshot({
+      userId: uuid(1),
+      sunPresetId: null,
       goals: [],
       achievements: [
         { id: uuid(4), categorySlug: "health" },
@@ -247,6 +258,8 @@ describe("a personal snapshot", () => {
     // then ignoring it would be invisible in a snapshot test that only ever
     // checked the true case.
     const withBelt = buildPersonalSnapshot({
+      userId: uuid(1),
+      sunPresetId: null,
       goals: [
         { id: uuid(9), categorySlug: "health", shine: false, beltVisible: true },
       ],
@@ -254,6 +267,8 @@ describe("a personal snapshot", () => {
       dayClosed: false,
     })
     const without = buildPersonalSnapshot({
+      userId: uuid(1),
+      sunPresetId: null,
       goals: [
         { id: uuid(9), categorySlug: "health", shine: false, beltVisible: false },
       ],
@@ -273,6 +288,7 @@ describe("the first-goal preview", () => {
     // the picker's only effect a colour change nobody was watching for.
     const snapshot = buildFirstGoalPreview({
       userId: uuid(1),
+      sunPresetId: null,
       categorySlug: null,
     })
     expect(snapshot.systems).toHaveLength(1)
@@ -284,6 +300,7 @@ describe("the first-goal preview", () => {
     const health = GOAL_CATEGORIES.find((c) => c.slug === "health")
     const snapshot = buildFirstGoalPreview({
       userId: uuid(1),
+      sunPresetId: null,
       categorySlug: "health",
     })
     expect(snapshot.systems[0]?.planets).toHaveLength(1)
@@ -295,6 +312,7 @@ describe("the first-goal preview", () => {
     // wrong colour rather than a screen nobody can skip failing to render.
     const snapshot = buildFirstGoalPreview({
       userId: uuid(1),
+      sunPresetId: null,
       categorySlug: "nonexistent-category",
     })
     expect(snapshot.systems[0]?.planets).toHaveLength(1)
@@ -308,14 +326,14 @@ describe("the first-goal preview", () => {
      * because the thing being asserted is that the two agree.
      */
     const id = uuid(1)
-    const preview = buildFirstGoalPreview({ userId: id, categorySlug: null })
+    const preview = buildFirstGoalPreview({ userId: id, sunPresetId: null, categorySlug: null })
     const inACircle = buildCircleSnapshot([member({ user_id: id })])
 
     expect(preview.systems[0]?.sun.color).toBe(inACircle.systems[0]?.sun.color)
 
     // The control: a different account gets a different sun, so the assertion
     // above is not two calls to one constant.
-    const other = buildFirstGoalPreview({ userId: uuid(4), categorySlug: null })
+    const other = buildFirstGoalPreview({ userId: uuid(4), sunPresetId: null, categorySlug: null })
     expect(other.systems[0]?.sun.color).not.toBe(preview.systems[0]?.sun.color)
   })
 
@@ -325,6 +343,7 @@ describe("the first-goal preview", () => {
     for (const slug of GOAL_CATEGORIES.map((c) => c.slug)) {
       const snapshot = buildFirstGoalPreview({
         userId: uuid(1),
+        sunPresetId: null,
         categorySlug: slug,
       })
       expect(snapshot.systems[0]?.planets[0]?.beltVisible).toBe(false)
@@ -334,9 +353,109 @@ describe("the first-goal preview", () => {
   it("does not shine, on a day nobody has checked anything off", () => {
     const snapshot = buildFirstGoalPreview({
       userId: uuid(1),
+      sunPresetId: null,
       categorySlug: "health",
     })
     expect(snapshot.systems[0]?.planets[0]?.shine).toBe(false)
     expect(snapshot.skyClosed).toBe(false)
+  })
+})
+
+describe("the sun somebody chose", () => {
+  /**
+   * The derived colour for `uuid(1)`, read from the module rather than written
+   * down: a literal here would pass while `pickIndex` was broken, which is the
+   * exact bug this hash already shipped once.
+   */
+  const derivedFor = (id: string) =>
+    SUN_COLOR_PRESETS.find((p) => p.id === sunPresetIdForMember(id))?.color
+
+  it("prefers the stored preset over the hashed one, in both galaxies", () => {
+    /**
+     * **One assertion covering two files, deliberately.** Your sun on Overview
+     * and your sun in a Circle are the same claim about you, and they are built
+     * by different functions from different rows — so the thing worth asserting
+     * is that they agree, not that either one works.
+     */
+    const id = uuid(1)
+    const chosen = SUN_COLOR_PRESETS.find(
+      (p) => p.id !== sunPresetIdForMember(id),
+    )
+    expect(chosen, "every preset is the derived one, so nothing is proven").toBeTruthy()
+
+    const personal = buildPersonalSnapshot({
+      userId: id,
+      sunPresetId: chosen!.id,
+      goals: [],
+      achievements: [],
+      dayClosed: false,
+    })
+    const circle = buildCircleSnapshot([
+      member({ user_id: id, sun_preset_id: chosen!.id }),
+    ])
+
+    expect(personal.systems[0]?.sun.color).toBe(chosen!.color)
+    expect(circle.systems[0]?.sun.color).toBe(chosen!.color)
+
+    // The control: without a stored value they both fall back to the hash, so
+    // the assertions above are about the column rather than about a constant.
+    expect(
+      buildPersonalSnapshot({
+        userId: id,
+        sunPresetId: null,
+        goals: [],
+        achievements: [],
+        dayClosed: false,
+      }).systems[0]?.sun.color,
+    ).toBe(derivedFor(id))
+  })
+
+  it("falls back to the hash when the stored value is not a preset", () => {
+    /**
+     * Migration 111's check constraint restates the six ids in SQL, so this is
+     * the case where that duplication has already failed. **The fallback has to
+     * be the hash rather than the default**: `sunPresetById` answers
+     * `undefined` for an unknown id and lands everybody on amber, which would
+     * turn one bad row into a Circle of identical suns — the exact picture
+     * `memberSun.ts` exists to prevent.
+     */
+    const id = uuid(2)
+    const snapshot = buildPersonalSnapshot({
+      userId: id,
+      sunPresetId: "chartreuse",
+      goals: [],
+      achievements: [],
+      dayClosed: false,
+    })
+    expect(snapshot.systems[0]?.sun.color).toBe(derivedFor(id))
+  })
+
+  it("lets two members who chose the same colour have it", () => {
+    // The hash guarantees difference; a choice does not, and must not. Two
+    // people picking gold is a thing people are allowed to do.
+    const circle = buildCircleSnapshot([
+      member({ user_id: uuid(1), username: "ana", sun_preset_id: "gold" }),
+      member({
+        user_id: uuid(2),
+        username: "ben",
+        joined_at: "2026-01-02T00:00:00Z",
+        sun_preset_id: "gold",
+      }),
+    ])
+    expect(circle.systems).toHaveLength(2)
+    expect(circle.systems[0]?.sun.color).toBe(circle.systems[1]?.sun.color)
+  })
+
+  it("drives the first-goal preview from the picker, not from the id", () => {
+    const id = uuid(1)
+    const chosen = SUN_COLOR_PRESETS.find(
+      (p) => p.id !== sunPresetIdForMember(id),
+    )!
+    const snapshot = buildFirstGoalPreview({
+      userId: id,
+      sunPresetId: chosen.id,
+      categorySlug: null,
+    })
+    expect(snapshot.systems[0]?.sun.color).toBe(chosen.color)
   })
 })

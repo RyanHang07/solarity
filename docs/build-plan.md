@@ -16,7 +16,7 @@
 
 ## Verify
 
-Cheapest first. `lib/database.types.ts` is **current as of migration 110**, hand-patched as a delta since 106: four RPCs, five enum values and six columns for steps 18 to 20, then `goals.belt_visible` and the roster's new fields for 107 to 109. Migration 110 changed a function body only and needed no delta. Regenerate it properly after the next migration, preserving `graphql_public`, which the MCP generator omits.
+Cheapest first. `lib/database.types.ts` is **current as of migration 111**, hand-patched as a delta since 106: four RPCs, five enum values and six columns for steps 18 to 20, then `goals.belt_visible` and the roster's fields for 107 to 109, then `users.sun_preset_id` and the roster's copy of it for 111. Migration 110 changed a function body only and needed no delta. Regenerate it properly after the next migration, preserving `graphql_public`, which the MCP generator omits.
 
 ```
 rm -rf .next/dev
@@ -91,24 +91,27 @@ After that: `/admin` appears, a link shows up at the bottom of Settings, and fur
 
 ### A. Re-verify the fixes from 4 September
 
-**Eleven checks over the day's fixes, none yet seen working on hardware.** Lettered rather than numbered because they are re-checks of rows already run, not new ground.
+**Lettered rather than numbered because these are re-checks of rows already run, not new ground.** Most of the list is done; what is below is what remains.
 
-| | Check | What would fail |
+| | Check | Result |
 |---|---|---|
-| A1 | **Installed to the home screen**, expand the galaxy | The frame clears the Dynamic Island, Close is tappable, and the camera bar clears the home indicator. This is the bug a browser tab cannot show. **Failed once already**: `env(safe-area-inset-top)` changed nothing, so there is now a `display-mode: standalone` floor under it and a `safe area` line in the lab's diagnostics. **Open `/admin/galaxy-lab` while you are in there and read that line** — it says whether the inset is genuinely zero or whether the app is not running standalone, and those look identical from the outside |
-| A1b | The camera bar's shape | `− ◎ +` on top, `← ↑ ↓ →` beneath. It wrapped into three ragged rows because a CSS rule referred to a *position* — the old five-button touch set had reset at the front — rather than to the button it meant |
-| A2 | Same, landscape | The inset moves to the left or right, and the padding is on all four sides for that reason |
-| A3 | Same, then rotate while expanded | The canvas re-measures through the `ResizeObserver`; the frame is `fixed`, so nothing else should move |
-| A4 | **In the card, on touch**: drag one finger, then two | Neither should move the sky, and the page should scroll in both cases. The camera bar is the whole control set here, deliberately |
-| A5 | **Expanded, on touch**: pinch, then two-finger drag | Both should now drive the scene, because nothing behind it can scroll |
-| A6 | The `−` and `+` buttons on the touch camera bar | New. They are the only zoom a card has |
-| A7 | **A Circle: tap a member's planet, then their sun** | The name appears both times, fades after about two seconds, and does not stick when you tap elsewhere. The sun should also fly the camera |
-| A8 | Expand, focus a member, close — **then tap that same member's sun** | Closing returns to the default framing, and that one member must still respond. Before the fix they were silently dead after a reset |
-| A9 | Reduce Motion on, then off **without reloading** | A line under the card appears and disappears with the setting |
-| A10 | `/onboarding/goal` on a phone | The sun draws alone, choosing a category adds a planet in that colour with no belt ring, and the picker's placeholder is selectable. **Overlaps row 26** and can be done in one sitting |
-| A11 | Invite somebody into a **brand-new** Circle without generating a link first | Migration 110. It should simply work |
+| A1 | **Installed to the home screen**, expand the galaxy | ⬜ **Failed once, and the second attempt was aimed at the wrong cause.** `env()` changed nothing, so a `display-mode: standalone` floor went in on the theory that `black-translucent` reports zero. The probe then measured **62 / 0 / 34 / 0 standalone**, so the inset was always fine and the floor was defending against nothing. It is removed. Re-check the plain `env()` rule |
+| A1b | The camera bar's shape | ⬜ `− ◎ +` on top, `← ↑ ↓ →` beneath. It wrapped into three ragged rows because a CSS rule referred to a *position* — the old five-button touch set had reset at the front — rather than to the button it meant |
+| A2 | Same, landscape | ✅ |
+| A3 | Same, then rotate while expanded | ✅ |
+| A4 | In the card, on touch: one finger, then two | ✅ Neither moves the sky; the page scrolls |
+| A5 | Expanded, on touch: pinch, then two-finger drag | ✅ |
+| A6 | The `−` and `+` on the touch camera bar | ✅ |
+| A7 | A Circle: tap a member's planet, then their sun | ✅ |
+| A8 | Expand, focus a member, close, tap that member again | ✅ |
+| A9 | Reduce Motion on, then off without reloading | ✅ |
+| A10 | `/onboarding/goal` on a phone | ✅ **run, then changed under it.** The screen now also carries the sun picker, so it needs one more look: six swatches, opening on the colour the account already renders, and the sun in the canvas following the selection |
+| A11 | Invite into a brand-new Circle with no link generated first | ✅ |
+| **A12** | **The sun picker, end to end** | ⬜ New. Pick a colour that is not the one it opens on, finish onboarding, and check the sun on **Overview and in a Circle** — those are two different reads of the same fact and the failure mode is that they disagree |
 
-### B. The five auth screens, never driven on a device
+### B. The five auth screens ✅ run
+
+**Rows 25 to 30 all passed**, and 25, 26, 27 and 29 needed no fixes. Kept below as the pre-deploy list rather than as outstanding work; the one thing changed under them since is the sun picker on row 26, which is A10 and A12 above.
 
 | | Check | Why |
 |---|---|---|
@@ -119,11 +122,11 @@ After that: `/admin` appears, a link shows up at the bottom of Settings, and fur
 | 29 | The landing page and `/support` at 375px | Deliberately plain, and never seen small |
 | 30 | `E2E_PROD=1 npm run test:e2e:ios` | The only pass that sees the CSP that ships. **It has already earned its place**: PixiJS needs `new Function`, the dev policy allows it and the shipped one does not, so the galaxy had never run in a production build. `dashboard.spec.ts` now asserts the galaxy renders, which turns that class of failure from silence into red |
 
-### C. The code graph
+### C. Last, after the design pass
 
 | | | |
 |---|---|---|
-| C1 | **Regenerate `graphify-out/`** | `graphify . update`, then `node scripts/graph-freshness.mjs` until it exits clean. Migration 110, `setPageScrollThrough`, `GalaxyPreview` and `buildFirstGoalPreview` are all missing from it |
+| C1 | **Regenerate `graphify-out/`** | `graphify . update`, then `node scripts/graph-freshness.mjs` until it exits clean. **Deliberately last.** The graph is a cache of the codebase and the design pass is about to rewrite a large part of it, so regenerating now buys a snapshot that is stale by the end of the week |
 
 ### The regression pass, before any deploy
 
@@ -257,7 +260,12 @@ Keep the posture **deny-by-default**: enumerate what is *public*, so a forgotten
 
 ### Before launch
 
-**One thing left, and it is not a feature.** The manual pass — sections A, B and C of "What is left" above. It is one list there rather than three lists in three places.
+**Two things left, and neither is a feature.**
+
+| | | |
+|---|---|---|
+| 1 | **Four rows of the manual pass** | A1, A1b, A10 and A12 in "What is left" above. Everything else on that list is run |
+| 2 | **`npx tsx scripts/backfill-sun-presets.ts`** | Migration 111's backfill. One-off, idempotent, and it only ever fills a blank — so it is safe to run again if a row fails. It calls `sunPresetIdForMember` rather than re-deriving the hash in SQL, which is the point of it being a script |
 
 **Closed since this list was written**
 

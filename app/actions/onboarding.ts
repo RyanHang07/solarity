@@ -8,6 +8,8 @@ import { containsProfanity } from "@/lib/profanity"
 import { toMessage, type ActionResult } from "@/lib/errors"
 import { TERMS_VERSION } from "@/lib/legal"
 import { safeRedirect } from "@/lib/safe-redirect"
+import { isSunPresetId } from "@/lib/galaxy/data"
+import { createGoal } from "./goals"
 
 const USERNAME_RE = /^[A-Za-z0-9_]{3,30}$/
 
@@ -138,4 +140,63 @@ export async function acceptTerms(
 
   revalidatePath("/", "layout")
   redirect(next)
+}
+
+/**
+ * Step 25b. The first goal, plus the sun colour chosen on the same screen.
+ *
+ * ## Why this wraps `createGoal` rather than duplicating it
+ *
+ * `createGoal` carries the title length check, the profanity screen, the rate
+ * limit, the category lookup by slug, and the first-goal marker that stops a
+ * new account being thrown at the daily check-in the moment it arrives. A
+ * second insert path would carry none of that and would drift the first time
+ * one of them changed. So this writes the one thing `createGoal` knows nothing
+ * about and then calls it, unchanged.
+ *
+ * ## The colour can fail and the sign-up cannot
+ *
+ * `sun_preset_id` is nullable and `null` means "derive it from my id" — the
+ * behaviour every account had before migration 111 — so a failed write here has
+ * a correct fallback that needs no row. **Blocking the only screen nobody can
+ * skip on a cosmetic column would be the worse bug by a distance.** It is
+ * logged rather than returned, and the person gets the hashed colour.
+ *
+ * Ordered before the goal deliberately: the reverse would mean a goal created
+ * and a form re-submitted, which `createGoal` would then refuse or duplicate.
+ * This way a retry re-writes the same colour, which costs nothing.
+ *
+ * ## An invalid value is skipped, not refused
+ *
+ * The picker always has a selection — it opens on the colour the account
+ * already renders — so an absent or unrecognised `sun` means the request did
+ * not come from the form. Refusing would turn a tampered field into a wall in
+ * front of sign-up; skipping leaves them with the derived colour, which is
+ * exactly what they had a moment ago.
+ */
+export async function saveFirstGoal(
+  prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: "Please sign in again." }
+
+  const chosen = formData.get("sun")?.toString() ?? ""
+  if (isSunPresetId(chosen)) {
+    const { error } = await supabase
+      .from("users")
+      .update({ sun_preset_id: chosen })
+      .eq("id", user.id)
+
+    if (error) {
+      // Not returned. See the header: the galaxy falls back to the derived
+      // colour, and the goal below is the thing the person came here for.
+      console.error("sun preset write failed", error)
+    }
+  }
+
+  return createGoal(prev, formData)
 }

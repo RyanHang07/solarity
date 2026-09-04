@@ -3,8 +3,9 @@
 import { useRouter } from "next/navigation"
 import { useActionState, useEffect, useMemo, useState } from "react"
 import { useFormStatus } from "react-dom"
-import { createGoal } from "@/app/actions/goals"
+import { saveFirstGoal } from "@/app/actions/onboarding"
 import { GalaxyPreview } from "@/components/galaxy-preview"
+import { SUN_COLOR_PRESETS, sunPresetIdForMember } from "@/lib/galaxy/data"
 import { buildFirstGoalPreview } from "@/lib/galaxy/solarity/snapshots"
 import type { ActionResult } from "@/lib/errors"
 
@@ -48,9 +49,21 @@ export function FirstGoalForm({
 }) {
   const router = useRouter()
   const [state, action] = useActionState<ActionResult | null, FormData>(
-    createGoal,
+    saveFirstGoal,
     null,
   )
+
+  /**
+   * **Opens on the colour this account already renders**, not on an empty
+   * choice. `sunPresetIdForMember` is what every galaxy has drawn for them
+   * since they signed up, so the picker starts by showing them their sun and
+   * offering five alternatives — rather than asking a question they did not
+   * know they had and rendering nothing until they answer it.
+   *
+   * It also means the field always has a valid value, which is why
+   * `saveFirstGoal` can treat a missing one as "not from this form".
+   */
+  const [sun, setSun] = useState(() => sunPresetIdForMember(userId))
 
   /**
    * **Controlled, and only because the picture needs to know.**
@@ -69,8 +82,13 @@ export function FirstGoalForm({
    * The sun does not change either way; the work would be entirely wasted.
    */
   const snapshot = useMemo(
-    () => buildFirstGoalPreview({ userId, categorySlug: category || null }),
-    [userId, category],
+    () =>
+      buildFirstGoalPreview({
+        userId,
+        sunPresetId: sun,
+        categorySlug: category || null,
+      }),
+    [userId, sun, category],
   )
 
   /**
@@ -101,6 +119,62 @@ export function FirstGoalForm({
         screen in the product nobody can skip.
       */}
       <GalaxyPreview snapshot={snapshot} />
+
+      {/*
+        **A radiogroup, not a row of buttons.** Six mutually exclusive choices
+        with one selected is exactly what radios are, so this gets arrow-key
+        navigation, a single tab stop and the right announcement for free —
+        and the e2e suite can locate it by role and name like everything else.
+
+        The input is visually hidden rather than absent: `sr-only` keeps it
+        focusable and in the accessibility tree while the `<label>` beside it
+        draws the swatch, which is the same trick the avatar picker uses to
+        open a file dialog from a label on iOS.
+
+        Named `sun` and submitted with the form, so the colour and the goal are
+        one write from the person's point of view even though the action makes
+        two.
+      */}
+      <fieldset className="flex flex-col gap-2">
+        <legend className="text-sm font-medium">Your sun</legend>
+        <div role="radiogroup" aria-label="Your sun" className="flex gap-2">
+          {SUN_COLOR_PRESETS.map((preset) => (
+            <label
+              key={preset.id}
+              className="flex cursor-pointer flex-col items-center gap-1"
+            >
+              <input
+                type="radio"
+                name="sun"
+                value={preset.id}
+                checked={sun === preset.id}
+                onChange={() => {
+                  setSun(preset.id)
+                }}
+                className="sr-only peer"
+              />
+              {/*
+                `peer-checked` and `peer-focus-visible` rather than a class
+                computed in JS: the ring follows the input's real state, so it
+                cannot disagree with what would be submitted.
+
+                A ring rather than a colour change, because the thing being
+                selected *is* a colour and altering it to show selection would
+                misrepresent the choice.
+              */}
+              <span
+                aria-hidden
+                className="h-8 w-8 rounded-full border border-transparent ring-offset-2 ring-offset-[var(--background)] peer-checked:ring-2 peer-checked:ring-current peer-focus-visible:ring-2 peer-focus-visible:ring-current"
+                style={{
+                  backgroundColor: `#${preset.color.toString(16).padStart(6, "0")}`,
+                }}
+              />
+              <span className="sr-only">{preset.name}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
       <p className="text-xs opacity-60">
         {category
           ? "Your sun, and the planet this goal will be."

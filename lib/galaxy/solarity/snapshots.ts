@@ -10,6 +10,7 @@
 import {
   buildGalaxySnapshot,
   GOAL_CATEGORIES,
+  isSunPresetId,
   skyAmbienceTierFromCount,
   sunPresetIdForMember,
   onlySystem,
@@ -37,6 +38,28 @@ const KNOWN = new Set<string>(GOAL_CATEGORIES.map((category) => category.slug))
 
 const asCategorySlug = (slug: string | null | undefined): CategorySlug =>
   (slug && KNOWN.has(slug) ? slug : "other") as CategorySlug
+
+/**
+ * The sun a person actually gets: the one they chose, or the one their id
+ * chose for them.
+ *
+ * **One function, because both galaxies must answer identically.** Your sun on
+ * Overview and your sun in a Circle are the same claim about you, and the day
+ * they disagree is the day the picture stops being about people. The two
+ * callers differ only in where the stored value comes from.
+ *
+ * **`isSunPresetId` rather than trusting the column.** Migration 111's check
+ * constraint restates the six ids in SQL, which is a duplication with an e2e
+ * test holding it in place — and a value that got past it anyway must not
+ * reach `sunPresetById`, which answers `undefined` and lands everybody on the
+ * default amber. Falling back to the hash keeps them distinguishable, which is
+ * the whole reason the hash exists.
+ */
+const sunPresetFor = (
+  userId: string,
+  stored: string | null | undefined,
+): string =>
+  stored && isSunPresetId(stored) ? stored : sunPresetIdForMember(userId)
 
 /**
  * A goal's cosmetics, which in v1 is one boolean.
@@ -70,6 +93,17 @@ export type PersonalAchievementRow = {
 }
 
 export type PersonalSnapshotInput = {
+  /** Whose galaxy this is. Only ever a seed for the sun's fallback colour. */
+  userId: string
+  /**
+   * `users.sun_preset_id`, or `null` for "derive it".
+   *
+   * **Your own galaxy used to pass no cosmetics at all**, which meant it fell
+   * through to `DEFAULT_SUN_COLOR` — so a Circle drew you in your own colour
+   * and your dashboard drew you amber like everybody else. Nobody reported it,
+   * because nobody sees the two side by side.
+   */
+  sunPresetId: string | null
   goals: readonly PersonalGoalRow[]
   achievements: readonly PersonalAchievementRow[]
   /**
@@ -106,7 +140,7 @@ export const buildPersonalSnapshot = (
       id: item.id,
       categorySlug: asCategorySlug(item.categorySlug),
     })),
-    cosmetics: {},
+    cosmetics: { sunPresetId: sunPresetFor(input.userId, input.sunPresetId) },
     goalCosmeticsById: Object.fromEntries(
       input.goals.map((goal) => [
         goal.id,
@@ -133,19 +167,28 @@ export const buildPersonalSnapshot = (
 const PREVIEW_PLANET_ID = "preview-first-goal"
 
 export type FirstGoalPreviewInput = {
-  /** The signed-in account, which is what fixes the sun's colour. */
+  /** The signed-in account. The sun's colour when nothing is chosen. */
   userId: string
-  /** Whatever is in the picker right now — `null` before anything is chosen. */
+  /**
+   * Whatever is in the **sun** picker right now, or `null` for the derived one.
+   *
+   * Live rather than stored: this screen writes nothing until the form is
+   * submitted, so the picture has to be driven by what the person is looking
+   * at, not by what the database says.
+   */
+  sunPresetId: string | null
+  /** Whatever is in the **category** picker — `null` before anything is chosen. */
   categorySlug: string | null
 }
 
 /**
  * The sky somebody is about to have, drawn while they decide.
  *
- * **The sun is theirs already and the planet is not**, which is why the two are
- * built from different things. `sunPresetIdForMember` hashes the account id, so
- * the sun on this screen is the sun on their dashboard, in their Circles, on
- * every device, forever — it is a fact about them being shown, not a preview.
+ * **The sun is a choice being made and the planet is not**, which is why the
+ * two are built from different things. The sun follows the picker directly, and
+ * whatever it lands on is the colour on their dashboard, in their Circles, on
+ * every device — this screen is where that is decided, so the picture has to be
+ * the decision rather than a report of one.
  * The planet is a preview in the strict sense: its colour is real, its surface
  * is a placeholder, and it does not exist until the form is submitted.
  *
@@ -171,7 +214,7 @@ export const buildFirstGoalPreview = (
         ]
       : [],
     achievements: [],
-    cosmetics: { sunPresetId: sunPresetIdForMember(input.userId) },
+    cosmetics: { sunPresetId: sunPresetFor(input.userId, input.sunPresetId) },
     goalCosmeticsById: {
       // `"off"` rather than `"auto"`: the belt is rolled by a column default at
       // insert time, so `auto` here would show a ring the real goal may not get
@@ -226,7 +269,9 @@ export const buildCircleSnapshot = (
         shine: goal.checked,
       })),
       achievements: [],
-      cosmetics: { sunPresetId: sunPresetIdForMember(member.user_id) },
+      cosmetics: {
+        sunPresetId: sunPresetFor(member.user_id, member.sun_preset_id),
+      },
       goalCosmeticsById: cosmeticsFor(member.goals),
       dayClosed: member.all_completed,
     })

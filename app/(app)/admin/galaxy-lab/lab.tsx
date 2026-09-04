@@ -68,6 +68,10 @@ const fakeMembers = (members: number, goals: number): RosterMember[] =>
     all_completed: m % 3 === 0,
     sky_closed: false,
     achievement_count: 40,
+    // **Null, so the lab measures the derived colours.** Ten members that all
+    // stored the same preset would be ten identical suns, which is exactly the
+    // picture `memberSun.ts` exists to prevent and the one worth watching for.
+    sun_preset_id: null,
     goals: fakeGoals(m + 1, goals),
   }))
 

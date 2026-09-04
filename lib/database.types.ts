@@ -864,6 +864,7 @@ export type Database = {
           terms_accepted_at: string | null
           terms_accepted_version: string | null
           role: Database["public"]["Enums"]["user_role"]
+          sun_preset_id: string | null
           today_screen_mode: Database["public"]["Enums"]["today_screen_mode"]
           updated_at: string
           username: string | null
@@ -885,6 +886,7 @@ export type Database = {
           terms_accepted_at?: string | null
           terms_accepted_version?: string | null
           role?: Database["public"]["Enums"]["user_role"]
+          sun_preset_id?: string | null
           today_screen_mode?: Database["public"]["Enums"]["today_screen_mode"]
           updated_at?: string
           username?: string | null
@@ -906,6 +908,7 @@ export type Database = {
           terms_accepted_at?: string | null
           terms_accepted_version?: string | null
           role?: Database["public"]["Enums"]["user_role"]
+          sun_preset_id?: string | null
           today_screen_mode?: Database["public"]["Enums"]["today_screen_mode"]
           updated_at?: string
           username?: string | null
@@ -1020,6 +1023,7 @@ export type Database = {
           role: string
           sky_closed: boolean
           streak_grace: boolean
+          sun_preset_id: string | null
           total_count: number
           user_id: string
           username: string
