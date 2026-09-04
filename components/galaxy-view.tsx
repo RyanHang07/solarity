@@ -50,12 +50,18 @@ type GalaxyViewProps = {
    * The canvas will not exist: no WebGL, a refused context, a throw during
    * mount.
    *
-   * **Not an error to show.** Every galaxy surface is additive and every route
-   * is fully usable without it, so the honest response is for the block to
-   * remove itself and let the page close up. The goals list one panel above
-   * says everything the canvas would have.
+   * **Not an error to show, and it still has to say what happened.** Every
+   * galaxy surface is additive and every route is fully usable without it, so
+   * the honest response for a *person* is the block removing itself. The
+   * honest response for whoever is debugging is the reason, which the first
+   * version threw away — a rejected mount reported as absence and nothing
+   * else, which is `patterns.md`'s "a protection that fails as absence rather
+   * than as refusal" wearing a component's clothes.
+   *
+   * The reason is passed on so a caller that *is* a diagnostic — the galaxy lab
+   * — can show it, and logged here so every other caller need not.
    */
-  onUnavailable?: () => void;
+  onUnavailable?: (reason: string) => void;
   /**
    * The pointer entered a member's system, or left it.
    *
@@ -217,10 +223,16 @@ export const GalaxyView = ({
      * which reads as the app being broken rather than as the galaxy being
      * absent.
      */
-    void start().catch(() => {
-      if (!cancelled) {
-        failedRef.current?.();
+    void start().catch((error: unknown) => {
+      if (cancelled) {
+        return;
       }
+      const reason =
+        error instanceof Error ? error.message : String(error ?? "unknown");
+      // Logged rather than only handed on, because most callers hide the block
+      // and would otherwise leave a silent gap on the page.
+      console.error("mountGalaxy failed", { reason, error });
+      failedRef.current?.(reason);
     });
 
     return () => {

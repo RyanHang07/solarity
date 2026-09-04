@@ -87,6 +87,51 @@ export type GalaxyCardProps = {
    * label naming you, over your own sun, on your own dashboard.
    */
   namesOnHover?: boolean
+  /**
+   * Say why the canvas is missing, on screen, instead of removing the block.
+   *
+   * **Off everywhere except the lab.** For a person the galaxy is a reward and
+   * its absence is not an error worth a sentence; for somebody holding a phone
+   * trying to find out why nothing drew, the sentence is the entire point, and
+   * a phone has no console to open.
+   */
+  explainAbsence?: boolean
+  /**
+   * Print what the renderer actually got, under the card.
+   *
+   * **Off everywhere except the lab.** A canvas that mounts and draws nothing
+   * looks identical to a canvas that never mounted, and on a phone there is no
+   * console to tell them apart — so this reports the facts the guessing would
+   * otherwise be about: the backing store's size, the CSS size, the device
+   * pixel ratio, and whether WebGL exists at all independently of Pixi.
+   */
+  showDiagnostics?: boolean
+}
+
+/**
+ * Can this browser make a WebGL context **at all**, asked without Pixi.
+ *
+ * A separate probe on purpose: if `mountGalaxy` resolved and the picture is
+ * blank, the question is no longer "is WebGL available" but "what did the
+ * renderer do with it" — and the two are only distinguishable by asking them
+ * separately. The probe's canvas is discarded immediately; a leaked context
+ * would count against the handful iOS allows.
+ */
+const probeWebgl = (): string => {
+  try {
+    const canvas = document.createElement("canvas")
+    const gl =
+      canvas.getContext("webgl2") ??
+      canvas.getContext("webgl") ??
+      canvas.getContext("experimental-webgl")
+    if (!gl) return "none"
+    const context = gl as WebGLRenderingContext
+    const size = context.getParameter(context.MAX_TEXTURE_SIZE) as number
+    context.getExtension("WEBGL_lose_context")?.loseContext()
+    return `${canvas.getContext("webgl2") ? "webgl2" : "webgl1"}, max texture ${size}`
+  } catch (error) {
+    return `threw: ${error instanceof Error ? error.message : String(error)}`
+  }
 }
 
 /**
@@ -121,8 +166,11 @@ export function GalaxyCard({
   onPlanetSelect,
   frozen = false,
   namesOnHover = false,
+  explainAbsence = false,
+  showDiagnostics = false,
 }: GalaxyCardProps) {
   const [state, setState] = useState<"waiting" | "ready" | "absent">("waiting")
+  const [reason, setReason] = useState<string | null>(null)
   const { open: expanded, setOpen, onCommit } = useViewhole()
   const handleRef = useRef<GalaxyHandle | null>(null)
 
@@ -140,6 +188,9 @@ export function GalaxyCard({
     x: number
     y: number
   } | null>(null)
+
+  /** Filled once the canvas exists, and only read when `showDiagnostics`. */
+  const [facts, setFacts] = useState<string[] | null>(null)
 
   /**
    * **The first run is the mount, not an expand.** Without this the card played
@@ -227,7 +278,19 @@ export function GalaxyCard({
     if (hover) setHover(null)
   }
 
-  if (state === "absent") return null
+  if (state === "absent") {
+    if (!explainAbsence) return null
+    return (
+      <section aria-labelledby={id} className="flex flex-col gap-2">
+        <h2 id={id} className="text-base font-semibold">
+          {title}
+        </h2>
+        <p role="alert" className="rounded border px-3 py-2 text-sm text-red-600">
+          The canvas could not start: {reason ?? "no reason given"}
+        </p>
+      </section>
+    )
+  }
 
   return (
     <section aria-labelledby={id} className="flex flex-col gap-2">
@@ -272,8 +335,25 @@ export function GalaxyCard({
           onReady={(handle) => {
             handleRef.current = handle
             setState("ready")
+            if (showDiagnostics) {
+              const canvas = handle.canvas
+              const box = canvas.getBoundingClientRect()
+              setFacts([
+                `backing store ${canvas.width} × ${canvas.height}`,
+                `css ${Math.round(box.width)} × ${Math.round(box.height)}`,
+                `dpr ${window.devicePixelRatio}`,
+                `webgl ${probeWebgl()}`,
+                `systems ${snapshot.systems.length}, planets ${snapshot.systems.reduce(
+                  (total, system) => total + system.planets.length,
+                  0,
+                )}`,
+              ])
+            }
           }}
-          onUnavailable={() => setState("absent")}
+          onUnavailable={(why) => {
+            setReason(why)
+            setState("absent")
+          }}
           onPlanetSelect={onPlanetSelect}
           onSystemHover={
             namesOnHover
@@ -347,6 +427,24 @@ export function GalaxyCard({
           </div>
         ) : null}
       </Viewhole>
+
+      {/*
+        **Facts, not a guess.** A blank canvas and an absent canvas look the
+        same on a phone, and the difference between them is the whole
+        diagnosis. Anything zero here names the cause on its own: a backing
+        store of 0 means the host was measured before it had a size, a css size
+        of 0 means the frame collapsed, and `webgl none` means the picture was
+        never possible.
+      */}
+      {showDiagnostics && facts ? (
+        <ul className="rounded border px-3 py-2 text-xs opacity-70">
+          {facts.map((fact) => (
+            <li key={fact} className="tabular-nums">
+              {fact}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </section>
   )
 }

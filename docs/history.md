@@ -3988,6 +3988,43 @@ The action returns a result rather than redirecting, because four other callers 
 
 ---
 
+## The galaxy does not start on a phone — open
+
+3 September, first time anything was opened on a real device. **Every galaxy is blank**: the card's frame paints, then the block removes itself. Desktop is unaffected.
+
+### What the symptom means
+
+The block removing itself is `onUnavailable`, so `mountGalaxy` **rejected**. That path exists and is correct — every galaxy surface is additive and a device without WebGL should lose the picture and keep the app — so the behaviour on screen is the designed one. The bug is upstream of it.
+
+### The defect found on the way, which is mine
+
+```ts
+void start().catch(() => {
+  if (!cancelled) failedRef.current?.();
+});
+```
+
+**The reason was thrown away.** A rejected mount was reported to the person as absence and to whoever was debugging as nothing at all — `patterns.md`, "a protection that fails as absence rather than as refusal", written by the person who put that row in the file.
+
+`onUnavailable` now carries the reason, `galaxy-view.tsx` logs it, and `GalaxyCard` gained `explainAbsence` — off everywhere except the lab, because for a person the absence is not worth a sentence and for somebody holding a phone it is the only thing that matters. **A phone has no console to open**, which is why the lab prints it on screen.
+
+### And the lab started at the load case
+
+10 × 10 by default, which teaches nothing when 10 × 10 is what fails: no canvas, no curve, and the only reading is "no". It starts at 3 × 3 and is stepped up, so the reading is *where* it stops.
+
+### Candidates, in the order worth checking
+
+| | |
+|---|---|
+| **Lockdown Mode** | Disables WebGL on iOS entirely. Would produce exactly this, everywhere, with a working app around it |
+| A Safari setting or an old iOS | WebGL2 has been on since iOS 15; an experimental-features toggle can still remove it |
+| Texture creation | The scene builds its textures on a 2D canvas before uploading. Safari has limits on canvas count and total canvas memory that no desktop browser enforces |
+| Genuinely out of GPU memory | Real, and the *last* candidate rather than the first: the personal galaxy is one sun and up to ten planets, which is the smallest scene the app can draw |
+
+**The reason string decides between them**, which is the whole point of having added it.
+
+---
+
 ## Two things the plan called partial ✅ done
 
 3 September, before the device pass — the parts of step 27 that were work rather than judgement.

@@ -106,6 +106,19 @@ After that: `/admin` appears, a link shows up at the bottom of Settings, and fur
 
 Rows 16 to 30 have never been run. **This is the whole of what is left before a deploy**, and everything on it needs either a device or a dashboard.
 
+#### Getting the app onto the phone in the first place
+
+**`npm run preview`** — `next build && next start -H 0.0.0.0`. Then `http://<your-LAN-IP>:3000` in Safari, with the phone on the same Wi-Fi.
+
+**A production build, not `next dev`, and that is not fussiness.** Dev mode double-invokes every effect under StrictMode, ships an unminified bundle, and recompiles on navigation. Measuring frames there measures the dev server. `npm run dev:lan` exists for *iterating* on the phone; every number on this list comes from `preview`.
+
+| Gotcha | |
+|---|---|
+| Find the IP | `ipconfig` on Windows — the IPv4 address of the Wi-Fi adapter, usually `192.168.…`. Not `127.0.0.1` |
+| Windows Firewall | It will ask, or silently block, on the first inbound connection. Allow Node on **private** networks |
+| **http, not https, and it works on purpose** | `upgrade-insecure-requests` would rewrite the page's own bundle to `https://192.168.…`, which nothing answers — and WebKit applies it where Chromium exempts localhost. `proxy.ts` derives `secure` from the *connection*, so a plain-http origin never gets the directive. That trap cost a whole debugging session once; it is handled |
+| No service worker | An http origin is not a secure context, so the PWA will not install and push will not register. Irrelevant for the galaxy, and the reason the install flow is tested on the deployed URL instead |
+
 #### The galaxy, on a phone
 
 | | Check | Why it is on this list |

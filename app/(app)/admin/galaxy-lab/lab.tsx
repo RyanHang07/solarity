@@ -161,8 +161,17 @@ function Stepper({
 }
 
 export function GalaxyLab() {
-  const [members, setMembers] = useState(10)
-  const [goals, setGoals] = useState(10)
+  /**
+   * **Starts small and is stepped up, rather than starting at the load case.**
+   *
+   * A lab that opens at 10 × 10 teaches nothing if 10 × 10 is the thing that
+   * fails: the canvas is absent, there is no curve, and the only reading is
+   * "no". Three by three mounts on anything, and walking the counts up finds
+   * *where* it stops — which is the number worth writing down, and the one a
+   * fallback would be chosen against.
+   */
+  const [members, setMembers] = useState(3)
+  const [goals, setGoals] = useState(3)
   const { fps, worst, resetWorst } = useFrameRate()
 
   /**
@@ -226,6 +235,13 @@ export function GalaxyLab() {
           title={`${members} members, ${goals} goals each`}
           snapshot={snapshot}
           namesOnHover
+          /*
+            **The one caller that shows the failure.** Everywhere else the
+            galaxy is a reward and its absence is not worth a sentence; here
+            the sentence is the point, and a phone has no console to open.
+          */
+          explainAbsence
+          showDiagnostics
         />
       </ViewholeProvider>
 

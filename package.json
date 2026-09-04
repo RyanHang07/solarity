@@ -5,6 +5,8 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
+    "dev:lan": "next dev -H 0.0.0.0",
+    "preview": "next build && next start -H 0.0.0.0",
     "lint": "eslint",
     "start": "next start",
     "test": "vitest",
