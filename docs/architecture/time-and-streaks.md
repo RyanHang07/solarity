@@ -44,23 +44,40 @@ Finally, circles past their deadline flip to `locked`.
 
 Split into two independently retryable halves, because they need different runtimes and have different failure modes.
 
-**`build_daily_digests()` (SQL)** computes each Circle's summary for its own previous day, writes `digest_snapshots`, and inserts one `notifications` row per member. This alone makes the Overview subtab and the in-app feed work. Idempotent: it skips any Circle already holding a digest for the target date, so an extra run neither duplicates snapshots nor re-notifies.
+**`build_daily_digests()` (SQL)** computes each Circle's summary for its own previous day and writes `digest_snapshots`. That single row is what makes the Overview subtab work. Idempotent: it skips any Circle already holding a digest for the target date, so an extra run duplicates nothing.
 
-**`send-digest-push` (Edge Function)** delivers web push. VAPID signing needs the `web-push` package, so it can't live in Postgres.
+**It writes no notification rows, since migration 112.** It used to fan out one `notifications` row per member per Circle — a copy of the snapshot, addressed to a person, so the sender could find it. That row was rendered nowhere after step 11c and existed only to be found.
 
-Separating them means a push outage never blocks the in-app digest, and either half can be re-run without corrupting the other.
+**`send-digest-push` (Edge Function)** delivers web push, from two sources:
+
+| Source | Delivery record |
+|---|---|
+| `notifications`, for the event types | `pushed_at` on the row |
+| `digest_snapshots`, for digests | a row in `digest_pushes` |
+
+VAPID signing needs the `web-push` package, so it cannot live in Postgres. Separating build from send means a push outage never blocks the in-app digest, and either half can be re-run without corrupting the other.
 
 **`notifications.pushed_at`** tracks delivery, distinct from `read_at`: one is our action, the other the user's.
 
-**Teaser payloads only.** iOS truncates long bodies, and a detailed body risks surfacing hidden-goal-adjacent information on a lock screen, outside the app's access controls entirely. Circle names are deliberately kept out of push *bodies* for the same reason, even though the payload carries them for in-app rendering. One notification per Circle per user, never one combined across Circles.
+### What reading snapshots directly changed
+
+**The audience is resolved at delivery time.** The old fan-out froze it when the snapshot was written, so somebody who joined overnight never got that day's digest and somebody who left still had a row addressed to them. The sender reads live membership, so both work now — neither was the point of the change.
+
+**A window had to be invented, and the old design could not have needed one.** A notification row existed or it did not, and retention eventually removed it. Reading snapshots means a Circle whose members all lacked a subscription for a week would deliver seven days of "yesterday" the moment one appeared. `DIGEST_WINDOW_DAYS = 3` covers a scheduler that missed a run or two; older than that is not news.
+
+**The delivery record is written even for accounts with no subscription**, matching what `pushed_at` already did for events. Without it, every member without a device would be reconsidered on every run for three days.
+
+### What did not change
+
+**Teaser payloads only.** iOS truncates long bodies, and a detailed body risks surfacing hidden-goal-adjacent information on a lock screen, outside the app's access controls entirely. One notification per Circle per user, never one combined across Circles.
+
+**Circle names reach lock screens as of 10g, behind a setting**, and the older note here saying they were "deliberately kept out of push bodies" described the state before that. `users.push_shows_circle_name` decides, defaulting to on; without a name, four Circles produce four notifications that read identically, which was step 10's one real manual-pass finding. **A goal title still never reaches a body, ever.**
 
 The sender has a teaser per notification type, with a generic fallback. **Adding a notification type means adding a teaser case**, or it silently ships as "You have a new notification".
 
-**A user with no push subscription is not a failure.** On iOS push works only for an installed PWA, so many users legitimately have none. Those notifications are marked delivered rather than retried forever; the in-app row is the durable channel regardless.
+**A user with no push subscription is not a failure.** On iOS push works only for an installed PWA, so many users legitimately have none. Those are marked delivered rather than retried forever; the durable channel is the in-app row, or — for a digest — the snapshot, which was always the record.
 
 **Dead subscriptions are pruned.** A 404 or 410 from the push service means the browser permanently discarded that subscription. Deleting those rows is required maintenance, not an optimization: otherwise they accumulate and every future send retries them.
-
----
 
 ---
 

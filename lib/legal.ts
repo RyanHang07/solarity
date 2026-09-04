@@ -9,17 +9,21 @@
  */
 
 /**
- * Last substantive edit, and the version a future `users.accepted_terms_version`
- * will compare against.
+ * Last substantive edit, and the version stored in `users.terms_accepted_version`.
  *
- * **Nothing records acceptance yet, and that is honest rather than lazy.**
- * Google sign-in is the only way in and it never shows a terms checkbox, so
- * there is no moment at which anyone accepts anything. A column now would be
- * declared with no writer, which is the first shape in `patterns.md`. It lands
- * with the signup flow, and reads this.
+ * **Acceptance is recorded now.** Migration 105 added the columns and step 20c
+ * added `/onboarding/terms`, so `acceptTerms` writes both this constant and the
+ * date against the account. The comment here said the opposite until 4
+ * September, which is the same staleness the pages themselves were audited for.
+ *
+ * **Bumping this does not re-prompt anybody**, and that is worth knowing before
+ * relying on it: the gate reads `terms_accepted_at` for presence and never
+ * compares versions. So an existing account keeps a record of the version it
+ * actually agreed to, which is correct record-keeping — but a *substantive*
+ * change to the deal needs a re-prompt built, not just a date moved here.
  */
-export const TERMS_VERSION = "2026-08-31"
-export const PRIVACY_VERSION = "2026-08-31"
+export const TERMS_VERSION = "2026-09-04"
+export const PRIVACY_VERSION = "2026-09-04"
 
 /** Where a person writes to ask for something the app cannot yet do. */
 export const CONTACT_EMAIL = "ryanhang07@gmail.com"
@@ -61,8 +65,19 @@ export const RESPONSE_DAYS = 30
 export const DATA_REGION = "the United States"
 
 /**
- * **18+.** Stated on both pages and unenforced today, because Google sign-in
- * asks nothing. The signup flow is where a confirmation goes.
+ * **18+.** Stated on `/auth/sign-up`, on the terms gate, and on both policy
+ * pages — and **still not verified**, which is the honest word for it.
+ *
+ * Nothing asks a date of birth and nothing could check one if it did. What
+ * exists is notice: the rule is in front of somebody before they create an
+ * account, and again before they accept the terms. That is the ordinary
+ * position for a service of this size, and it is a rule about who may use
+ * Solarity rather than a control that stops them.
+ *
+ * The comment here claimed the signup flow was where a confirmation would go.
+ * Signup shipped; the confirmation did not, and pretending otherwise in a
+ * constant nobody reads is how a page ends up describing a check that is not
+ * there.
  */
 export const MINIMUM_AGE = 18
 
@@ -115,15 +130,30 @@ export const EXPORT_CONTENTS = [
  * tell a reader that their IP address leaves the request; `clientIp()` uses it
  * as an Upstash key on the two paths that serve signed-out visitors.
  *
- * **Brevo stays, and the 31 Aug review nearly deleted it.** Nothing in this
- * repository sends email: `signInWithOAuth` is the only auth call, and no
- * route, action or Edge Function sends a message. But Brevo is configured as
- * Supabase's auth SMTP sender, outside the codebase, in project settings, so
- * the credentials and the capability are live even though Google-only sign-in
- * never triggers one. **A processor is named because of what it is wired to
- * receive, not because of what it happened to handle this month** — grepping
- * the repo would have removed it, and the answer was in `architecture/app.md`.
- * The role below says both halves.
+ * **Brevo was nearly deleted on 31 Aug and is now the busiest entry here.** At
+ * the time nothing in the repository sent email — `signInWithOAuth` was the
+ * only auth call — and Brevo was named anyway, because it was configured as
+ * Supabase's SMTP sender in project settings and **a processor is named for
+ * what it is wired to receive, not for what it happened to handle this month**.
+ * That call was right and step 20 proved it: `signUp`, `resend` and
+ * `resetPasswordForEmail` all send through it now, so a description that still
+ * said "configured and unused" would have been understating a processor that
+ * handles an address and a one-time link for every password account.
+ *
+ * **Cloudflare is deliberately absent**, and adding it is step zero of turning
+ * Turnstile on rather than something to do in advance. The widget ships and the
+ * CSP allows it, but the switch is off, so today Cloudflare receives nothing.
+ * The moment it is enabled it starts receiving an IP address and browser
+ * signals from every visitor to three auth screens — which is a processor, and
+ * a `PRIVACY_VERSION` bump, and it has to ship *before* the toggle rather than
+ * after. See the Turnstile runbook in `build-plan.md`.
+ *
+ * **Push services are recipients rather than processors**, which is why they
+ * are described where they are. A subscription endpoint belongs to Apple,
+ * Google or Mozilla depending on the browser, and delivering a notification
+ * means contacting it. Nothing is chosen or configured here — the browser hands
+ * over the address — but a reader is entitled to know their device's push
+ * service is contacted, so `/privacy` says so in "What is collected".
  */
 export const PROCESSORS = [
   { name: "Supabase", role: "Database, file storage, and sign-in" },
@@ -132,10 +162,13 @@ export const PROCESSORS = [
     name: "Upstash",
     role: "Rate limiting. Invite links are counted against an IP address, so signed-out attempts reach it",
   },
-  { name: "Google", role: "Sign-in. It tells Solarity your email address and the name on the account" },
+  {
+    name: "Google",
+    role: "Sign-in, if you use it. It tells Solarity your email address and the name on the account",
+  },
   {
     name: "Brevo",
-    role: "Sends sign-in email. Configured and unused today, because Google is the only way in",
+    role: "Sends Solarity's email — confirmation links, password resets, and nothing else. It handles your address and the link",
   },
 ] as const
 

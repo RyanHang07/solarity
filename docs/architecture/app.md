@@ -8,7 +8,7 @@ Premise, stack, directory and route structure, Circles and invites, realtime, PW
 
 Friends who see each other's daily progress motivate each other to stay consistent. Small invite-only Circles (max 10), each member tracking their own daily goals, checking in once a day. Progress surfaces as a daily batched digest rather than live noise.
 
-Build phases, screen inventory and the deferred galaxy visualization are in `product-and-design.md`. `goal_categories` is in v1 even though its main consumer is deferred: a category is required at goal creation regardless, and it is useful for filtering and stats.
+Build phases and the screen inventory are in `product-and-design.md`. **The galaxy is no longer deferred** — it is built, on both surfaces, and its own reasoning is in `history.md` under steps 21 to 27. `goal_categories` was in v1 even though its main consumer was deferred, on the grounds that a category is required at goal creation regardless; that consumer now exists, and the nine hex values are what colour every planet.
 
 ---
 
@@ -39,41 +39,55 @@ Build phases, screen inventory and the deferred galaxy visualization are in `pro
 
 ```
 app/
-  (app)/            signed-in screens; layout.tsx is the onboarding gate
-    (shell)/        the five tabbed sections; layout.tsx owns the bar and the /today gate
+  (app)/            signed-in screens; layout.tsx is the username + terms gate
+    (shell)/        the five tabbed sections; layout.tsx owns the bar, the /today
+                    gate and the first-goal gate
       dashboard/    Overview, circles/, notifications/, goals/
       profile/      your own, and [username]/
-    admin/          the back office. 404 unless private.is_admin()
+    admin/          the back office, incl. galaxy-lab/. 404 unless private.is_admin()
     circles/[id]/   one Circle: roster, settings
     settings/       identity, preferences, data, blocked, delete
     today/          the daily check-in gate
   actions/          server actions: the only place .rpc() may appear
   api/csp-report/   where CSP violations land; logs and returns 204
-  auth/             sign-in page, OAuth callback route, error page
-  onboarding/       username + timezone, then install/ (10b), then notifications/ (10c)
-  privacy/, terms/  the public legal pages
+  auth/             sign-in, sign-up, check-email, confirm, forgot-password,
+                    reset-password, the OAuth callback route, error
+  join/[token]/     the invite page. **The app's only unauthenticated endpoint**
+  onboarding/       username + timezone, then terms/, goal/, install/,
+                    notifications/ — five screens, each a destination of a gate
+  privacy/, terms/, support/   the public pages
   manifest.ts       web app manifest
 components/         client components shared across route groups
 lib/
   avatar.ts         crop, re-encode, the fixed key
   digest-days.ts    grouping, ordering, UTC-pinned dates — pure, unit-tested
+  galaxy/           the WebGL renderer. **Two entry points**: `data.ts` is
+                    pixi-free and server-safe, `index.ts` pulls the renderer in.
+                    `data.boundary.test.ts` walks the import graph and proves it
   goal-deadline.ts  overdue and its copy — pure, unit-tested
+  legal.ts          every fact the policy pages assert, as constants
   notification-types.ts  which types the Notifications tab owns
+  password.ts       the sign-up strength floor
   report-reference.ts    what a report points at, both directions
+  roster.ts         one Circle's members, as a screen needs them
   security-headers.ts  the CSP and the fixed headers, in one place
   csp-report.ts     reads both spellings of a violation report
+  site-url.ts       the origin an auth redirect goes back to
   supabase/         browser client, server client, admin client, proxy helper
   ratelimit.ts      Upstash limiters
   errors.ts         SQLSTATE → user-facing message
   profanity.ts      obscenity matcher
   safe-redirect.ts  open-redirect guard for the `next=` parameter
+scripts/            one-off operator scripts; nothing here is bundled
 proxy.ts            session refresh + anonymous redirect + the nonce CSP
 next.config.ts      the headers with no per-request component
 ```
 
-### The signed-in gate, in order
+**Where the design pass will spend its time.** `components/` is the shared layer and the one worth restyling first, because every route group renders it. `lib/galaxy/` is deliberately not part of that: it draws to a canvas, takes its one colour from `--galaxy-sky` in `globals.css`, and has no Tailwind in it at all.
 
-`app/(app)/layout.tsx` checks three things before rendering anything, and step 20 adds a fourth between them:
+### The signed-in gates, in order, and they live at two levels
+
+`app/(app)/layout.tsx`:
 
 ```
 !user                       → /auth/sign-in
@@ -81,13 +95,24 @@ next.config.ts      the headers with no per-request component
 !profile.terms_accepted_at  → /onboarding/terms
 ```
 
-**A gate rather than a flow**, because any of these can be abandoned midway: close the tab after signing in and there is a real account with no username. Only something evaluated on every protected navigation catches that. All three columns come back in one read the layout already does, so the checks are free.
+`app/(app)/(shell)/layout.tsx`, which is the five tabbed sections only:
 
-The three `/onboarding*` routes live outside `(app)` for the same reason: each is a destination *of* the gate, and a screen inside that group would redirect to itself.
+```
+never created a goal        → /onboarding/goal
+an unfinished day, once     → /today
+```
+
+**A gate rather than a flow**, because any of these can be abandoned midway: close the tab after signing in and there is a real account with no username. Only something evaluated on every protected navigation catches that. The first three columns come back in one read the layout already does, so those checks are free.
+
+**Why the goal gate is one layout lower, and it is not tidiness.** It shipped in `(app)/layout.tsx` and that put it in front of `/settings` and `/admin` — so an account with no goals could not reach the screen that deletes it, and the admin account could not reach the back office at all. Found by asking the database which accounts the gate would divert rather than by reasoning about it. `(shell)` is exactly the surface where "you have no goals" is a real problem; everywhere else it is not.
+
+**"Never created a goal", not "has none now".** Goals have no DELETE grant — archiving and achieving both leave the row — so the `goals` table already answers the question, and it is true of exactly one population: accounts that have not been through the screen. "No *active* goal" would drag somebody who archived their last one back into onboarding.
+
+The five `/onboarding*` routes live outside `(app)` for the same reason as each other: each is a destination *of* a gate, and a screen inside that group would redirect to itself.
 
 ### Four enforcement points, in order
 
-**Sign-in always asks which Google account.** `signInWithOAuth` passes `prompt=select_account`, because Google skips its own chooser whenever exactly one account is signed in to the browser — so signing out of Solarity and signing back in silently returns you to the account you just left, and nothing in the app can undo that: the session is Google's, and `signOut` cannot reach it. One extra tap for someone with a single account; the difference between usable and not for anyone with two.
+**Sign-in always asks which Google account** — when Google is the path chosen, which since step 20 it need not be. `signInWithOAuth` passes `prompt=select_account`, because Google skips its own chooser whenever exactly one account is signed in to the browser — so signing out of Solarity and signing back in silently returns you to the account you just left, and nothing in the app can undo that: the session is Google's, and `signOut` cannot reach it. One extra tap for someone with a single account; the difference between usable and not for anyone with two.
 
 0. **`next.config.ts`** ships the fixed security headers on every path, including the static assets the proxy deliberately skips. See `security.md` section 3b.
 1. **`proxy.ts`** refreshes the auth session, mints the per-request CSP nonce, and redirects anonymous requests to sign-in. It uses `getUser()`, not `getSession()`: the latter reads the cookie without verifying it, which is not a basis for an authorization decision. It deliberately does **not** check onboarding: that would be a database round trip on every request, including prefetches and asset fetches.
@@ -439,7 +464,8 @@ Current set is a placeholder sun mark generated programmatically: correct dimens
 ### Other standing config
 
 - **Dependabot** on in GitHub (alerts + version updates).
-- **CI**: `.github/workflows/ci.yml` runs Vitest and `npm audit` on every PR.
-- **Not installed yet**: `pixi.js` and anything galaxy-specific. No reason to carry the weight before v3.
+- **CI**: `.github/workflows/ci.yml` runs typecheck, `eslint .`, `next build` **with no environment variables at all**, Vitest, and `npm audit` on every PR. The build is deliberately unconfigured: every page is server-rendered on demand and the Upstash client is built lazily, so a build that needs a secret is a bug worth failing on there rather than discovering on Vercel.
+- **`pixi.js` is installed**, and the note here said it never would be before v3. It arrived with step 21. **It is behind `dynamic(ssr: false)` in `components/galaxy-card.tsx` and `galaxy-preview.tsx`**, so the weight is not in the client bundle of any route until a galaxy actually renders — which was the concern the old note was really about.
+- **`pixi.js/unsafe-eval` is imported by `lib/galaxy/mount.ts` and must not be tidied away.** PixiJS generates shader plumbing with `new Function`, `script-src` is nonce-based in production, and without that side-effect import the renderer throws on init. It had never run in a production build until somebody read the rejection reason off a phone.
 
 ---

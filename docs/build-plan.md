@@ -16,7 +16,7 @@
 
 ## Verify
 
-Cheapest first. `lib/database.types.ts` is **current as of migration 111**, hand-patched as a delta since 106: four RPCs, five enum values and six columns for steps 18 to 20, then `goals.belt_visible` and the roster's fields for 107 to 109, then `users.sun_preset_id` and the roster's copy of it for 111. Migration 110 changed a function body only and needed no delta. Regenerate it properly after the next migration, preserving `graphql_public`, which the MCP generator omits.
+Cheapest first. `lib/database.types.ts` is **current as of migration 112**, hand-patched as a delta since 106: four RPCs, five enum values and six columns for steps 18 to 20, then `goals.belt_visible` and the roster's fields for 107 to 109, `users.sun_preset_id` and the roster's copy of it for 111, and the `digest_pushes` table for 112. Migration 110 changed a function body only and needed no delta. Regenerate it properly after the next migration, preserving `graphql_public`, which the MCP generator omits.
 
 ```
 rm -rf .next/dev
@@ -71,9 +71,11 @@ After that: `/admin` appears, a link shows up at the bottom of Settings, and fur
 
 ---
 
-## What is left: the manual pass
+## The manual pass ✅ complete
 
-**Everything on this list has failed in a browser while passing headless**, which is why the list exists at all. Rows 1 to 24 are run and written up in `history.md`, along with the six defects they found. **This is the remainder, and it is the whole of what stands before a deploy.** Every item needs a device or a dashboard; none of it is code.
+**Everything on this list has failed in a browser while passing headless**, which is why the list exists at all. **All of it is now run.** All thirty rows and the twelve re-checks are written up in `history.md`, along with the eight defects they found between them.
+
+**Nothing on it is outstanding.** C1 is done and the two items below it are notes rather than work.
 
 ### Getting the app onto the phone
 
@@ -89,13 +91,13 @@ After that: `/admin` appears, a link shows up at the bottom of Settings, and fur
 | No service worker | An http origin is not a secure context, so the PWA will not install and push will not register. **Rows A1 to A3 below need the installed app**, so those go through the deployed URL |
 | **Google sign-in bounces to production** | `signInWithGoogle` builds `redirectTo` from the request's `Origin`, which is correct — but **Supabase silently falls back to the Site URL when a `redirectTo` is not in its allowlist**, so the flow completes on the deployed origin instead of the phone. Not a bug and not fixable in code: an allowlist that trusted whatever the caller asked for would be an open redirect. **Sign in with email and password on the LAN instead** |
 
-### A. Re-verify the fixes from 4 September
+### A. The fixes from 4 September ✅ re-verified
 
-**Lettered rather than numbered because these are re-checks of rows already run, not new ground.** Most of the list is done; what is below is what remains.
+**Lettered rather than numbered because these are re-checks of rows already run, not new ground.** All twelve passed, two of them only after a second and third attempt.
 
 | | Check | Result |
 |---|---|---|
-| A1 | **Installed to the home screen**, expand the galaxy | ⬜ **Failed twice, and the third attempt changes the shape of the answer rather than the value.** `padding: env(...)` on `[data-viewhole][data-open]` did nothing; a `display-mode: standalone` floor under it did nothing either, and the theory behind it was wrong — the probe measured **62 / 0 / 34 / 0 standalone**, 0 in a tab, so the inset was always there. What the measurement rules out is the value, which leaves the rule not reaching the element. **So the frame is now full-bleed and only the two controls are inset**, applied by React and by a plain class, with no attribute selector left to fail. Check the Close button clears the Island and the camera bar clears the home indicator; the sky reaching the edges is intended |
+| A1 | **Installed to the home screen**, expand the galaxy | ✅ **on the third arrangement.** `padding: env(...)` on `[data-viewhole][data-open]` did nothing; a `display-mode: standalone` floor under it did nothing either, and its theory was wrong — the probe measured **62 / 0 / 34 / 0 standalone**, 0 in a tab, so the inset was always there. What that ruled out was the *value*, leaving the rule not reaching the element. **The frame is full-bleed now and only the two controls are inset**, applied by React and by a plain class, with no attribute selector left to fail. It is also the better picture: nothing in the canvas is a control, so a sky that reaches the edges loses nothing |
 | A1b | The camera bar's shape | ✅ `− ◎ +` over `← ↑ ↓ →`. It had wrapped into three ragged rows because a CSS rule referred to a *position* — the old five-button touch set had reset at the front — rather than to the button it meant |
 | A2 | Same, landscape | ✅ |
 | A3 | Same, then rotate while expanded | ✅ |
@@ -122,11 +124,11 @@ After that: `/admin` appears, a link shows up at the bottom of Settings, and fur
 | 29 | The landing page and `/support` at 375px | Deliberately plain, and never seen small |
 | 30 | `E2E_PROD=1 npm run test:e2e:ios` | The only pass that sees the CSP that ships. **It has already earned its place**: PixiJS needs `new Function`, the dev policy allows it and the shipped one does not, so the galaxy had never run in a production build. `dashboard.spec.ts` now asserts the galaxy renders, which turns that class of failure from silence into red |
 
-### C. Last, after the design pass
+### C. The code graph ✅ regenerated, and due again
 
 | | | |
 |---|---|---|
-| C1 | **Regenerate `graphify-out/`** | `graphify . update`, then `node scripts/graph-freshness.mjs` until it exits clean. **Deliberately last.** The graph is a cache of the codebase and the design pass is about to rewrite a large part of it, so regenerating now buys a snapshot that is stale by the end of the week |
+| C1 | **Regenerate `graphify-out/`** | ✅ 4 September. **Due again after the design pass**, which is about to rewrite a large part of what it indexes. **Commit first**, so nothing is indexed that git does not know about, then `graphify . update`, then `node scripts/graph-freshness.mjs` until it exits clean. Must be run on the machine graphify is installed on. Expect a CRLF warning: graphify writes both files with Windows endings and `.gitattributes` normalises them on the way in |
 
 ### The regression pass, before any deploy
 
@@ -136,9 +138,9 @@ After that: `/admin` appears, a link shows up at the bottom of Settings, and fur
 
 ## The galaxy ✅ built
 
-**Steps 21 to 27 are done and are written up in `history.md`** — the port, three migrations, both surfaces, the viewhole, the controls, a first goal at signup, and the lab that measures ten by ten on a device.
+**Steps 21 to 27 are done and are written up in `history.md`** — the port, five migrations, both surfaces, the viewhole, the controls, a first goal at signup with a sun you choose, and the lab that measures ten by ten on a device. **Run on hardware and fixed there**: 17ms at a hundred planets, and eight defects no headless test could have produced.
 
-What is left of it is **not code**. It is the manual pass above and the two dials nobody has lived with yet:
+What is left of it is **not code**, and not the manual pass either — that is done. It is the two dials nobody has lived with yet:
 
 | Dial | Where | What to weigh |
 |---|---|---|
@@ -260,27 +262,45 @@ Keep the posture **deny-by-default**: enumerate what is *public*, so a forgotten
 
 ### Before launch
 
-**Two things left, and neither is a feature.**
+**Nothing. Every numbered step is built, and the manual pass is run.**
 
-| | | |
-|---|---|---|
-| 1 | **One row of the manual pass** | A1 — the expanded galaxy's controls clearing the Island and the home indicator, installed to the home screen. Everything else on that list is run |
-| 2 | **`npx tsx scripts/backfill-sun-presets.ts`** | Migration 111's backfill. One-off, idempotent, and it only ever fills a blank — so it is safe to run again if a row fails. It calls `sunPresetIdForMember` rather than re-deriving the hash in SQL, which is the point of it being a script |
+**v1 functionality is complete.** A person can sign up, pick a username and a sun, leave onboarding with a goal, check it off with a note and a photo, invite a friend by name into a Circle, see who finished today, hear about it while the day is still going, keep a streak, read a five-day digest, retire or achieve a goal, report and block, and delete the account and everything in it. Both galaxies draw, on a phone, at 17ms a frame with a hundred planets.
 
-**Closed since this list was written**
+**What remains is not functionality.** It is the design pass, and one cache to regenerate after it.
+
+**Closed since this list was written**, kept because each one names what it cost
 
 - ~~`npm run build`~~ — **green, 3 September**, with `pixi.js` installed and the renderer behind a dynamic import.
 - ~~A green suite~~ — **green again, 4 September**, after the galaxy's touch fixes, migration 110 and the first-goal preview. The run before that had failed in three separate ways and every one was the test rather than the app: the terms gate was a new precondition `auth.setup.ts` did not meet; `getByLabel("Password", { exact: true })` could not match a field whose accessible name had absorbed its own hint; and `getByRole("alert")` was reading Next's empty dev-overlay node instead of the error on screen. All three are in `patterns.md`.
 - ~~The galaxy on a phone, rows 16 to 24~~ — **run 4 September.** Worst frame 17ms at 10 × 10, six defects found and fixed, one row skipped on purpose. Written up in `history.md`.
+- ~~The five auth screens and the twelve re-checks, rows 25 to 30 and A1 to A12~~ — **run 4 September.** Two more defects, both in the expanded galaxy on an installed phone: a camera bar wrapping into three rows, and controls under the Dynamic Island that took three arrangements to place.
+- ~~Leaked-password protection~~ — **declined, not deferred.** See below.
 - ~~Security headers~~ — step 12.
 - ~~`pushsubscriptionchange` handler~~ — step 10f. `sw.js` listens and `resubscribeIfPermitted` repairs a rotated endpoint without ever prompting.
 - ~~Wire rate limits into each new action~~ — **every limit in `lib/ratelimit.ts` now has a caller.** `searchUsers` and `inviteUser` were the last two.
 - ~~A custom domain~~ — never needed. `*.vercel.app` is accepted as a Google OAuth authorized domain.
 - ~~The first admin, by SQL~~ — done 31 Aug. The statement is kept at the top of this file because it is the only way to make another one from scratch.
 - ~~A device pass for avatars~~ — done 1 Sept on a real iPhone, rows 1–6. It needed no fixes.
-- ~~The legal review~~ — **accuracy and sufficiency both done, 31 Aug.** Six defects fixed, then the controller, reasons, rights, transfer and cookie sections added. What remains is **exposure**, which is not a writing task: "no guarantees" and "we can close your account" are the two clauses most often unenforceable as written, and a one-person operation with no entity is personally liable for whatever they fail to cover. That is a decision about forming a company, not a paragraph.
+- ~~The legal review~~ — **accuracy done 31 Aug and again 4 Sept; sufficiency done 31 Aug.** The second accuracy pass found that **step 20 had falsified both pages without either noticing**: they claimed Solarity sends no email while it was sending confirmation links, password resets and resends, and the privacy page described Google as the only way in while a password path existed. Seven corrections, listed in `history.md`, and `legal.spec.ts` now asserts the absence of the claim rather than the presence of a phrase. **Exposure is still open and is not a writing task** — see below.
 
 **The one standing risk, written down rather than fixed.** Every RPC in the app is reachable directly at `/rest/v1/rpc/` by anyone holding a session, so the rate limits in `lib/ratelimit.ts` bound what the *app* does rather than what a determined caller can. `search_users` is the one where that matters most, because it is the app's only directory. Its real defences are in the database: three characters minimum, escaped wildcards, ten rows, and blocks excluded.
+
+### Legal exposure — the part a lawyer answers, not a paragraph
+
+**Accuracy is a thing this repository can check and now does. Exposure is not.** What follows is the list to hand to a solicitor, written down so the conversation starts from specifics rather than "please review my terms".
+
+| Question | Why it is on the list |
+|---|---|
+| **Is there an entity?** | There is not. Everything below is downstream of that: a sole trader is personally liable for what the terms fail to cover, and no drafting changes it. This is the first question and the only one whose answer changes the others |
+| **The liability clause** | "No guarantees" and a total exclusion are the two clauses most often struck out as written, especially against consumers. What survives is usually a cap and a carve-out for things that cannot be excluded — death, personal injury, fraud. Worth knowing which half of the current wording is decorative |
+| **"We can close your account"** | An unqualified termination right is weak against a consumer. The usual fix is notice and a reason, both of which the product could actually give |
+| **Age: stated, never checked** | 18+ appears on sign-up, on the terms gate and on both pages, and nothing verifies it. That is the ordinary position at this size and it is a real gap if a minor signs up — the question is whether notice is enough here, and it depends where the users are |
+| **UK/EU users and the US transfer** | `DATA_REGION` is the United States and the pages disclose it. Whether disclosure alone is sufficient, or whether SCCs with the processors are needed, is exactly the question one person cannot answer from documentation |
+| **A named controller with no address** | GDPR wants a controller identifiable and contactable. A name and an email, with no postal address, is the usual position for an individual — and "usual" is not the same as "sufficient" |
+| **The 72-hour breach commitment** | Newly written on `/privacy`, 4 Sept. It is a promise one person keeps alone, and it is now published |
+| **Photos of people** | Check-in photos can contain faces, including other people's. Nothing in the product asks whether the subject consented, and biometric-adjacent processing is a category with sharper rules than the rest |
+
+**None of this blocks the design pass or a private beta with people you know.** It blocks opening it to strangers.
 
 **Leaked-password protection stays off. Decided, not pending.** It is a paid-plan toggle in the Supabase dashboard that checks new passwords against HaveIBeenPwned. Recorded as a decision rather than deleted, so it is not rediscovered as an oversight: what the app does have is Supabase's own length and complexity floor, and the far larger share of accounts arrive through Google, where no password exists here to leak. Revisit if password sign-up becomes the common path.
 
@@ -310,6 +330,7 @@ Turning Turnstile on, which is configuration in three dashboards and a decision 
 
 | | Step | Why |
 |---|---|---|
+| 0 | **Add Cloudflare to `PROCESSORS` and bump `PRIVACY_VERSION`, and deploy that first** | **The step that is easy to skip and is the one with a legal edge.** Turnstile is off today, so Cloudflare receives nothing and naming it would be wrong. The moment the toggle flips it receives an IP address and browser signals from every visitor to three auth screens — a processor, disclosed *before* it starts processing rather than after. `lib/legal.ts` is the only file to edit; `/privacy` renders the list |
 | 1 | **Deploy the current code first** | The CSP change ships with the build. Enabling before deploying breaks production exactly as it broke local on 1 Sept |
 | 2 | **`NEXT_PUBLIC_TURNSTILE_SITE_KEY` in Vercel**, then rebuild | `NEXT_PUBLIC_` values are inlined at build time. Present in `.env.local` is not present in production, and a missing key renders no widget and no token — the same error, a different cause |
 | 3 | **The secret key goes in Supabase**, not the app | Supabase verifies the token. **Nothing in this codebase reads `TURNSTILE_SECRET_KEY`**, so the copy in `.env.local` is inert. Authentication → Attack Protection → CAPTCHA, provider Turnstile, secret from the *same* widget as the site key. A mismatched pair fails verification in a way that reads like a token problem |
@@ -318,10 +339,8 @@ Turning Turnstile on, which is configuration in three dashboards and a decision 
 
 **And decide what happens to the six tests.** Either accept losing that coverage, or stand up a second Supabase project for the suite — which is the real fix and is a bigger piece of work than this one.
 
-### Digests stop being rows in `notifications`
+### ~~Digests stop being rows in `notifications`~~ ✅ built, migration 112
 
-**Why it is deferred rather than dismissed.** After step 11c a digest row exists only to carry a push: nothing renders it, and `read_at` never applies to it. The clean version is for `send-digest-push` to read `digest_snapshots` directly, leaving `notifications` to the four event types alone.
+**Done 4 September**, and it turned out smaller than the deferral estimated. The cost was described as "a rewrite of the sender's query and of how it tracks what it has already delivered", which was right, and the part that made it cheap was not foreseen: **`digest_pushes` cascades from `digest_snapshots`, so `run_retention_sweep` clears it without knowing it exists** and kept its signature and both counters.
 
-That would make the separation structural instead of a type filter, and would remove the standing risk that someone counts unread rows without excluding digests.
-
-**The cost** is a rewrite of the sender's query and of how it tracks what it has already delivered — `pushed_at` lives on the notification row, so `digest_snapshots` would need an equivalent, per member rather than per Circle. That is a bigger change than step 11 warranted.
+Written up in `history.md`. One thing it gained that was not the point: **the audience is resolved at delivery time now**, so somebody who joins overnight gets that day's digest and somebody who left stops receiving one. The old fan-out froze both at build time and could not have done either.

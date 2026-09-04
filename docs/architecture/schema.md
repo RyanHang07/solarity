@@ -37,6 +37,14 @@ Populated by the `on_auth_user_created` trigger off `auth.users`.
   **Two paths, and they are not interchangeable.** `sync_checkin_timezone` is the automatic one, called when the client notices you have travelled, and it is a no-op mid-day by design. `set_checkin_timezone` is the deliberate one, from settings, and it queues.
 
   Neither writes `checkin_timezone` during a day, because `private.checkin_date_for` derives today from that column and `now()` alone — it never reads `checkin_day_started_at`. Writing it directly re-dates the day in progress: check-ins already made sit under a date that is no longer today, and completion reads as nothing done. Migration 74.
+- `sun_preset_id` (nullable, CHECK against the six ids in `lib/galaxy/palettes.ts`): the sun colour chosen on the first-goal screen. Migration 111.
+
+  **`null` means "derive it from my id"**, which is what every account did before the column existed and what a new one does until it reaches the picker — `memberSun.ts` hashes the account id onto the same six presets, so a null renders a stable colour rather than a default one. Every existing row was backfilled with its derived value by `scripts/backfill-sun-presets.ts`, which calls that function rather than re-implementing the hash in SQL.
+
+  Returned by `circle_roster`, unmasked, for the same reason `avatar_url` is: a sun colour is not about a goal. Without that the Circle sky and the dashboard would draw the same person differently.
+- `terms_accepted_at`, `terms_accepted_version` (both nullable): written by `accept_terms` at `/onboarding/terms`. Migrations 105 and 106.
+
+  **The gate reads the date for presence and never compares the version**, so bumping `TERMS_VERSION` re-prompts nobody. That is correct record-keeping for a clarification — the row records the version actually agreed to — and it is not enough for a substantive change to the deal, which would need a re-prompt built.
 - `created_at`, `updated_at`
 
 **Renames**: once per 14 days, enforced by `complete_onboarding()`, which also writes a `username_history` row. `username_history` (`user_id`, `old_username`, `changed_at`) is a support/moderation trail, never surfaced.
@@ -61,6 +69,11 @@ User-owned, never group-owned. Goals stay constant across every Circle a user be
 **`date`, not `timestamptz`, since migration 84.** A goal deadline is a calendar date and never an instant. `<input type="date">` submits `YYYY-MM-DD`, which a `timestamptz` column stores as midnight **UTC** — so anyone west of UTC picked 1 September and read back 31 August. That is not fixable in the reader: it would leave every consumer to agree on which timezone to un-apply, and one of them getting it wrong is a date off by one. `date` has no timezone semantics, so the error class stops existing. Changed at zero rows, because `timestamptz -> date` casts in the session timezone and with data it would have been a silent decision about whose midnight counts.
 
 **Overdue means strictly before today**, matching the rule `/circles/[id]` states for a Circle's deadline: the deadline day itself is fully playable. `lib/goal-deadline.ts` holds it as pure functions, and "today" is always the check-in date from `current_checkin_date()` — never the browser's clock, or the two would disagree either side of the 2 AM boundary.
+- `belt_visible` (boolean, **rolled once at insert**): whether this goal's planet draws a ring. Migration 107, and the only stored cosmetic in the product.
+
+  **The default is `random() < 0.2`, which is volatile**, so the `alter` that added it evaluated per row rather than once — the rolls are genuinely per goal, including for every goal that already existed. That is the behaviour wanted here and it is worth knowing it was a property of the default rather than a decision the migration made explicitly.
+
+  Returned unmasked by `circle_roster` even for a hidden goal: it carries no meaning of its own and it is **a stable fingerprint**, so the same hidden goal is recognisably the same planet across days. Migration 109 records what that costs.
 - `achieved_at` (nullable, CHECK `<= now()`, **write-once**): the goal itself is done, distinct from a daily check-in
 - `archived_at` (nullable, CHECK `<= now()`): dropped rather than completed
 
@@ -211,13 +224,19 @@ Persists across every cycle and Circle.
 
 | Type | Written by | When |
 |---|---|---|
-| `digest` | `build_daily_digests()` | daily, one per member per Circle |
 | `kicked` | `handle_membership_removal` | on a genuine kick, never on leaving or account deletion |
 | `invite_accepted` | `join_circle()` | to every existing member when someone joins |
 | `group_locked_renewal` | `run_daily_rollover()` | to the owner, once, on the lock transition |
 | `deadline_changed` | `set_circle_deadline()` | to every member except whoever made the change |
+| `invited` | `invite_user_to_circle()` | step 18b, to one named person. **One unread per person per Circle**: a repeat is success rather than a second row |
+| `goal_achieved` | step 19 | to a Circle when a member achieves a goal |
+| `circle_first_finisher` | step 19 | to a Circle when the first member closes their day |
+| `last_one_left` | step 19 | to the one member the Circle is waiting on |
+| `circle_activity` | step 19 | **push-only.** Not in `TAB_NOTIFICATION_TYPES`, because it can arrive every hour and a badge that is never zero is a badge nobody reads |
 
-Every value has a writer. `cosmetic_unlocked` is deliberately absent until the galaxy ships: add the value in one migration, use it in the next.
+**`digest` is a fossil**, and the row that used to be here is the subject of migration 112. Nothing writes it, every row was deleted, and the enum value survives only because Postgres cannot drop one. See `digest_pushes` below.
+
+**`cosmetic_unlocked` was never added**, and the note that said it was "deliberately absent until the galaxy ships" outlived its own premise: the galaxy shipped and goal cosmetics were cut on the way. The rule it illustrated stands — add the value in one migration, use it in the next — but there is nothing waiting to use this one.
 
 **`admin_transfer_request` was dropped from this enum.** It implied transfer required the recipient's acceptance, but `transfer_ownership` completes immediately, and automatic succession already assigns ownership without consent when an owner deletes their account, so requiring consent on one path and not the other would have been inconsistent. Removing it meant rewriting the type, which Postgres can't avoid; doing it pre-launch with zero rows was as cheap as it will ever be.
 
@@ -236,7 +255,20 @@ Jobs fan out to every subscription for a user, covering multi-device installs.
 ### `digest_snapshots`
 - PK `(group_id, date)`, `summary` (jsonb, immutable snapshot), `created_at`
 
-**This is the record of a day; the notification row is only the envelope.** The day boxes on `/dashboard` read `summary` for the last five days — counts, group streak, and the per-member roll call — and `/circles/[id]?tab=overview` reads the same row for one Circle, so the two cannot disagree.
+**This is the record of a day, and since migration 112 it is the only one.** The day boxes on `/dashboard` read `summary` for the last five days — counts, group streak, and the per-member roll call — and `/circles/[id]?tab=overview` reads the same row for one Circle, so the two cannot disagree. `send-digest-push` reads it too, so there is no third copy addressed to anybody.
+
+### `digest_pushes`
+- PK `(group_id, date, user_id)`, `pushed_at`
+- FK `(group_id, date)` → `digest_snapshots` **`on delete cascade`**; `user_id` → `users` likewise
+- RLS on, **no policies and no grants**: only the sender's service key touches it
+
+**One row per member per digest, and it exists because a type filter is not a boundary.** Until migration 112 the delivery record was a `notifications` row of type `digest`, rendered nowhere since step 11c and excluded by three separate readers — the tab, the badge and mark-read — each of which had to remember. Every drift direction was its own silent bug.
+
+**The composite cascade is doing real work.** A delivery record for a digest that no longer exists is meaningless, so `run_retention_sweep` clears these for free and keeps its signature and both counters rather than growing a third.
+
+**Deny-all is not caution.** A client that could insert here could suppress its own digests, and nobody has a reason to read their own delivery receipts.
+
+**Who a digest is for is resolved at delivery**, not frozen when it is built. `build_daily_digests` writes one row per Circle-day and the sender reads live membership — so somebody who joins overnight gets that day's digest and somebody who left stops receiving one. The old per-member fan-out could do neither.
 
 `summary.members` carries `user_id`, `username`, `completed` and `streak`, **frozen at write time**. A rename does not relabel last Tuesday, which is the point: a digest is a record of how a day went, and on that day that was their name. Every reader parses it defensively — it is jsonb written by a scheduled job, so a shape change would otherwise blank a dashboard silently.
 

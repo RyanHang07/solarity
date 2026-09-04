@@ -13,10 +13,17 @@ export const metadata = {
 }
 
 /**
- * **Versioned by `TERMS_VERSION`, and nothing records acceptance.** Google
- * sign-in is the only way in and it never shows a checkbox, so there is no
- * moment at which anyone agrees to anything. Saying so here is more useful than
- * a sentence claiming consent that was never collected.
+ * **Versioned by `TERMS_VERSION`, and acceptance is recorded.** Migration 105
+ * added the columns, step 20c added `/onboarding/terms`, and `acceptTerms`
+ * writes the date and the version against the account. This comment claimed
+ * the opposite until 4 September — written when Google sign-in was the only way
+ * in and there was no checkbox anywhere — which made it the oldest untrue
+ * sentence about this page, sitting directly above the page.
+ *
+ * **What is still not built**, so nobody assumes it from the above: the gate
+ * checks that a date exists and never compares versions, so moving
+ * `TERMS_VERSION` re-prompts nobody. Fine for a clarification, not enough for a
+ * substantive change to the deal.
  *
  * Not legal advice; have it reviewed before real users.
  */
@@ -125,15 +132,19 @@ export default function TermsPage() {
         </p>
         <p className="opacity-70">
           {/*
-            This used to promise you would "be told with enough notice". There
-            is no mechanism: the app sends no email and has no announcement
-            surface, so the only place notice can appear is the site itself.
-            Better to say where to look than to promise a message that cannot
-            be sent.
+            **Twice wrong, in opposite directions.** It first promised you would
+            "be told with enough notice", which no mechanism could keep. That
+            was corrected to "sends you no email" — true when written, false
+            from step 20, which added confirmation and password-reset mail.
+
+            The distinction that survives both is the one worth stating: the app
+            can send *transactional* mail and has no announcement channel. So
+            the advice stands, and the reason for it is now accurate.
           */}
-          Solarity sends you no email, so it has no way to reach you off the
-          site. If that matters to you, export your data now and again rather
-          than relying on being warned.
+          The only email Solarity sends is about your own account — confirming
+          your address, resetting your password. There is no announcement list
+          and no way to be told about a change here, so if that matters to you,
+          export your data now and again rather than relying on being warned.
         </p>
       </PolicySection>
 

@@ -105,6 +105,24 @@ test("the privacy policy states what it must", async ({ page }) => {
   ).toHaveCount(0)
 
   /**
+   * **And no claim that Solarity sends no email**, which is the same defect
+   * from the other side and the one the 4 September audit actually found.
+   *
+   * The sentence was true when written and Google was the only way in. Step 20
+   * added confirmation links, password resets and a resend button, and neither
+   * policy page noticed — so a page written to avoid overstating its machinery
+   * spent a release *under*stating it, in a paragraph a reader would use to
+   * decide whether they could be contacted at all.
+   *
+   * Asserted as an absence because the accurate wording is a judgement and the
+   * inaccurate one is a fixed phrase. What must never appear is the claim.
+   */
+  await expect(
+    page.getByText(/(does not|doesn't|no way to) send.{0,12}email|sends you no email|sends no email/i),
+    "the page claims Solarity sends no email, and it sends three kinds",
+  ).toHaveCount(0)
+
+  /**
    * **The four sufficiency facts**, added on 31 Aug for the half of the review
    * a lawyer would ask about rather than the half the code answers.
    *

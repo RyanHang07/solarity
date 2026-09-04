@@ -1,0 +1,2196 @@
+{
+  "communities": {
+    "0": [
+      "app_actions_check_ins_checkin",
+      "app_actions_check_ins_undocheckin",
+      "app_actions_notifications_marknotificationsread",
+      "app_actions_today",
+      "app_actions_today_leavetoday",
+      "app_actions_today_marktodayseen",
+      "app_app_shell_dashboard_circles_page",
+      "app_app_shell_dashboard_circles_page_circlessectionpage",
+      "app_app_shell_dashboard_circles_page_metadata",
+      "app_app_shell_dashboard_circles_panel",
+      "app_app_shell_dashboard_circles_panel_circlerow",
+      "app_app_shell_dashboard_circles_panel_circlespanel",
+      "app_app_shell_dashboard_goals_page",
+      "app_app_shell_dashboard_goals_page_goalspage",
+      "app_app_shell_dashboard_goals_page_metadata",
+      "app_app_shell_dashboard_memberships",
+      "app_app_shell_dashboard_memberships_readmemberships",
+      "app_app_shell_dashboard_notifications_page",
+      "app_app_shell_dashboard_notifications_page_metadata",
+      "app_app_shell_dashboard_notifications_page_notificationssectionpage",
+      "app_app_shell_dashboard_notifications_panel",
+      "app_app_shell_dashboard_notifications_panel_circlelabel",
+      "app_app_shell_dashboard_notifications_panel_describe",
+      "app_app_shell_dashboard_notifications_panel_hreffor",
+      "app_app_shell_dashboard_notifications_panel_markread",
+      "app_app_shell_dashboard_notifications_panel_notificationrow",
+      "app_app_shell_dashboard_notifications_panel_notificationspanel",
+      "app_app_shell_dashboard_page",
+      "app_app_shell_dashboard_page_metadata",
+      "app_app_shell_dashboard_page_overviewpage",
+      "app_app_shell_dashboard_today_panel",
+      "app_app_shell_dashboard_today_panel_rowbutton",
+      "app_app_shell_dashboard_today_panel_todaypanel",
+      "app_app_shell_layout",
+      "app_app_shell_layout_shelllayout",
+      "app_app_shell_sections",
+      "app_app_shell_sections_activesection",
+      "app_app_shell_sections_badgekey",
+      "app_app_shell_sections_section",
+      "app_app_shell_sections_sections",
+      "app_app_shell_sections_test",
+      "app_app_shell_tab_bar",
+      "app_app_shell_tab_bar_tabbar",
+      "app_app_today_mark_seen",
+      "app_app_today_mark_seen_markseen",
+      "app_app_today_page",
+      "app_app_today_page_metadata",
+      "app_app_today_page_todaypage",
+      "app_app_today_streak_header",
+      "app_app_today_streak_header_formatday",
+      "app_app_today_streak_header_streakheader",
+      "lib_database_types",
+      "lib_database_types_compositetypes",
+      "lib_database_types_constants",
+      "lib_database_types_database",
+      "lib_database_types_databasewithoutinternals",
+      "lib_database_types_defaultschema",
+      "lib_database_types_enums",
+      "lib_database_types_json",
+      "lib_database_types_tables",
+      "lib_database_types_tablesinsert",
+      "lib_database_types_tablesupdate",
+      "lib_notification_types",
+      "lib_notification_types_notificationtype",
+      "lib_notification_types_tab_notification_types",
+      "lib_push_nudge",
+      "lib_push_nudge_pushnudgedismissed",
+      "lib_supabase_checkin_date",
+      "lib_supabase_checkin_date_getcheckindate",
+      "lib_supabase_today",
+      "lib_supabase_today_gettodaydata",
+      "lib_supabase_today_laststreak",
+      "lib_supabase_today_shiftdate",
+      "lib_today_gate",
+      "lib_today_gate_alreadyseen",
+      "lib_today_gate_hasunfinishedday",
+      "lib_today_gate_todaymode",
+      "lib_today_gate_writeseen",
+      "lib_today_shape",
+      "lib_today_shape_todaydata",
+      "lib_today_shape_todaygoal"
+    ],
+    "1": [
+      "app_actions_check_ins",
+      "app_actions_check_ins_attachcheckinphoto",
+      "app_actions_check_ins_removecheckinphoto",
+      "app_actions_settings_setavatar",
+      "app_app_settings_avatar_form",
+      "app_app_settings_avatar_form_avatarform",
+      "app_app_settings_avatar_form_avatarform_upload",
+      "app_app_settings_avatar_form_says",
+      "app_app_shell_dashboard_photo_button",
+      "app_app_shell_dashboard_photo_button_photobutton",
+      "app_app_shell_dashboard_photo_button_photobutton_remove",
+      "app_app_shell_dashboard_photo_button_photobutton_upload",
+      "app_app_shell_dashboard_photo_button_says",
+      "e2e_avatar_spec",
+      "e2e_avatar_spec_clearavatar",
+      "e2e_avatar_spec_email",
+      "e2e_avatar_spec_fixture",
+      "e2e_avatar_spec_naturalsize",
+      "e2e_avatar_spec_storedsize",
+      "e2e_avatar_spec_wide_fixture",
+      "lib_avatar",
+      "lib_avatar_avatar_bucket",
+      "lib_avatar_avatar_edge",
+      "lib_avatar_avatar_ext",
+      "lib_avatar_avatar_mime",
+      "lib_avatar_avatar_problem_unreadable",
+      "lib_avatar_avatar_quality",
+      "lib_avatar_avatar_url_ttl_seconds",
+      "lib_avatar_avatarkey",
+      "lib_avatar_decode",
+      "lib_avatar_max_avatar_bytes",
+      "lib_avatar_prepareavatar",
+      "lib_avatar_test",
+      "lib_photo_upload",
+      "lib_photo_upload_ascii",
+      "lib_photo_upload_imagekind",
+      "lib_photo_upload_inspect",
+      "lib_photo_upload_max_edge",
+      "lib_photo_upload_max_upload_bytes",
+      "lib_photo_upload_photo_bucket",
+      "lib_photo_upload_photo_ext",
+      "lib_photo_upload_photo_mime",
+      "lib_photo_upload_photokey",
+      "lib_photo_upload_photoproblem",
+      "lib_photo_upload_preparephoto",
+      "lib_photo_upload_quality",
+      "lib_photo_upload_sniff",
+      "lib_photo_upload_starts",
+      "lib_photo_upload_test",
+      "lib_photo_upload_test_buf",
+      "lib_photo_upload_test_bytes",
+      "lib_photo_upload_test_fileof",
+      "lib_photo_upload_test_headers",
+      "lib_photo_upload_test_text",
+      "lib_supabase_avatar_urls",
+      "lib_supabase_client",
+      "lib_supabase_client_createclient"
+    ],
+    "2": [
+      "e2e_admin_spec",
+      "e2e_admin_spec_admin",
+      "e2e_admin_spec_clearreports",
+      "e2e_admin_spec_joiner",
+      "e2e_admin_spec_owner",
+      "e2e_admin_spec_seedreport",
+      "e2e_admin_spec_setrole",
+      "e2e_dashboard_spec_ownerpage",
+      "e2e_db_admin",
+      "e2e_db_requireenv",
+      "e2e_delete_account_spec",
+      "e2e_delete_account_spec_email",
+      "e2e_gates_spec_freshpage",
+      "e2e_headers_spec",
+      "e2e_headers_spec_directive",
+      "e2e_headers_spec_owner",
+      "e2e_headers_spec_prod",
+      "e2e_install_spec",
+      "e2e_install_spec_fakeprompt",
+      "e2e_install_spec_ownerpage",
+      "e2e_install_spec_window",
+      "e2e_ios_spec",
+      "e2e_ios_spec_iphone",
+      "e2e_moderation_spec",
+      "e2e_moderation_spec_clearblocks",
+      "e2e_moderation_spec_clearreports",
+      "e2e_moderation_spec_joiner",
+      "e2e_moderation_spec_owner",
+      "e2e_moderation_spec_usernameof",
+      "e2e_profile_spec",
+      "e2e_profile_spec_joiner",
+      "e2e_profile_spec_owner",
+      "e2e_profile_spec_setstatsvisibility",
+      "e2e_profile_spec_statsvisibility",
+      "e2e_profile_spec_usernameof",
+      "e2e_push_spec",
+      "e2e_push_spec_signedin",
+      "e2e_push_spec_window",
+      "e2e_session",
+      "e2e_session_accountfor",
+      "e2e_session_cache",
+      "e2e_session_cookie",
+      "e2e_session_loadormint",
+      "e2e_session_mintstoragestate",
+      "e2e_session_storagestatefor"
+    ],
+    "3": [
+      "app_actions_check_ins_setnotesharing",
+      "app_app_circles_id_page",
+      "app_app_circles_id_page_circlepage",
+      "app_app_circles_id_page_digestsummary",
+      "app_app_circles_id_page_formatdeadline",
+      "app_app_circles_id_page_metadata",
+      "app_app_circles_id_page_overviewtab",
+      "app_app_circles_id_refresh_on_return",
+      "app_app_circles_id_refresh_on_return_min_gap_ms",
+      "app_app_circles_id_refresh_on_return_refreshonreturn",
+      "app_app_circles_id_refresh_on_return_refreshonreturn_onvisibilitychange",
+      "app_app_circles_id_today_roster",
+      "app_app_circles_id_today_roster_sharetoggle",
+      "app_app_circles_id_today_roster_todayroster",
+      "app_app_shell_dashboard_goals_archived_page",
+      "app_app_shell_dashboard_goals_archived_page_archivedgoalspage",
+      "app_app_shell_dashboard_goals_archived_page_metadata",
+      "app_app_shell_dashboard_goals_archived_page_on",
+      "app_app_shell_dashboard_goals_id_page",
+      "app_app_shell_dashboard_goals_id_page_goalrecordpage",
+      "app_app_shell_dashboard_goals_id_page_on",
+      "components_checkin_photo",
+      "components_checkin_photo_checkinphoto",
+      "lib_roster",
+      "lib_roster_formatprogress",
+      "lib_roster_rostergoal",
+      "lib_roster_rostermember",
+      "lib_supabase_circle_roster",
+      "lib_supabase_circle_roster_getcircleroster",
+      "lib_supabase_goal_record",
+      "lib_supabase_goal_record_getgoalrecord",
+      "lib_supabase_goal_record_getretiredgoals",
+      "lib_supabase_goal_record_record_page_size",
+      "lib_supabase_goal_record_recordday",
+      "lib_supabase_goal_record_retiredgoal",
+      "lib_supabase_photo_urls",
+      "lib_supabase_photo_urls_photo_url_ttl_seconds",
+      "lib_supabase_photo_urls_signphotos",
+      "lib_supabase_photo_urls_test",
+      "lib_supabase_photo_urls_test_fakeclient",
+      "lib_supabase_photo_urls_test_ok",
+      "lib_supabase_photo_urls_test_row"
+    ],
+    "4": [
+      "app_actions_push",
+      "app_actions_push_dismisspushnudgeaction",
+      "app_actions_push_pushsubscribed",
+      "app_actions_push_pushsubscriptioninput",
+      "app_actions_push_subscribepush",
+      "app_actions_push_unsubscribepush",
+      "app_onboarding_notifications_push_prompt",
+      "app_onboarding_notifications_push_prompt_nosubscribe",
+      "app_onboarding_notifications_push_prompt_pushprompt",
+      "app_onboarding_notifications_push_prompt_pushprompt_ask",
+      "app_onboarding_notifications_push_prompt_readstate",
+      "app_onboarding_notifications_push_prompt_serverstate",
+      "components_push_denied",
+      "components_push_denied_help",
+      "components_push_denied_pushdenied",
+      "components_push_nudge",
+      "components_push_nudge_pushnudge",
+      "components_push_toggle",
+      "components_push_toggle_pushtoggle",
+      "components_push_toggle_pushtoggle_refresh",
+      "components_push_toggle_pushtoggle_turnoff",
+      "components_push_toggle_pushtoggle_turnon",
+      "components_push_toggle_readtogglestate",
+      "components_push_toggle_togglestate",
+      "components_service_worker_registrar",
+      "components_service_worker_registrar_serviceworkerregistrar",
+      "lib_push_client",
+      "lib_push_client_disablepush",
+      "lib_push_client_enablepush",
+      "lib_push_client_permissionnow",
+      "lib_push_client_pushenabledhere",
+      "lib_push_client_pushherestate",
+      "lib_push_client_pushoutcome",
+      "lib_push_client_pushresult",
+      "lib_push_client_pushsupported",
+      "lib_push_client_readyworker",
+      "lib_push_client_resubscribeifpermitted",
+      "lib_push_client_samekey",
+      "lib_push_client_subscribeandrecord",
+      "lib_push_client_urlbase64touint8array",
+      "lib_push_nudge_dismisspushnudge"
+    ],
+    "5": [
+      "next",
+      "obscenity",
+      "package",
+      "package_dependencies",
+      "package_dependencies_browser_image_compression",
+      "package_dependencies_next",
+      "package_dependencies_obscenity",
+      "package_dependencies_react",
+      "package_dependencies_react_dom",
+      "package_dependencies_supabase_ssr",
+      "package_dependencies_supabase_supabase_js",
+      "package_dependencies_tanstack_react_query",
+      "package_dependencies_upstash_ratelimit",
+      "package_dependencies_upstash_redis",
+      "package_dependencies_web_push",
+      "package_dependencies_zustand",
+      "package_json_browser_image_compression",
+      "package_name",
+      "package_private",
+      "package_scripts",
+      "package_scripts_build",
+      "package_scripts_dev",
+      "package_scripts_lint",
+      "package_scripts_start",
+      "package_scripts_test",
+      "package_scripts_test_e2e",
+      "package_scripts_test_e2e_clean",
+      "package_scripts_test_e2e_ios",
+      "package_scripts_test_e2e_ui",
+      "package_scripts_test_run",
+      "package_scripts_typecheck",
+      "package_version",
+      "react",
+      "react_dom",
+      "supabase_ssr",
+      "supabase_supabase_js",
+      "tanstack_react_query",
+      "upstash_ratelimit",
+      "upstash_redis",
+      "web_push",
+      "zustand"
+    ],
+    "6": [
+      "app_auth_error_page",
+      "app_auth_error_page_autherrorpage",
+      "app_auth_error_page_known",
+      "app_auth_error_page_metadata",
+      "app_onboarding_terms_page",
+      "app_onboarding_terms_page_metadata",
+      "app_onboarding_terms_page_termsgatepage",
+      "app_privacy_page",
+      "app_privacy_page_metadata",
+      "app_privacy_page_privacypage",
+      "app_robots",
+      "app_robots_robots",
+      "app_sitemap",
+      "app_sitemap_sitemap",
+      "app_support_page",
+      "app_support_page_answer",
+      "app_support_page_metadata",
+      "app_support_page_supportpage",
+      "app_terms_page",
+      "app_terms_page_metadata",
+      "app_terms_page_termspage",
+      "components_policy_page",
+      "components_policy_page_policypage",
+      "components_policy_page_policysection",
+      "e2e_legal_spec",
+      "lib_legal",
+      "lib_legal_contact_email",
+      "lib_legal_controller_name",
+      "lib_legal_data_region",
+      "lib_legal_export_contents",
+      "lib_legal_formatversion",
+      "lib_legal_minimum_age",
+      "lib_legal_privacy_version",
+      "lib_legal_processors",
+      "lib_legal_response_days",
+      "lib_legal_retention_days",
+      "lib_legal_terms_version",
+      "lib_site_url",
+      "lib_site_url_siteurl"
+    ],
+    "7": [
+      "eslint",
+      "eslint_config_next",
+      "jsdom",
+      "nodemailer",
+      "package_devdependencies",
+      "package_devdependencies_eslint",
+      "package_devdependencies_eslint_config_next",
+      "package_devdependencies_jsdom",
+      "package_devdependencies_nodemailer",
+      "package_devdependencies_playwright_test",
+      "package_devdependencies_supabase",
+      "package_devdependencies_tailwindcss",
+      "package_devdependencies_tailwindcss_postcss",
+      "package_devdependencies_testing_library_jest_dom",
+      "package_devdependencies_testing_library_react",
+      "package_devdependencies_tsx",
+      "package_devdependencies_types_node",
+      "package_devdependencies_types_react",
+      "package_devdependencies_types_react_dom",
+      "package_devdependencies_types_web_push",
+      "package_devdependencies_typescript",
+      "package_devdependencies_vitest",
+      "playwright_test",
+      "supabase",
+      "tailwindcss",
+      "tailwindcss_postcss",
+      "testing_library_jest_dom",
+      "testing_library_react",
+      "tsx",
+      "types_node",
+      "types_react",
+      "types_react_dom",
+      "types_web_push",
+      "typescript",
+      "vitest"
+    ],
+    "8": [
+      "e2e_dashboard_spec",
+      "e2e_db",
+      "e2e_db_checkindatefor",
+      "e2e_db_checkintimezone",
+      "e2e_db_clearratelimits",
+      "e2e_db_daysback",
+      "e2e_db_deletebypattern",
+      "e2e_db_deletedigests",
+      "e2e_db_deletenotifications",
+      "e2e_db_forgetparked",
+      "e2e_db_insertnotification",
+      "e2e_db_markunread",
+      "e2e_db_parkedpath",
+      "e2e_db_readparked",
+      "e2e_db_rememberparked",
+      "e2e_db_restoreparkedgoals",
+      "e2e_db_seeddigests",
+      "e2e_db_sessioncache",
+      "e2e_db_setcheckintimezone",
+      "e2e_db_settodayscreenmode",
+      "e2e_db_todayscreenmode",
+      "e2e_db_unreadnotificationids",
+      "e2e_db_unreadtabnotificationids",
+      "e2e_db_writeparked",
+      "e2e_digests_spec",
+      "e2e_digests_spec_badgecount",
+      "e2e_digests_spec_owner",
+      "e2e_digests_spec_seededcircle",
+      "e2e_env",
+      "e2e_env_loadenvlocal",
+      "e2e_rate_limit_spec",
+      "playwright_config"
+    ],
+    "9": [
+      "app_api_csp_report_route",
+      "app_api_csp_report_route_get",
+      "app_api_csp_report_route_nocontent",
+      "app_api_csp_report_route_post",
+      "app_api_csp_report_route_runtime",
+      "app_join_token_page",
+      "app_join_token_page_dead",
+      "app_join_token_page_explain",
+      "app_join_token_page_joinpage",
+      "app_join_token_page_metadata",
+      "lib_csp_report",
+      "lib_csp_report_cspviolation",
+      "lib_csp_report_isrecord",
+      "lib_csp_report_normalise",
+      "lib_csp_report_num",
+      "lib_csp_report_parsecspreport",
+      "lib_csp_report_str",
+      "lib_csp_report_test",
+      "lib_csp_report_test_report_to_body",
+      "lib_csp_report_test_report_uri_body",
+      "lib_ratelimit_ratelimiterror",
+      "lib_ratelimit_ratelimiterror_constructor",
+      "lib_request_identity",
+      "lib_request_identity_clientip",
+      "lib_request_identity_invitetokenkey",
+      "lib_supabase_circle_preview",
+      "lib_supabase_circle_preview_circlepreview",
+      "lib_supabase_circle_preview_getcirclepreview",
+      "lib_supabase_circle_preview_getcirclepreviewmembers",
+      "lib_supabase_circle_preview_previewmember"
+    ],
+    "10": [
+      "ref_dom",
+      "ref_dom_iterable",
+      "ref_esnext",
+      "ref_mts",
+      "ref_next_dev_types_ts",
+      "ref_next_env_d_ts",
+      "ref_next_types_ts",
+      "ref_node_modules",
+      "ref_supabase_functions",
+      "ref_ts",
+      "ref_tsx",
+      "tsconfig",
+      "tsconfig_compileroptions",
+      "tsconfig_compileroptions_allowjs",
+      "tsconfig_compileroptions_esmoduleinterop",
+      "tsconfig_compileroptions_incremental",
+      "tsconfig_compileroptions_isolatedmodules",
+      "tsconfig_compileroptions_jsx",
+      "tsconfig_compileroptions_lib",
+      "tsconfig_compileroptions_module",
+      "tsconfig_compileroptions_moduleresolution",
+      "tsconfig_compileroptions_noemit",
+      "tsconfig_compileroptions_paths",
+      "tsconfig_compileroptions_plugins",
+      "tsconfig_compileroptions_resolvejsonmodule",
+      "tsconfig_compileroptions_skiplibcheck",
+      "tsconfig_compileroptions_strict",
+      "tsconfig_compileroptions_target",
+      "tsconfig_exclude",
+      "tsconfig_include"
+    ],
+    "11": [
+      "e2e_boundaries_spec",
+      "e2e_boundaries_spec_circlewithlink",
+      "e2e_boundaries_spec_clientfor",
+      "e2e_boundaries_spec_withtempgoal",
+      "e2e_circle_activity_spec",
+      "e2e_circle_activity_spec_checkin",
+      "e2e_circle_activity_spec_circleoftwo",
+      "e2e_circle_activity_spec_clearintraday",
+      "e2e_circle_activity_spec_intraday",
+      "e2e_circle_activity_spec_joiner",
+      "e2e_circle_activity_spec_owner",
+      "e2e_circle_activity_spec_rowsfor",
+      "e2e_db_assertok",
+      "e2e_db_circlename",
+      "e2e_db_ensureunfinishedday",
+      "e2e_db_freegoalslots",
+      "e2e_db_mintsession",
+      "e2e_db_restoregoalslots",
+      "e2e_db_sessionfor",
+      "e2e_masking_spec",
+      "e2e_masking_spec_clientfor",
+      "e2e_photos_spec",
+      "e2e_photos_spec_entryidfor",
+      "e2e_photos_spec_fixture",
+      "e2e_photos_spec_goalasseenby",
+      "e2e_photos_spec_joiner",
+      "e2e_photos_spec_openrosterrow",
+      "e2e_photos_spec_owner"
+    ],
+    "12": [
+      "app_actions_moderation_blockedaccounts",
+      "app_actions_settings",
+      "app_actions_settings_exportuserdata",
+      "app_actions_settings_modes",
+      "app_actions_settings_pendingtimezone",
+      "app_actions_settings_todaymode",
+      "app_actions_settings_updatenotificationprefs",
+      "app_actions_settings_updatepushshowscirclename",
+      "app_actions_settings_updatestatsvisibility",
+      "app_actions_settings_updatetimezone",
+      "app_actions_settings_updatetodayscreenmode",
+      "app_app_settings_export_route",
+      "app_app_settings_export_route_get",
+      "app_app_settings_page",
+      "app_app_settings_page_metadata",
+      "app_app_settings_page_settingspage",
+      "app_app_settings_settings_forms",
+      "app_app_settings_settings_forms_modes",
+      "app_app_settings_settings_forms_nosubscribe",
+      "app_app_settings_settings_forms_notificationprefsform",
+      "app_app_settings_settings_forms_pushnameform",
+      "app_app_settings_settings_forms_result",
+      "app_app_settings_settings_forms_statsvisibilityform",
+      "app_app_settings_settings_forms_submit",
+      "app_app_settings_settings_forms_timezoneform",
+      "app_app_settings_settings_forms_todayscreenform",
+      "app_app_settings_settings_forms_usernameform"
+    ],
+    "13": [
+      "app_actions_admin",
+      "app_actions_admin_amiadmin",
+      "app_actions_admin_listadmins",
+      "app_actions_admin_reportdetail",
+      "app_actions_admin_reportqueue",
+      "app_actions_admin_reportstatus",
+      "app_actions_admin_resolvereport",
+      "app_actions_admin_setrole",
+      "app_app_admin_layout",
+      "app_app_admin_layout_adminlayout",
+      "app_app_admin_layout_metadata",
+      "app_app_admin_page",
+      "app_app_admin_page_adminreportspage",
+      "app_app_admin_page_says",
+      "app_app_admin_page_tabs",
+      "app_app_admin_people_page",
+      "app_app_admin_people_page_adminpeoplepage",
+      "app_app_admin_people_role_form",
+      "app_app_admin_people_role_form_roleform",
+      "app_app_admin_people_role_form_submit",
+      "app_app_admin_reports_id_page",
+      "app_app_admin_reports_id_page_adminreportpage",
+      "app_app_admin_reports_id_page_says",
+      "app_app_admin_reports_id_resolve_form",
+      "app_app_admin_reports_id_resolve_form_resolveform",
+      "app_app_admin_reports_id_resolve_form_submit"
+    ],
+    "14": [
+      "app_actions_auth",
+      "app_actions_auth_resendconfirmation",
+      "app_actions_auth_signinwithgoogle",
+      "app_actions_auth_signout",
+      "app_actions_auth_signupwithpassword",
+      "app_actions_auth_updatepassword",
+      "app_auth_check_email_page",
+      "app_auth_check_email_page_checkemailpage",
+      "app_auth_check_email_page_metadata",
+      "app_auth_check_email_resend_form",
+      "app_auth_check_email_resend_form_resendform",
+      "app_auth_check_email_resend_form_submit",
+      "app_auth_reset_password_reset_form",
+      "app_auth_reset_password_reset_form_resetform",
+      "app_auth_reset_password_reset_form_submit",
+      "app_auth_sign_up_page",
+      "app_auth_sign_up_page_metadata",
+      "app_auth_sign_up_page_signuppage",
+      "app_auth_sign_up_sign_up_form",
+      "app_auth_sign_up_sign_up_form_signupform",
+      "app_auth_sign_up_sign_up_form_submit",
+      "components_password_fields",
+      "components_password_fields_passwordfields",
+      "lib_password",
+      "lib_password_password_hint",
+      "lib_password_passwordproblem"
+    ],
+    "15": [
+      "app_actions_circles_archivecircle",
+      "app_actions_invites",
+      "app_actions_invites_founduser",
+      "app_actions_invites_generateinvitelink",
+      "app_actions_invites_inviteuser",
+      "app_actions_invites_revokeinvitelink",
+      "app_actions_invites_searchusers",
+      "app_app_circles_id_settings_archive_panel",
+      "app_app_circles_id_settings_archive_panel_archivepanel",
+      "app_app_circles_id_settings_archive_panel_submit",
+      "app_app_circles_id_settings_invite_panel",
+      "app_app_circles_id_settings_invite_panel_formatexpiry",
+      "app_app_circles_id_settings_invite_panel_invitepanel",
+      "app_app_circles_id_settings_invite_panel_invitepanel_copy",
+      "app_app_circles_id_settings_invite_panel_nosubscribe",
+      "app_app_circles_id_settings_invite_panel_readorigin",
+      "app_app_circles_id_settings_invite_panel_serverorigin",
+      "app_app_circles_id_settings_invite_panel_submit",
+      "app_app_circles_id_settings_invite_person_panel",
+      "app_app_circles_id_settings_invite_person_panel_invitepersonpanel",
+      "app_app_circles_id_settings_invite_person_panel_invitepersonpanel_invite",
+      "app_app_circles_id_settings_page",
+      "app_app_circles_id_settings_page_circlesettingspage",
+      "app_app_circles_id_settings_page_metadata",
+      "lib_supabase_avatar_urls_signavatars"
+    ],
+    "16": [
+      "app_actions_profile",
+      "app_actions_profile_profile",
+      "app_actions_profile_profilebyusername",
+      "app_actions_settings_signedavatarurl",
+      "app_app_layout",
+      "app_app_layout_applayout",
+      "app_app_shell_profile_page",
+      "app_app_shell_profile_page_metadata",
+      "app_app_shell_profile_page_ownprofilepage",
+      "app_app_shell_profile_username_page",
+      "app_app_shell_profile_username_page_generatemetadata",
+      "app_app_shell_profile_username_page_publicprofilepage",
+      "app_app_shell_profile_view",
+      "app_app_shell_profile_view_profileview",
+      "app_app_shell_profile_view_stat",
+      "app_onboarding_install_page",
+      "app_onboarding_install_page_installpage",
+      "app_onboarding_install_page_metadata",
+      "app_onboarding_notifications_page",
+      "app_onboarding_notifications_page_metadata",
+      "app_onboarding_notifications_page_notificationspage",
+      "components_avatar",
+      "components_avatar_avatar",
+      "lib_supabase_server_createclient"
+    ],
+    "17": [
+      "app_app_shell_dashboard_digest_panel",
+      "app_app_shell_dashboard_digest_panel_circleline",
+      "app_app_shell_dashboard_digest_panel_digestpanel",
+      "app_example_digest",
+      "app_example_digest_example",
+      "app_example_digest_exampledigest",
+      "lib_digest_days",
+      "lib_digest_days_adddays",
+      "lib_digest_days_days_shown",
+      "lib_digest_days_digestday",
+      "lib_digest_days_digestsnapshot",
+      "lib_digest_days_formatday",
+      "lib_digest_days_groupbyday",
+      "lib_digest_days_ordercircles",
+      "lib_digest_days_rosterentry",
+      "lib_digest_days_streakdelta",
+      "lib_digest_days_test",
+      "lib_digest_days_test_snap",
+      "lib_supabase_digests",
+      "lib_supabase_digests_getdigestdays",
+      "lib_supabase_digests_num",
+      "lib_supabase_digests_readroster"
+    ],
+    "18": [
+      "app_actions_moderation",
+      "app_actions_moderation_blockuser",
+      "app_actions_moderation_referenceisvalid",
+      "app_actions_moderation_reportable",
+      "app_actions_moderation_reportcontent",
+      "app_actions_moderation_reporttype",
+      "app_actions_moderation_revalidateafterblockchange",
+      "app_actions_moderation_unblockuser",
+      "app_app_circles_id_report_checkin",
+      "app_app_circles_id_report_checkin_reportcheckin",
+      "app_app_circles_id_report_checkin_submit",
+      "app_app_settings_blocked_list",
+      "app_app_settings_blocked_list_blockedlist",
+      "app_app_settings_blocked_list_unblock",
+      "app_app_shell_profile_username_profile_actions",
+      "app_app_shell_profile_username_profile_actions_profileactions",
+      "app_app_shell_profile_username_profile_actions_submit",
+      "lib_report_reference",
+      "lib_report_reference_checkinreference",
+      "lib_report_reference_parsecheckinreference",
+      "lib_report_reference_test"
+    ],
+    "19": [
+      "app_actions_join",
+      "app_actions_join_dead_link",
+      "app_actions_join_joincircle",
+      "app_actions_notifications",
+      "app_actions_streak_decision",
+      "app_actions_streak_decision_resolvestreakdecision",
+      "app_app_circles_id_streak_decision",
+      "app_app_circles_id_streak_decision_list",
+      "app_app_circles_id_streak_decision_streakdecision",
+      "app_app_circles_id_streak_decision_submit",
+      "app_join_token_join_button",
+      "app_join_token_join_button_joinbutton",
+      "app_join_token_join_button_submit",
+      "lib_errors",
+      "lib_errors_actionresult",
+      "lib_errors_by_hint",
+      "lib_errors_test",
+      "lib_errors_test_hints_applied_dynamically",
+      "lib_errors_test_hintsinmigrations",
+      "lib_errors_test_retired_hints"
+    ],
+    "20": [
+      "app_actions_circles",
+      "app_actions_circles_createcircle",
+      "app_actions_onboarding",
+      "app_actions_onboarding_completeonboarding",
+      "app_actions_settings_updateusername",
+      "app_app_shell_dashboard_create_circle_form",
+      "app_app_shell_dashboard_create_circle_form_createcircleform",
+      "app_app_shell_dashboard_create_circle_form_submit",
+      "lib_profanity",
+      "lib_profanity_containsprofanity",
+      "lib_profanity_matcher",
+      "lib_ratelimit",
+      "lib_ratelimit_enforce",
+      "lib_ratelimit_limiter",
+      "lib_ratelimit_limiters",
+      "lib_ratelimit_limitname",
+      "lib_ratelimit_limits",
+      "lib_ratelimit_window",
+      "lib_supabase_server_createadminclient"
+    ],
+    "21": [
+      "lib_security_headers",
+      "lib_security_headers_contentsecuritypolicy",
+      "lib_security_headers_csp_report_group",
+      "lib_security_headers_csp_report_path",
+      "lib_security_headers_fixed_headers",
+      "lib_security_headers_originof",
+      "lib_security_headers_reportingendpoints",
+      "lib_security_headers_test",
+      "lib_security_headers_test_directive",
+      "lib_security_headers_test_policy",
+      "lib_supabase_proxy",
+      "lib_supabase_proxy_public_prefixes",
+      "lib_supabase_proxy_updatesession",
+      "lib_supabase_proxy_withpolicy",
+      "next_config",
+      "next_config_nextconfig",
+      "proxy",
+      "proxy_config",
+      "proxy_proxy"
+    ],
+    "22": [
+      "app_layout",
+      "app_layout_geistmono",
+      "app_layout_geistsans",
+      "app_layout_metadata",
+      "app_layout_rootlayout",
+      "app_layout_viewport",
+      "app_onboarding_install_install_nudge",
+      "app_onboarding_install_install_nudge_branch",
+      "app_onboarding_install_install_nudge_installnudge",
+      "app_onboarding_install_install_nudge_installnudge_install",
+      "lib_install_prompt",
+      "lib_install_prompt_install_prompt_key",
+      "lib_install_prompt_install_prompt_script",
+      "lib_install_prompt_installable_event",
+      "lib_install_prompt_installpromptevent",
+      "lib_install_prompt_isios",
+      "lib_install_prompt_isstandalone",
+      "lib_install_prompt_window"
+    ],
+    "23": [
+      "e2e_db_createcircleviaapi",
+      "e2e_db_deletee2ecircles",
+      "e2e_db_findcirclebyname",
+      "e2e_db_invitetokenfor",
+      "e2e_db_setgroupstreak",
+      "e2e_diagnose",
+      "e2e_diagnose_diagnose",
+      "e2e_invite_spec",
+      "e2e_invite_spec_createcircleintheui",
+      "e2e_invite_spec_generatelink",
+      "e2e_invite_spec_opensettings",
+      "e2e_invite_spec_pages",
+      "e2e_roster_spec",
+      "e2e_roster_spec_circlewithgoals",
+      "e2e_roster_spec_cleanup",
+      "e2e_roster_spec_pages",
+      "e2e_streak_decision_spec",
+      "e2e_streak_decision_spec_circleonastreakwithajoiner"
+    ],
+    "24": [
+      "e2e_auth_setup",
+      "e2e_auth_setup_accounts",
+      "e2e_auth_setup_sessioncookiesfor",
+      "e2e_auth_state",
+      "e2e_auth_state_auth_dir",
+      "e2e_auth_state_e2eaccount",
+      "e2e_auth_state_statepath",
+      "e2e_db_useridbyemail",
+      "e2e_global_teardown",
+      "e2e_global_teardown_globalteardown",
+      "e2e_saved_modes",
+      "e2e_saved_modes_clearsavedmodes",
+      "e2e_saved_modes_modespath",
+      "e2e_saved_modes_readsavedmodes",
+      "e2e_saved_modes_savemodes",
+      "e2e_saved_modes_todaymode"
+    ],
+    "25": [
+      "app_actions_goals",
+      "app_actions_goals_achievegoal",
+      "app_actions_goals_archivegoal",
+      "app_actions_goals_creategoal",
+      "app_actions_goals_setcirclevisibility",
+      "app_actions_goals_setgoaldeadline",
+      "app_actions_goals_sethiddeneverywhere",
+      "app_app_shell_dashboard_goals_panel",
+      "app_app_shell_dashboard_goals_panel_category",
+      "app_app_shell_dashboard_goals_panel_circle",
+      "app_app_shell_dashboard_goals_panel_goal",
+      "app_app_shell_dashboard_goals_panel_goalspanel",
+      "app_app_shell_dashboard_goals_panel_submit",
+      "app_app_shell_dashboard_goals_panel_visibility",
+      "lib_errors_tomessage"
+    ],
+    "26": [
+      "public_trg_audit_invite_toggle",
+      "public_trg_audit_role_change",
+      "supabase_migrations_20260811045639_51_close_unwritten_state_gaps",
+      "supabase_migrations_20260811045639_51_close_unwritten_state_gaps_group_members_audit_role_change",
+      "supabase_migrations_20260811045639_51_close_unwritten_state_gaps_invite_links_audit_toggle",
+      "supabase_migrations_20260811045639_51_close_unwritten_state_gaps_public_handle_membership_removal",
+      "supabase_migrations_20260811045639_51_close_unwritten_state_gaps_public_join_circle",
+      "supabase_migrations_20260811045639_51_close_unwritten_state_gaps_public_resolve_streak_decision",
+      "supabase_migrations_20260811045639_51_close_unwritten_state_gaps_public_trg_audit_invite_toggle",
+      "supabase_migrations_20260811045639_51_close_unwritten_state_gaps_public_trg_audit_role_change",
+      "supabase_migrations_20260811045639_51_close_unwritten_state_gaps_sql_public_group_members",
+      "supabase_migrations_20260811045639_51_close_unwritten_state_gaps_sql_public_groups",
+      "supabase_migrations_20260811045639_51_close_unwritten_state_gaps_sql_public_invite_links",
+      "supabase_migrations_20260811045639_51_close_unwritten_state_gaps_sql_public_user_blocks",
+      "supabase_migrations_20260811045639_51_close_unwritten_state_gaps_sql_public_users"
+    ],
+    "27": [
+      "public_trg_goal_achieved_counter",
+      "public_trg_goal_completion_recount",
+      "public_trg_progress_entry_completion",
+      "supabase_migrations_20260810202140_34_live_daily_completion_triggers",
+      "supabase_migrations_20260810202140_34_live_daily_completion_triggers_goals_count_achievement",
+      "supabase_migrations_20260810202140_34_live_daily_completion_triggers_goals_maintain_completion",
+      "supabase_migrations_20260810202140_34_live_daily_completion_triggers_private_checkin_date_for",
+      "supabase_migrations_20260810202140_34_live_daily_completion_triggers_private_recompute_daily_completion",
+      "supabase_migrations_20260810202140_34_live_daily_completion_triggers_progress_entries_maintain_completion",
+      "supabase_migrations_20260810202140_34_live_daily_completion_triggers_public_trg_goal_achieved_counter",
+      "supabase_migrations_20260810202140_34_live_daily_completion_triggers_public_trg_goal_completion_recount",
+      "supabase_migrations_20260810202140_34_live_daily_completion_triggers_public_trg_progress_entry_completion",
+      "supabase_migrations_20260810202140_34_live_daily_completion_triggers_sql_public_goals",
+      "supabase_migrations_20260810202140_34_live_daily_completion_triggers_sql_public_progress_entries",
+      "supabase_migrations_20260810202140_34_live_daily_completion_triggers_sql_public_users"
+    ],
+    "28": [
+      "scripts_graph_freshness",
+      "scripts_graph_freshness_candidates",
+      "scripts_graph_freshness_ext",
+      "scripts_graph_freshness_git",
+      "scripts_graph_freshness_indexed",
+      "scripts_graph_freshness_manifest",
+      "scripts_graph_freshness_missingtracked",
+      "scripts_graph_freshness_missinguntracked",
+      "scripts_graph_freshness_modified",
+      "scripts_graph_freshness_never_indexed",
+      "scripts_graph_freshness_orphaned",
+      "scripts_graph_freshness_report",
+      "scripts_graph_freshness_staleingraph",
+      "scripts_graph_freshness_tracked",
+      "scripts_graph_freshness_untracked"
+    ],
+    "29": [
+      "app_auth_forgot_password_page",
+      "app_auth_forgot_password_page_forgotpasswordpage",
+      "app_auth_forgot_password_page_metadata",
+      "app_auth_reset_password_page",
+      "app_auth_reset_password_page_metadata",
+      "app_auth_reset_password_page_resetpasswordpage",
+      "app_page",
+      "app_page_home",
+      "app_page_metadata",
+      "components_legal_footer",
+      "components_legal_footer_legalfooter",
+      "components_notice",
+      "components_notice_messages",
+      "components_notice_notice"
+    ],
+    "30": [
+      "supabase_migrations_20260810042820_13_stats_and_streak_tables",
+      "supabase_migrations_20260810042820_13_stats_and_streak_tables_gmcs_set_updated_at",
+      "supabase_migrations_20260810042820_13_stats_and_streak_tables_group_cycle_stats_set_updated_at",
+      "supabase_migrations_20260810042820_13_stats_and_streak_tables_public_group_cycle_stats",
+      "supabase_migrations_20260810042820_13_stats_and_streak_tables_public_group_daily_completion",
+      "supabase_migrations_20260810042820_13_stats_and_streak_tables_public_group_member_category_stats",
+      "supabase_migrations_20260810042820_13_stats_and_streak_tables_public_handle_new_user",
+      "supabase_migrations_20260810042820_13_stats_and_streak_tables_public_user_lifetime_stats",
+      "supabase_migrations_20260810042820_13_stats_and_streak_tables_sql_public_goal_categories",
+      "supabase_migrations_20260810042820_13_stats_and_streak_tables_sql_public_group_cycles",
+      "supabase_migrations_20260810042820_13_stats_and_streak_tables_sql_public_groups",
+      "supabase_migrations_20260810042820_13_stats_and_streak_tables_sql_public_set_updated_at",
+      "supabase_migrations_20260810042820_13_stats_and_streak_tables_sql_public_users",
+      "supabase_migrations_20260810042820_13_stats_and_streak_tables_user_lifetime_stats_set_updated_at"
+    ],
+    "31": [
+      "app_auth_callback_route",
+      "app_auth_callback_route_get",
+      "app_auth_confirm_route",
+      "app_auth_confirm_route_get",
+      "app_auth_sign_in_page",
+      "app_auth_sign_in_page_metadata",
+      "app_auth_sign_in_page_signinpage",
+      "app_onboarding_page",
+      "app_onboarding_page_metadata",
+      "app_onboarding_page_onboardingpage",
+      "lib_safe_redirect",
+      "lib_safe_redirect_saferedirect",
+      "lib_supabase_server"
+    ],
+    "32": [
+      "supabase_migrations_20260810204659_40_account_lifecycle_helpers",
+      "supabase_migrations_20260810204659_40_account_lifecycle_helpers_private_list_expired_photos",
+      "supabase_migrations_20260810204659_40_account_lifecycle_helpers_private_mark_photos_purged",
+      "supabase_migrations_20260810204659_40_account_lifecycle_helpers_private_scrub_and_list_user_media",
+      "supabase_migrations_20260810204659_40_account_lifecycle_helpers_public_export_user_data",
+      "supabase_migrations_20260810204659_40_account_lifecycle_helpers_sql_public_daily_completion",
+      "supabase_migrations_20260810204659_40_account_lifecycle_helpers_sql_public_goal_categories",
+      "supabase_migrations_20260810204659_40_account_lifecycle_helpers_sql_public_goals",
+      "supabase_migrations_20260810204659_40_account_lifecycle_helpers_sql_public_group_members",
+      "supabase_migrations_20260810204659_40_account_lifecycle_helpers_sql_public_groups",
+      "supabase_migrations_20260810204659_40_account_lifecycle_helpers_sql_public_progress_entries",
+      "supabase_migrations_20260810204659_40_account_lifecycle_helpers_sql_public_user_lifetime_stats",
+      "supabase_migrations_20260810204659_40_account_lifecycle_helpers_sql_public_users"
+    ],
+    "33": [
+      "public_trg_first_checkin_notify",
+      "supabase_migrations_20260901180618_103_circle_activity_notifications",
+      "supabase_migrations_20260901180618_103_circle_activity_notifications_private_eligible_peers",
+      "supabase_migrations_20260901180618_103_circle_activity_notifications_progress_entries_notify_first",
+      "supabase_migrations_20260901180618_103_circle_activity_notifications_public_trg_day_completed_notify",
+      "supabase_migrations_20260901180618_103_circle_activity_notifications_public_trg_first_checkin_notify",
+      "supabase_migrations_20260901180618_103_circle_activity_notifications_public_trg_goal_achieved_notify",
+      "supabase_migrations_20260901180618_103_circle_activity_notifications_sql_public_group_members",
+      "supabase_migrations_20260901180618_103_circle_activity_notifications_sql_public_groups",
+      "supabase_migrations_20260901180618_103_circle_activity_notifications_sql_public_progress_entries",
+      "supabase_migrations_20260901180618_103_circle_activity_notifications_sql_public_user_blocks",
+      "supabase_migrations_20260901180618_103_circle_activity_notifications_sql_public_users"
+    ],
+    "34": [
+      "app_actions_auth_requestpasswordreset",
+      "app_actions_auth_signinwithpassword",
+      "app_auth_forgot_password_forgot_form",
+      "app_auth_forgot_password_forgot_form_forgotform",
+      "app_auth_forgot_password_forgot_form_submit",
+      "app_auth_sign_in_password_form",
+      "app_auth_sign_in_password_form_passwordform",
+      "app_auth_sign_in_password_form_submit",
+      "components_turnstile",
+      "components_turnstile_turnstile",
+      "components_turnstile_window"
+    ],
+    "35": [
+      "lib_teaser_test",
+      "lib_teaser_test_digest",
+      "supabase_functions_send_digest_push_index",
+      "supabase_functions_send_digest_push_index_cron_secret",
+      "supabase_functions_send_digest_push_index_json",
+      "supabase_functions_send_digest_push_index_vapid_private",
+      "supabase_functions_send_digest_push_index_vapid_public",
+      "supabase_functions_send_digest_push_teaser",
+      "supabase_functions_send_digest_push_teaser_personfrom",
+      "supabase_functions_send_digest_push_teaser_pick",
+      "supabase_functions_send_digest_push_teaser_teaser"
+    ],
+    "36": [
+      "supabase_migrations_20260810055111_31_circle_rpcs",
+      "supabase_migrations_20260810055111_31_circle_rpcs_public_circle_preview",
+      "supabase_migrations_20260810055111_31_circle_rpcs_public_create_circle",
+      "supabase_migrations_20260810055111_31_circle_rpcs_public_cycle_continue",
+      "supabase_migrations_20260810055111_31_circle_rpcs_public_cycle_reset",
+      "supabase_migrations_20260810055111_31_circle_rpcs_public_join_circle",
+      "supabase_migrations_20260810055111_31_circle_rpcs_public_transfer_ownership",
+      "supabase_migrations_20260810055111_31_circle_rpcs_sql_public_group_members",
+      "supabase_migrations_20260810055111_31_circle_rpcs_sql_public_groups",
+      "supabase_migrations_20260810055111_31_circle_rpcs_sql_public_invite_links",
+      "supabase_migrations_20260810055111_31_circle_rpcs_sql_public_user_blocks"
+    ],
+    "37": [
+      "supabase_migrations_20260812231219_58_collapse_names_into_display_name",
+      "supabase_migrations_20260812231219_58_collapse_names_into_display_name_public_export_user_data",
+      "supabase_migrations_20260812231219_58_collapse_names_into_display_name_public_handle_new_user",
+      "supabase_migrations_20260812231219_58_collapse_names_into_display_name_sql_public_daily_completion",
+      "supabase_migrations_20260812231219_58_collapse_names_into_display_name_sql_public_goal_categories",
+      "supabase_migrations_20260812231219_58_collapse_names_into_display_name_sql_public_goals",
+      "supabase_migrations_20260812231219_58_collapse_names_into_display_name_sql_public_group_members",
+      "supabase_migrations_20260812231219_58_collapse_names_into_display_name_sql_public_groups",
+      "supabase_migrations_20260812231219_58_collapse_names_into_display_name_sql_public_progress_entries",
+      "supabase_migrations_20260812231219_58_collapse_names_into_display_name_sql_public_user_lifetime_stats",
+      "supabase_migrations_20260812231219_58_collapse_names_into_display_name_sql_public_users"
+    ],
+    "38": [
+      "supabase_migrations_20260815014120_68_freeze_roster_for_inactive_circles",
+      "supabase_migrations_20260815014120_68_freeze_roster_for_inactive_circles_private_checkin_date_at",
+      "supabase_migrations_20260815014120_68_freeze_roster_for_inactive_circles_private_current_checkin_date",
+      "supabase_migrations_20260815014120_68_freeze_roster_for_inactive_circles_public_circle_roster",
+      "supabase_migrations_20260815014120_68_freeze_roster_for_inactive_circles_sql_public_goal_group_visibility",
+      "supabase_migrations_20260815014120_68_freeze_roster_for_inactive_circles_sql_public_goals",
+      "supabase_migrations_20260815014120_68_freeze_roster_for_inactive_circles_sql_public_group_cycles",
+      "supabase_migrations_20260815014120_68_freeze_roster_for_inactive_circles_sql_public_group_members",
+      "supabase_migrations_20260815014120_68_freeze_roster_for_inactive_circles_sql_public_groups",
+      "supabase_migrations_20260815014120_68_freeze_roster_for_inactive_circles_sql_public_progress_entries",
+      "supabase_migrations_20260815014120_68_freeze_roster_for_inactive_circles_sql_public_users"
+    ],
+    "39": [
+      "e2e_db_parkactivegoals",
+      "e2e_db_parkcompletionhistory",
+      "e2e_db_seedcompleteddays",
+      "e2e_gates_spec",
+      "e2e_gates_spec_daysbefore",
+      "e2e_gates_spec_gated",
+      "e2e_gates_spec_ownerpage",
+      "e2e_gates_spec_setusername",
+      "e2e_gates_spec_usernameof",
+      "e2e_gates_spec_withnoactivegoals"
+    ],
+    "40": [
+      "public_handle_membership_removal",
+      "supabase_migrations_20260810200600_32_onboarding_and_gap_fixes",
+      "supabase_migrations_20260810200600_32_onboarding_and_gap_fixes_group_members_on_removal",
+      "supabase_migrations_20260810200600_32_onboarding_and_gap_fixes_public_complete_onboarding",
+      "supabase_migrations_20260810200600_32_onboarding_and_gap_fixes_public_create_invite_link",
+      "supabase_migrations_20260810200600_32_onboarding_and_gap_fixes_public_handle_membership_removal",
+      "supabase_migrations_20260810200600_32_onboarding_and_gap_fixes_public_sync_checkin_timezone",
+      "supabase_migrations_20260810200600_32_onboarding_and_gap_fixes_sql_pg_catalog_pg_timezone_names",
+      "supabase_migrations_20260810200600_32_onboarding_and_gap_fixes_sql_public_group_members",
+      "supabase_migrations_20260810200600_32_onboarding_and_gap_fixes_sql_public_username_history"
+    ],
+    "41": [
+      "public_trg_disable_links_on_status_change",
+      "supabase_migrations_20260810205856_41_invite_links_respect_circle_status",
+      "supabase_migrations_20260810205856_41_invite_links_respect_circle_status_groups_disable_links_on_status_change",
+      "supabase_migrations_20260810205856_41_invite_links_respect_circle_status_public_circle_preview",
+      "supabase_migrations_20260810205856_41_invite_links_respect_circle_status_public_join_circle",
+      "supabase_migrations_20260810205856_41_invite_links_respect_circle_status_public_trg_disable_links_on_status_change",
+      "supabase_migrations_20260810205856_41_invite_links_respect_circle_status_sql_public_group_members",
+      "supabase_migrations_20260810205856_41_invite_links_respect_circle_status_sql_public_groups",
+      "supabase_migrations_20260810205856_41_invite_links_respect_circle_status_sql_public_invite_links",
+      "supabase_migrations_20260810205856_41_invite_links_respect_circle_status_sql_public_user_blocks"
+    ],
+    "42": [
+      "supabase_migrations_20260810045521_18_rls_helper_functions",
+      "supabase_migrations_20260810045521_18_rls_helper_functions_private_is_blocked_by",
+      "supabase_migrations_20260810045521_18_rls_helper_functions_private_is_goal_hidden_in_group",
+      "supabase_migrations_20260810045521_18_rls_helper_functions_private_is_group_admin",
+      "supabase_migrations_20260810045521_18_rls_helper_functions_private_is_group_member",
+      "supabase_migrations_20260810045521_18_rls_helper_functions_private_is_group_owner",
+      "supabase_migrations_20260810045521_18_rls_helper_functions_private_shares_group_with",
+      "supabase_migrations_20260810045521_18_rls_helper_functions_sql_public_goal_group_visibility",
+      "supabase_migrations_20260810045521_18_rls_helper_functions_sql_public_group_members",
+      "supabase_migrations_20260810045521_18_rls_helper_functions_sql_public_user_blocks"
+    ],
+    "43": [
+      "supabase_migrations_20260817182709_71_hidden_everywhere",
+      "supabase_migrations_20260817182709_71_hidden_everywhere_private_is_goal_hidden_in_group",
+      "supabase_migrations_20260817182709_71_hidden_everywhere_public_circle_roster",
+      "supabase_migrations_20260817182709_71_hidden_everywhere_sql_public_goal_group_visibility",
+      "supabase_migrations_20260817182709_71_hidden_everywhere_sql_public_goals",
+      "supabase_migrations_20260817182709_71_hidden_everywhere_sql_public_group_cycles",
+      "supabase_migrations_20260817182709_71_hidden_everywhere_sql_public_group_members",
+      "supabase_migrations_20260817182709_71_hidden_everywhere_sql_public_groups",
+      "supabase_migrations_20260817182709_71_hidden_everywhere_sql_public_progress_entries",
+      "supabase_migrations_20260817182709_71_hidden_everywhere_sql_public_users"
+    ],
+    "44": [
+      "app_app_loading",
+      "app_app_loading_apploading",
+      "app_app_shell_dashboard_loading",
+      "app_app_shell_dashboard_loading_dashboardloading",
+      "app_app_shell_loading",
+      "app_app_shell_loading_dashboardloading",
+      "components_skeleton",
+      "components_skeleton_skeletonline",
+      "components_skeleton_skeletonregion"
+    ],
+    "45": [
+      "public_enforce_active_goal_cap",
+      "public_enforce_group_member_cap",
+      "supabase_migrations_20260810044029_16_constraints_and_caps",
+      "supabase_migrations_20260810044029_16_constraints_and_caps_goals_enforce_active_cap",
+      "supabase_migrations_20260810044029_16_constraints_and_caps_group_members_enforce_cap",
+      "supabase_migrations_20260810044029_16_constraints_and_caps_public_enforce_active_goal_cap",
+      "supabase_migrations_20260810044029_16_constraints_and_caps_public_enforce_group_member_cap",
+      "supabase_migrations_20260810044029_16_constraints_and_caps_sql_public_goals",
+      "supabase_migrations_20260810044029_16_constraints_and_caps_sql_public_group_members"
+    ],
+    "46": [
+      "supabase_migrations_20260810212901_46_daily_digest",
+      "supabase_migrations_20260810212901_46_daily_digest_public_build_daily_digests",
+      "supabase_migrations_20260810212901_46_daily_digest_sql_public_daily_completion",
+      "supabase_migrations_20260810212901_46_daily_digest_sql_public_digest_snapshots",
+      "supabase_migrations_20260810212901_46_daily_digest_sql_public_group_cycle_stats",
+      "supabase_migrations_20260810212901_46_daily_digest_sql_public_group_cycles",
+      "supabase_migrations_20260810212901_46_daily_digest_sql_public_group_members",
+      "supabase_migrations_20260810212901_46_daily_digest_sql_public_groups",
+      "supabase_migrations_20260810212901_46_daily_digest_sql_public_users"
+    ],
+    "47": [
+      "supabase_migrations_20260815014247_69_freeze_roster_at_the_instant_not_the_day",
+      "supabase_migrations_20260815014247_69_freeze_roster_at_the_instant_not_the_day_public_circle_roster",
+      "supabase_migrations_20260815014247_69_freeze_roster_at_the_instant_not_the_day_sql_public_goal_group_visibility",
+      "supabase_migrations_20260815014247_69_freeze_roster_at_the_instant_not_the_day_sql_public_goals",
+      "supabase_migrations_20260815014247_69_freeze_roster_at_the_instant_not_the_day_sql_public_group_cycles",
+      "supabase_migrations_20260815014247_69_freeze_roster_at_the_instant_not_the_day_sql_public_group_members",
+      "supabase_migrations_20260815014247_69_freeze_roster_at_the_instant_not_the_day_sql_public_groups",
+      "supabase_migrations_20260815014247_69_freeze_roster_at_the_instant_not_the_day_sql_public_progress_entries",
+      "supabase_migrations_20260815014247_69_freeze_roster_at_the_instant_not_the_day_sql_public_users"
+    ],
+    "48": [
+      "supabase_migrations_20260815022704_70_roster_carries_your_own_entry_id",
+      "supabase_migrations_20260815022704_70_roster_carries_your_own_entry_id_public_circle_roster",
+      "supabase_migrations_20260815022704_70_roster_carries_your_own_entry_id_sql_public_goal_group_visibility",
+      "supabase_migrations_20260815022704_70_roster_carries_your_own_entry_id_sql_public_goals",
+      "supabase_migrations_20260815022704_70_roster_carries_your_own_entry_id_sql_public_group_cycles",
+      "supabase_migrations_20260815022704_70_roster_carries_your_own_entry_id_sql_public_group_members",
+      "supabase_migrations_20260815022704_70_roster_carries_your_own_entry_id_sql_public_groups",
+      "supabase_migrations_20260815022704_70_roster_carries_your_own_entry_id_sql_public_progress_entries",
+      "supabase_migrations_20260815022704_70_roster_carries_your_own_entry_id_sql_public_users"
+    ],
+    "49": [
+      "supabase_migrations_20260817183153_72_masking_never_applies_to_yourself",
+      "supabase_migrations_20260817183153_72_masking_never_applies_to_yourself_private_can_view_checkin_photo",
+      "supabase_migrations_20260817183153_72_masking_never_applies_to_yourself_public_circle_roster",
+      "supabase_migrations_20260817183153_72_masking_never_applies_to_yourself_sql_public_goals",
+      "supabase_migrations_20260817183153_72_masking_never_applies_to_yourself_sql_public_group_cycles",
+      "supabase_migrations_20260817183153_72_masking_never_applies_to_yourself_sql_public_group_members",
+      "supabase_migrations_20260817183153_72_masking_never_applies_to_yourself_sql_public_groups",
+      "supabase_migrations_20260817183153_72_masking_never_applies_to_yourself_sql_public_progress_entries",
+      "supabase_migrations_20260817183153_72_masking_never_applies_to_yourself_sql_public_users"
+    ],
+    "50": [
+      "supabase_migrations_20260817202818_73_notification_payloads_name_their_circle",
+      "supabase_migrations_20260817202818_73_notification_payloads_name_their_circle_public_build_daily_digests",
+      "supabase_migrations_20260817202818_73_notification_payloads_name_their_circle_sql_public_daily_completion",
+      "supabase_migrations_20260817202818_73_notification_payloads_name_their_circle_sql_public_digest_snapshots",
+      "supabase_migrations_20260817202818_73_notification_payloads_name_their_circle_sql_public_group_cycle_stats",
+      "supabase_migrations_20260817202818_73_notification_payloads_name_their_circle_sql_public_group_cycles",
+      "supabase_migrations_20260817202818_73_notification_payloads_name_their_circle_sql_public_group_members",
+      "supabase_migrations_20260817202818_73_notification_payloads_name_their_circle_sql_public_groups",
+      "supabase_migrations_20260817202818_73_notification_payloads_name_their_circle_sql_public_users"
+    ],
+    "51": [
+      "locked",
+      "supabase_migrations_20260818012103_74_deliberate_timezone_change_takes_effect_at_rollover",
+      "supabase_migrations_20260818012103_74_deliberate_timezone_change_takes_effect_at_rollover_public_run_daily_rollover",
+      "supabase_migrations_20260818012103_74_deliberate_timezone_change_takes_effect_at_rollover_public_set_checkin_timezone",
+      "supabase_migrations_20260818012103_74_deliberate_timezone_change_takes_effect_at_rollover_sql_pg_catalog_pg_timezone_names",
+      "supabase_migrations_20260818012103_74_deliberate_timezone_change_takes_effect_at_rollover_sql_public_group_cycles",
+      "supabase_migrations_20260818012103_74_deliberate_timezone_change_takes_effect_at_rollover_sql_public_group_members",
+      "supabase_migrations_20260818012103_74_deliberate_timezone_change_takes_effect_at_rollover_sql_public_users"
+    ],
+    "52": [
+      "public_goals",
+      "public_group_cycles",
+      "supabase_migrations_20260828010934_90_roster_carries_avatars",
+      "supabase_migrations_20260828010934_90_roster_carries_avatars_public_circle_roster",
+      "supabase_migrations_20260828010934_90_roster_carries_avatars_sql_public_group_members",
+      "supabase_migrations_20260828010934_90_roster_carries_avatars_sql_public_groups",
+      "supabase_migrations_20260828010934_90_roster_carries_avatars_sql_public_progress_entries",
+      "supabase_migrations_20260828010934_90_roster_carries_avatars_sql_public_users"
+    ],
+    "53": [
+      "public_trg_goal_achievement_is_final",
+      "supabase_migrations_20260825034125_83_achievement_is_final",
+      "supabase_migrations_20260825034125_83_achievement_is_final_goals_achievement_is_final",
+      "supabase_migrations_20260825034125_83_achievement_is_final_public_trg_goal_achievement_is_final",
+      "supabase_migrations_20260825034125_83_achievement_is_final_sql_public_goal_categories",
+      "supabase_migrations_20260825034125_83_achievement_is_final_sql_public_goals",
+      "supabase_migrations_20260825034125_83_achievement_is_final_sql_public_user_lifetime_stats",
+      "supabase_migrations_20260825034125_83_achievement_is_final_sql_public_users"
+    ],
+    "54": [
+      "supabase_migrations_20260810202241_35_rollover_job",
+      "supabase_migrations_20260810202241_35_rollover_job_private_rollover_group_day",
+      "supabase_migrations_20260810202241_35_rollover_job_private_rollover_user_day",
+      "supabase_migrations_20260810202241_35_rollover_job_public_run_daily_rollover",
+      "supabase_migrations_20260810202241_35_rollover_job_sql_public_daily_completion",
+      "supabase_migrations_20260810202241_35_rollover_job_sql_public_group_cycles",
+      "supabase_migrations_20260810202241_35_rollover_job_sql_public_group_members",
+      "supabase_migrations_20260810202241_35_rollover_job_sql_public_users"
+    ],
+    "55": [
+      "supabase_migrations_20260815000831_64_mask_goals_and_notes_behind_roster_rpc",
+      "supabase_migrations_20260815000831_64_mask_goals_and_notes_behind_roster_rpc_private_current_checkin_date",
+      "supabase_migrations_20260815000831_64_mask_goals_and_notes_behind_roster_rpc_public_circle_roster",
+      "supabase_migrations_20260815000831_64_mask_goals_and_notes_behind_roster_rpc_sql_public_goal_group_visibility",
+      "supabase_migrations_20260815000831_64_mask_goals_and_notes_behind_roster_rpc_sql_public_goals",
+      "supabase_migrations_20260815000831_64_mask_goals_and_notes_behind_roster_rpc_sql_public_group_members",
+      "supabase_migrations_20260815000831_64_mask_goals_and_notes_behind_roster_rpc_sql_public_progress_entries",
+      "supabase_migrations_20260815000831_64_mask_goals_and_notes_behind_roster_rpc_sql_public_users"
+    ],
+    "56": [
+      "supabase_migrations_20260822111725_79_roster_reports_photos",
+      "supabase_migrations_20260822111725_79_roster_reports_photos_public_circle_roster",
+      "supabase_migrations_20260822111725_79_roster_reports_photos_sql_public_goals",
+      "supabase_migrations_20260822111725_79_roster_reports_photos_sql_public_group_cycles",
+      "supabase_migrations_20260822111725_79_roster_reports_photos_sql_public_group_members",
+      "supabase_migrations_20260822111725_79_roster_reports_photos_sql_public_groups",
+      "supabase_migrations_20260822111725_79_roster_reports_photos_sql_public_progress_entries",
+      "supabase_migrations_20260822111725_79_roster_reports_photos_sql_public_users"
+    ],
+    "57": [
+      "auth_users",
+      "public_handle_new_user",
+      "supabase_migrations_20260810035022_02_users_and_username_history",
+      "supabase_migrations_20260810035022_02_users_and_username_history_on_auth_user_created",
+      "supabase_migrations_20260810035022_02_users_and_username_history_public_handle_new_user",
+      "supabase_migrations_20260810035022_02_users_and_username_history_public_username_history",
+      "supabase_migrations_20260810035022_02_users_and_username_history_public_users"
+    ],
+    "58": [
+      "e2e_clean",
+      "e2e_db_deletee2egoals",
+      "e2e_db_e2e_prefix",
+      "e2e_db_recounttoday",
+      "e2e_goals_spec",
+      "e2e_goals_spec_achievedcount",
+      "e2e_goals_spec_restoreachievedcount"
+    ],
+    "59": [
+      "supabase_migrations_20260810041855_08_normalize_ownership_deadline_and_hardening",
+      "supabase_migrations_20260810041855_08_normalize_ownership_deadline_and_hardening_goals_set_updated_at",
+      "supabase_migrations_20260810041855_08_normalize_ownership_deadline_and_hardening_group_members_set_updated_at",
+      "supabase_migrations_20260810041855_08_normalize_ownership_deadline_and_hardening_groups_set_updated_at",
+      "supabase_migrations_20260810041855_08_normalize_ownership_deadline_and_hardening_public_set_updated_at",
+      "supabase_migrations_20260810041855_08_normalize_ownership_deadline_and_hardening_sql_public_set_updated_at",
+      "supabase_migrations_20260810041855_08_normalize_ownership_deadline_and_hardening_users_set_updated_at"
+    ],
+    "60": [
+      "supabase_migrations_20260810210430_43_invite_link_specific_errors",
+      "supabase_migrations_20260810210430_43_invite_link_specific_errors_public_circle_preview",
+      "supabase_migrations_20260810210430_43_invite_link_specific_errors_public_join_circle",
+      "supabase_migrations_20260810210430_43_invite_link_specific_errors_sql_public_group_members",
+      "supabase_migrations_20260810210430_43_invite_link_specific_errors_sql_public_groups",
+      "supabase_migrations_20260810210430_43_invite_link_specific_errors_sql_public_invite_links",
+      "supabase_migrations_20260810210430_43_invite_link_specific_errors_sql_public_user_blocks"
+    ],
+    "61": [
+      "supabase_migrations_20260813045733_60_hint_codes_on_user_facing_raises",
+      "supabase_migrations_20260813045733_60_hint_codes_on_user_facing_raises_public_create_invite_link",
+      "supabase_migrations_20260813045733_60_hint_codes_on_user_facing_raises_public_enforce_active_goal_cap",
+      "supabase_migrations_20260813045733_60_hint_codes_on_user_facing_raises_public_enforce_group_member_cap",
+      "supabase_migrations_20260813045733_60_hint_codes_on_user_facing_raises_public_validate_progress_entry_owner",
+      "supabase_migrations_20260813045733_60_hint_codes_on_user_facing_raises_sql_public_goals",
+      "supabase_migrations_20260813045733_60_hint_codes_on_user_facing_raises_sql_public_group_members"
+    ],
+    "62": [
+      "supabase_migrations_20260815002910_66_shareable_check_in_notes",
+      "supabase_migrations_20260815002910_66_shareable_check_in_notes_public_circle_roster",
+      "supabase_migrations_20260815002910_66_shareable_check_in_notes_sql_public_goal_group_visibility",
+      "supabase_migrations_20260815002910_66_shareable_check_in_notes_sql_public_goals",
+      "supabase_migrations_20260815002910_66_shareable_check_in_notes_sql_public_group_members",
+      "supabase_migrations_20260815002910_66_shareable_check_in_notes_sql_public_progress_entries",
+      "supabase_migrations_20260815002910_66_shareable_check_in_notes_sql_public_users"
+    ],
+    "63": [
+      "app_app_shell_dashboard_goals_panel_deadline",
+      "lib_goal_deadline",
+      "lib_goal_deadline_deadlinelabel",
+      "lib_goal_deadline_format",
+      "lib_goal_deadline_isoverdue",
+      "lib_goal_deadline_test"
+    ],
+    "64": [
+      "app_onboarding_onboarding_form",
+      "app_onboarding_onboarding_form_nosubscribe",
+      "app_onboarding_onboarding_form_onboardingform",
+      "app_onboarding_onboarding_form_readtimezone",
+      "app_onboarding_onboarding_form_servertimezone",
+      "app_onboarding_onboarding_form_submit"
+    ],
+    "65": [
+      "e2e_invite_user_spec",
+      "e2e_invite_user_spec_clearinvites",
+      "e2e_invite_user_spec_invitesfor",
+      "e2e_invite_user_spec_joiner",
+      "e2e_invite_user_spec_owner",
+      "e2e_invite_user_spec_usernameof"
+    ],
+    "66": [
+      "public",
+      "supabase_migrations_20260810042302_10_progress_entries_and_daily_completion",
+      "supabase_migrations_20260810042302_10_progress_entries_and_daily_completion_public_daily_completion",
+      "supabase_migrations_20260810042302_10_progress_entries_and_daily_completion_public_progress_entries",
+      "supabase_migrations_20260810042302_10_progress_entries_and_daily_completion_sql_public_goals",
+      "supabase_migrations_20260810042302_10_progress_entries_and_daily_completion_sql_public_users"
+    ],
+    "67": [
+      "public_guard_group_owner_only_settings",
+      "supabase_migrations_20260810053407_27_group_helpers_and_owner_settings_guard",
+      "supabase_migrations_20260810053407_27_group_helpers_and_owner_settings_guard_groups_guard_owner_only_settings",
+      "supabase_migrations_20260810053407_27_group_helpers_and_owner_settings_guard_private_member_role",
+      "supabase_migrations_20260810053407_27_group_helpers_and_owner_settings_guard_public_guard_group_owner_only_settings",
+      "supabase_migrations_20260810053407_27_group_helpers_and_owner_settings_guard_sql_public_group_members"
+    ],
+    "68": [
+      "public_notifications",
+      "supabase_migrations_20260901045858_98_invite_user_to_circle",
+      "supabase_migrations_20260901045858_98_invite_user_to_circle_public_invite_user_to_circle",
+      "supabase_migrations_20260901045858_98_invite_user_to_circle_sql_public_group_members",
+      "supabase_migrations_20260901045858_98_invite_user_to_circle_sql_public_user_blocks",
+      "supabase_migrations_20260901045858_98_invite_user_to_circle_sql_public_users"
+    ],
+    "69": [
+      "supabase_migrations_20260810040834_05_groups_members_cycles_invites",
+      "supabase_migrations_20260810040834_05_groups_members_cycles_invites_public_group_cycles",
+      "supabase_migrations_20260810040834_05_groups_members_cycles_invites_public_group_members",
+      "supabase_migrations_20260810040834_05_groups_members_cycles_invites_public_groups",
+      "supabase_migrations_20260810040834_05_groups_members_cycles_invites_public_invite_links",
+      "supabase_migrations_20260810040834_05_groups_members_cycles_invites_sql_public_users"
+    ],
+    "70": [
+      "supabase_migrations_20260810043149_14_notifications_push_and_digest",
+      "supabase_migrations_20260810043149_14_notifications_push_and_digest_public_digest_snapshots",
+      "supabase_migrations_20260810043149_14_notifications_push_and_digest_public_notifications",
+      "supabase_migrations_20260810043149_14_notifications_push_and_digest_public_push_subscriptions",
+      "supabase_migrations_20260810043149_14_notifications_push_and_digest_sql_public_groups",
+      "supabase_migrations_20260810043149_14_notifications_push_and_digest_sql_public_users"
+    ],
+    "71": [
+      "supabase_migrations_20260810043744_15_trust_and_safety_tables",
+      "supabase_migrations_20260810043744_15_trust_and_safety_tables_public_audit_log",
+      "supabase_migrations_20260810043744_15_trust_and_safety_tables_public_content_reports",
+      "supabase_migrations_20260810043744_15_trust_and_safety_tables_public_user_blocks",
+      "supabase_migrations_20260810043744_15_trust_and_safety_tables_sql_public_groups",
+      "supabase_migrations_20260810043744_15_trust_and_safety_tables_sql_public_users"
+    ],
+    "72": [
+      "supabase_migrations_20260810212202_44_circle_timezone_and_rollover_guard",
+      "supabase_migrations_20260810212202_44_circle_timezone_and_rollover_guard_private_circle_checkin_date",
+      "supabase_migrations_20260810212202_44_circle_timezone_and_rollover_guard_public_run_daily_rollover",
+      "supabase_migrations_20260810212202_44_circle_timezone_and_rollover_guard_sql_public_group_cycles",
+      "supabase_migrations_20260810212202_44_circle_timezone_and_rollover_guard_sql_public_group_members",
+      "supabase_migrations_20260810212202_44_circle_timezone_and_rollover_guard_sql_public_users"
+    ],
+    "73": [
+      "supabase_migrations_20260828012127_93_admin_moderation_functions",
+      "supabase_migrations_20260828012127_93_admin_moderation_functions_public_admin_report_detail",
+      "supabase_migrations_20260828012127_93_admin_moderation_functions_public_admin_report_queue",
+      "supabase_migrations_20260828012127_93_admin_moderation_functions_public_admin_resolve_report",
+      "supabase_migrations_20260828012127_93_admin_moderation_functions_public_admin_set_role",
+      "supabase_migrations_20260828012127_93_admin_moderation_functions_sql_public_users"
+    ],
+    "74": [
+      "supabase_migrations_20260901045913_99_circle_preview_members",
+      "supabase_migrations_20260901045913_99_circle_preview_members_public_circle_preview_members",
+      "supabase_migrations_20260901045913_99_circle_preview_members_sql_public_group_members",
+      "supabase_migrations_20260901045913_99_circle_preview_members_sql_public_groups",
+      "supabase_migrations_20260901045913_99_circle_preview_members_sql_public_invite_links",
+      "supabase_migrations_20260901045913_99_circle_preview_members_sql_public_users"
+    ],
+    "75": [
+      "supabase_migrations_20260901045939_100_circle_preview_members_scopes_to_the_circle",
+      "supabase_migrations_20260901045939_100_circle_preview_members_scopes_to_the_circle_public_circle_preview_members",
+      "supabase_migrations_20260901045939_100_circle_preview_members_scopes_to_the_circle_sql_public_group_members",
+      "supabase_migrations_20260901045939_100_circle_preview_members_scopes_to_the_circle_sql_public_groups",
+      "supabase_migrations_20260901045939_100_circle_preview_members_scopes_to_the_circle_sql_public_invite_links",
+      "supabase_migrations_20260901045939_100_circle_preview_members_scopes_to_the_circle_sql_public_users"
+    ],
+    "76": [
+      "public_user_lifetime_stats",
+      "supabase_migrations_20260825083554_86_profile_by_username",
+      "supabase_migrations_20260825083554_86_profile_by_username_public_profile_by_username",
+      "supabase_migrations_20260825083554_86_profile_by_username_sql_public_user_blocks",
+      "supabase_migrations_20260825083554_86_profile_by_username_sql_public_users"
+    ],
+    "77": [
+      "storage_objects",
+      "supabase_migrations_20260823042408_81_orphan_photo_sweep",
+      "supabase_migrations_20260823042408_81_orphan_photo_sweep_public_job_list_orphan_photos",
+      "supabase_migrations_20260823042408_81_orphan_photo_sweep_public_job_null_missing_photos",
+      "supabase_migrations_20260823042408_81_orphan_photo_sweep_sql_public_progress_entries"
+    ],
+    "78": [
+      "supabase_functions_purge_expired_photos_index",
+      "supabase_functions_purge_expired_photos_index_clearmissing",
+      "supabase_functions_purge_expired_photos_index_cron_secret",
+      "supabase_functions_purge_expired_photos_index_json",
+      "supabase_functions_purge_expired_photos_index_sweeporphans"
+    ],
+    "79": [
+      "supabase_migrations_20260810052121_24_rls_helpers_checkin_date_and_goal_owner",
+      "supabase_migrations_20260810052121_24_rls_helpers_checkin_date_and_goal_owner_private_current_checkin_date",
+      "supabase_migrations_20260810052121_24_rls_helpers_checkin_date_and_goal_owner_private_owns_goal",
+      "supabase_migrations_20260810052121_24_rls_helpers_checkin_date_and_goal_owner_sql_public_goals",
+      "supabase_migrations_20260810052121_24_rls_helpers_checkin_date_and_goal_owner_sql_public_users"
+    ],
+    "80": [
+      "supabase_migrations_20260811045000_50_move_job_helpers_to_public_for_service_role",
+      "supabase_migrations_20260811045000_50_move_job_helpers_to_public_for_service_role_public_job_list_expired_photos",
+      "supabase_migrations_20260811045000_50_move_job_helpers_to_public_for_service_role_public_job_mark_photos_purged",
+      "supabase_migrations_20260811045000_50_move_job_helpers_to_public_for_service_role_public_job_scrub_and_list_user_media",
+      "supabase_migrations_20260811045000_50_move_job_helpers_to_public_for_service_role_sql_public_progress_entries"
+    ],
+    "81": [
+      "supabase_migrations_20260901184823_105_terms_acceptance",
+      "supabase_migrations_20260901184823_105_terms_acceptance_public_accept_terms",
+      "supabase_migrations_20260901184823_105_terms_acceptance_public_complete_onboarding",
+      "supabase_migrations_20260901184823_105_terms_acceptance_sql_pg_catalog_pg_timezone_names",
+      "supabase_migrations_20260901184823_105_terms_acceptance_sql_public_username_history"
+    ],
+    "82": [
+      "app_actions_onboarding_acceptterms",
+      "app_onboarding_terms_accept_form",
+      "app_onboarding_terms_accept_form_acceptform",
+      "app_onboarding_terms_accept_form_submit"
+    ],
+    "83": [
+      "app_actions_settings_deleteaccount",
+      "app_app_settings_delete_account_panel",
+      "app_app_settings_delete_account_panel_deleteaccountpanel",
+      "app_app_settings_delete_account_panel_submit"
+    ],
+    "84": [
+      "e2e_sign_up_spec",
+      "e2e_sign_up_spec_deletebyemail",
+      "e2e_sign_up_spec_freshemail",
+      "lib_password_min_password_length"
+    ],
+    "85": [
+      "mcp",
+      "mcp_command_npx",
+      "mcp_mcp_server_playwright",
+      "mcp_package_playwright_mcp"
+    ],
+    "86": [
+      "supabase_migrations_20260810040246_04_goal_categories_and_goals",
+      "supabase_migrations_20260810040246_04_goal_categories_and_goals_public_goal_categories",
+      "supabase_migrations_20260810040246_04_goal_categories_and_goals_public_goals",
+      "supabase_migrations_20260810040246_04_goal_categories_and_goals_sql_public_users"
+    ],
+    "87": [
+      "supabase_migrations_20260810041403_06_goal_group_visibility",
+      "supabase_migrations_20260810041403_06_goal_group_visibility_public_goal_group_visibility",
+      "supabase_migrations_20260810041403_06_goal_group_visibility_sql_public_goals",
+      "supabase_migrations_20260810041403_06_goal_group_visibility_sql_public_groups"
+    ],
+    "88": [
+      "supabase_migrations_20260810054031_29_rls_derived_and_trust_safety",
+      "supabase_migrations_20260810054031_29_rls_derived_and_trust_safety_private_is_cycle_member",
+      "supabase_migrations_20260810054031_29_rls_derived_and_trust_safety_sql_public_group_cycles",
+      "supabase_migrations_20260810054031_29_rls_derived_and_trust_safety_sql_public_group_members"
+    ],
+    "89": [
+      "supabase_migrations_20260810203833_37_cleanup_sweep_and_realtime",
+      "supabase_migrations_20260810203833_37_cleanup_sweep_and_realtime_public_run_retention_sweep",
+      "supabase_migrations_20260810203833_37_cleanup_sweep_and_realtime_sql_public_digest_snapshots",
+      "supabase_migrations_20260810203833_37_cleanup_sweep_and_realtime_sql_public_notifications"
+    ],
+    "90": [
+      "supabase_migrations_20260810204324_38_fix_deletion_cascade_and_owner_succession",
+      "supabase_migrations_20260810204324_38_fix_deletion_cascade_and_owner_succession_public_handle_membership_removal",
+      "supabase_migrations_20260810204324_38_fix_deletion_cascade_and_owner_succession_sql_public_group_members",
+      "supabase_migrations_20260810204324_38_fix_deletion_cascade_and_owner_succession_sql_public_users"
+    ],
+    "91": [
+      "supabase_migrations_20260810204422_39_classify_removal_by_account_deletion",
+      "supabase_migrations_20260810204422_39_classify_removal_by_account_deletion_public_handle_membership_removal",
+      "supabase_migrations_20260810204422_39_classify_removal_by_account_deletion_sql_public_group_members",
+      "supabase_migrations_20260810204422_39_classify_removal_by_account_deletion_sql_public_users"
+    ],
+    "92": [
+      "supabase_migrations_20260811050452_53_set_circle_deadline",
+      "supabase_migrations_20260811050452_53_set_circle_deadline_public_set_circle_deadline",
+      "supabase_migrations_20260811050452_53_set_circle_deadline_sql_public_group_members",
+      "supabase_migrations_20260811050452_53_set_circle_deadline_sql_public_groups"
+    ],
+    "93": [
+      "supabase_migrations_20260813050335_62_archive_circle_rpc",
+      "supabase_migrations_20260813050335_62_archive_circle_rpc_public_archive_circle",
+      "supabase_migrations_20260813050335_62_archive_circle_rpc_sql_public_group_members",
+      "supabase_migrations_20260813050335_62_archive_circle_rpc_sql_public_groups"
+    ],
+    "94": [
+      "supabase_migrations_20260825084936_87_blocked_accounts",
+      "supabase_migrations_20260825084936_87_blocked_accounts_public_blocked_accounts",
+      "supabase_migrations_20260825084936_87_blocked_accounts_sql_public_user_blocks",
+      "supabase_migrations_20260825084936_87_blocked_accounts_sql_public_users"
+    ],
+    "95": [
+      "supabase_migrations_20260901190340_106_acceptance_is_only_recorded_on_the_onboarding_path",
+      "supabase_migrations_20260901190340_106_acceptance_is_only_recorded_on_the_onboarding_path_public_complete_onboarding",
+      "supabase_migrations_20260901190340_106_acceptance_is_only_recorded_on_the_onboarding_path_sql_pg_catalog_pg_timezone_names",
+      "supabase_migrations_20260901190340_106_acceptance_is_only_recorded_on_the_onboarding_path_sql_public_username_history"
+    ],
+    "96": [
+      "scripts_reset_ratelimit",
+      "scripts_reset_ratelimit_found",
+      "scripts_reset_ratelimit_redis"
+    ],
+    "97": [
+      "scripts_test_email",
+      "scripts_test_email_missing",
+      "scripts_test_email_transport"
+    ],
+    "98": [
+      "supabase_migrations_20260810042559_12_progress_entries_preserve_and_validate_sql_public_goals",
+      "supabase_migrations_20260810042559_12_progress_entries_preserve_and_validate_sql_public_progress_entries",
+      "supabase_migrations_20260810042559_12_progress_entries_preserve_and_validate_sql_public_users"
+    ],
+    "99": [
+      "supabase_migrations_20260810052924_26_close_inactive_goal_checkin_gap",
+      "supabase_migrations_20260810052924_26_close_inactive_goal_checkin_gap_private_owns_active_goal",
+      "supabase_migrations_20260810052924_26_close_inactive_goal_checkin_gap_sql_public_goals"
+    ],
+    "100": [
+      "supabase_migrations_20260810210017_42_invite_link_default_expiry",
+      "supabase_migrations_20260810210017_42_invite_link_default_expiry_public_create_invite_link",
+      "supabase_migrations_20260810210017_42_invite_link_default_expiry_sql_public_group_members"
+    ],
+    "101": [
+      "supabase_migrations_20260810212419_45_storage_buckets_and_policies",
+      "supabase_migrations_20260810212419_45_storage_buckets_and_policies_private_can_view_checkin_photo",
+      "supabase_migrations_20260810212419_45_storage_buckets_and_policies_sql_public_group_members"
+    ],
+    "102": [
+      "supabase_migrations_20260810213109_48_schedule_edge_function_jobs",
+      "supabase_migrations_20260810213109_48_schedule_edge_function_jobs_private_invoke_edge_function",
+      "vault_decrypted_secrets"
+    ],
+    "103": [
+      "supabase_migrations_20260811053652_56_notify_members_on_deadline_change",
+      "supabase_migrations_20260811053652_56_notify_members_on_deadline_change_public_set_circle_deadline",
+      "supabase_migrations_20260811053652_56_notify_members_on_deadline_change_sql_public_group_members"
+    ],
+    "104": [
+      "supabase_migrations_20260818022136_75_queued_timezone_is_self_only",
+      "supabase_migrations_20260818022136_75_queued_timezone_is_self_only_public_my_pending_checkin_timezone",
+      "supabase_migrations_20260818022136_75_queued_timezone_is_self_only_sql_public_users"
+    ],
+    "105": [
+      "supabase_migrations_20260828012004_91_user_roles",
+      "supabase_migrations_20260828012004_91_user_roles_private_is_admin",
+      "supabase_migrations_20260828012004_91_user_roles_sql_public_users"
+    ],
+    "106": [
+      "supabase_migrations_20260828012508_94_admin_self_and_list",
+      "supabase_migrations_20260828012508_94_admin_self_and_list_public_admin_list_admins",
+      "supabase_migrations_20260828012508_94_admin_self_and_list_public_am_i_admin"
+    ],
+    "107": [
+      "supabase_migrations_20260828013224_95_fix_last_admin_guard",
+      "supabase_migrations_20260828013224_95_fix_last_admin_guard_public_admin_set_role",
+      "supabase_migrations_20260828013224_95_fix_last_admin_guard_sql_public_users"
+    ],
+    "108": [
+      "app_manifest",
+      "app_manifest_manifest"
+    ],
+    "109": [
+      "eslint_config",
+      "eslint_config_eslintconfig"
+    ],
+    "110": [
+      "postcss_config",
+      "postcss_config_config"
+    ],
+    "111": [
+      "supabase_functions_delete_account_index",
+      "supabase_functions_delete_account_index_json"
+    ],
+    "112": [
+      "supabase_migrations_20260810040007_03_harden_handle_new_user",
+      "supabase_migrations_20260810040007_03_harden_handle_new_user_public_handle_new_user"
+    ],
+    "113": [
+      "supabase_migrations_20260810041924_09_pin_set_updated_at_search_path",
+      "supabase_migrations_20260810041924_09_pin_set_updated_at_search_path_public_set_updated_at"
+    ],
+    "114": [
+      "supabase_migrations_20260810042559_12_progress_entries_preserve_and_validate",
+      "supabase_migrations_20260810042559_12_progress_entries_preserve_and_validate_public_validate_progress_entry_owner"
+    ],
+    "115": [
+      "supabase_migrations_20260810200656_33_fix_membership_removal_enum_cast",
+      "supabase_migrations_20260810200656_33_fix_membership_removal_enum_cast_public_handle_membership_removal"
+    ],
+    "116": [
+      "supabase_migrations_20260811045724_52_notify_owner_on_circle_lock",
+      "supabase_migrations_20260811045724_52_notify_owner_on_circle_lock_public_run_daily_rollover"
+    ],
+    "117": [
+      "supabase_migrations_20260813001121_59_expose_current_checkin_date",
+      "supabase_migrations_20260813001121_59_expose_current_checkin_date_public_current_checkin_date"
+    ],
+    "118": [
+      "supabase_migrations_20260818195105_77_subscribe_push",
+      "supabase_migrations_20260818195105_77_subscribe_push_public_subscribe_push"
+    ],
+    "119": [
+      "supabase_migrations_20260825082151_85_avatar_url_is_your_own_key",
+      "supabase_migrations_20260825082151_85_avatar_url_is_your_own_key_public_handle_new_user"
+    ],
+    "120": [
+      "supabase_migrations_20260825180823_89_account_deletion_removes_the_avatar_object",
+      "supabase_migrations_20260825180823_89_account_deletion_removes_the_avatar_object_public_job_scrub_and_list_user_media"
+    ],
+    "121": [
+      "supabase_migrations_20260901045825_96_search_users",
+      "supabase_migrations_20260901045825_96_search_users_public_search_users"
+    ],
+    "122": [
+      "vitest_config",
+      "vitest_config_rootdir"
+    ],
+    "123": [
+      "public_audit_log"
+    ],
+    "124": [
+      "public_group_daily_completion"
+    ],
+    "125": [
+      "public_group_member_category_stats"
+    ],
+    "126": [
+      "public_sw"
+    ],
+    "127": [
+      "public_users"
+    ],
+    "128": [
+      "supabase_functions_export_data_index"
+    ],
+    "129": [
+      "supabase_migrations_20260810034520_01_enum_types"
+    ],
+    "130": [
+      "supabase_migrations_20260810041721_07_revoke_trigger_function_execute"
+    ],
+    "131": [
+      "supabase_migrations_20260810041855_08_normalize_ownership_deadline_and_hardening_sql_public_goal_categories"
+    ],
+    "132": [
+      "supabase_migrations_20260810041855_08_normalize_ownership_deadline_and_hardening_sql_public_goals"
+    ],
+    "133": [
+      "supabase_migrations_20260810041855_08_normalize_ownership_deadline_and_hardening_sql_public_group_members"
+    ],
+    "134": [
+      "supabase_migrations_20260810041855_08_normalize_ownership_deadline_and_hardening_sql_public_groups"
+    ],
+    "135": [
+      "supabase_migrations_20260810041855_08_normalize_ownership_deadline_and_hardening_sql_public_users"
+    ],
+    "136": [
+      "supabase_migrations_20260810042339_11_index_corrections"
+    ],
+    "137": [
+      "supabase_migrations_20260810044029_16_constraints_and_caps_sql_public_users"
+    ],
+    "138": [
+      "supabase_migrations_20260810045202_17_revoke_truncate_and_harden_grants"
+    ],
+    "139": [
+      "supabase_migrations_20260810045607_19_revoke_public_execute_on_private_helpers"
+    ],
+    "140": [
+      "supabase_migrations_20260810050032_20_rls_self_owned_tables"
+    ],
+    "141": [
+      "supabase_migrations_20260810050032_20_rls_self_owned_tables_sql_public_push_subscriptions"
+    ],
+    "142": [
+      "supabase_migrations_20260810050508_21_notification_delete_and_membership_audit"
+    ],
+    "143": [
+      "supabase_migrations_20260810050941_22_rls_users_and_lifetime_stats"
+    ],
+    "144": [
+      "supabase_migrations_20260810052011_23_rls_goal_categories"
+    ],
+    "145": [
+      "supabase_migrations_20260810052147_25_rls_goals_and_checkins"
+    ],
+    "146": [
+      "supabase_migrations_20260810053432_28_rls_groups_members_cycles_invites"
+    ],
+    "147": [
+      "supabase_migrations_20260810054031_29_rls_derived_and_trust_safety_sql_public_content_reports"
+    ],
+    "148": [
+      "supabase_migrations_20260810054253_30_ggv_update_requires_membership"
+    ],
+    "149": [
+      "supabase_migrations_20260810202901_36_reassert_private_schema_grants"
+    ],
+    "150": [
+      "supabase_migrations_20260810212901_46_daily_digest_sql_public_notifications"
+    ],
+    "151": [
+      "supabase_migrations_20260810213038_47_schedule_sql_jobs"
+    ],
+    "152": [
+      "supabase_migrations_20260811044856_49_grant_service_role"
+    ],
+    "153": [
+      "supabase_migrations_20260811050519_54_drop_admin_transfer_request_enum_value"
+    ],
+    "154": [
+      "supabase_migrations_20260811050519_54_drop_admin_transfer_request_enum_value_sql_public_notifications"
+    ],
+    "155": [
+      "supabase_migrations_20260811053632_55_add_deadline_changed_notification_value"
+    ],
+    "156": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls"
+    ],
+    "157": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls_sql_public_content_reports"
+    ],
+    "158": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls_sql_public_daily_completion"
+    ],
+    "159": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls_sql_public_digest_snapshots"
+    ],
+    "160": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls_sql_public_goal_categories"
+    ],
+    "161": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls_sql_public_goal_group_visibility"
+    ],
+    "162": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls_sql_public_goals"
+    ],
+    "163": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls_sql_public_group_cycle_stats"
+    ],
+    "164": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls_sql_public_group_cycles"
+    ],
+    "165": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls_sql_public_group_members"
+    ],
+    "166": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls_sql_public_groups"
+    ],
+    "167": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls_sql_public_invite_links"
+    ],
+    "168": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls_sql_public_notifications"
+    ],
+    "169": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls_sql_public_progress_entries"
+    ],
+    "170": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls_sql_public_push_subscriptions"
+    ],
+    "171": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls_sql_public_user_blocks"
+    ],
+    "172": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls_sql_public_user_lifetime_stats"
+    ],
+    "173": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls_sql_public_username_history"
+    ],
+    "174": [
+      "supabase_migrations_20260811222515_57_explicitly_enable_rls_sql_public_users"
+    ],
+    "175": [
+      "supabase_migrations_20260813050308_61_audit_action_group_archived"
+    ],
+    "176": [
+      "supabase_migrations_20260814192920_63_grant_circle_preview_to_anon"
+    ],
+    "177": [
+      "supabase_migrations_20260815001349_65_hints_on_remaining_rpcs"
+    ],
+    "178": [
+      "supabase_migrations_20260815003521_67_revoke_anon_from_new_private_helper"
+    ],
+    "179": [
+      "supabase_migrations_20260818025557_76_today_screen_mode"
+    ],
+    "180": [
+      "supabase_migrations_20260818025557_76_today_screen_mode_sql_public_users"
+    ],
+    "181": [
+      "supabase_migrations_20260822034916_78_push_shows_circle_name"
+    ],
+    "182": [
+      "supabase_migrations_20260822034916_78_push_shows_circle_name_sql_public_users"
+    ],
+    "183": [
+      "supabase_migrations_20260822113554_80_photo_url_must_be_your_own_key"
+    ],
+    "184": [
+      "supabase_migrations_20260822113554_80_photo_url_must_be_your_own_key_sql_public_progress_entries"
+    ],
+    "185": [
+      "supabase_migrations_20260824024833_82_photos_are_jpeg"
+    ],
+    "186": [
+      "supabase_migrations_20260824024833_82_photos_are_jpeg_sql_public_progress_entries"
+    ],
+    "187": [
+      "supabase_migrations_20260825054058_84_goal_deadline_is_a_date"
+    ],
+    "188": [
+      "supabase_migrations_20260825054058_84_goal_deadline_is_a_date_sql_public_goals"
+    ],
+    "189": [
+      "supabase_migrations_20260825082151_85_avatar_url_is_your_own_key_sql_public_users"
+    ],
+    "190": [
+      "supabase_migrations_20260825083554_86_profile_by_username_sql_public_user_lifetime_stats"
+    ],
+    "191": [
+      "supabase_migrations_20260825084955_88_report_type_user_profile"
+    ],
+    "192": [
+      "supabase_migrations_20260828010934_90_roster_carries_avatars_sql_public_goals"
+    ],
+    "193": [
+      "supabase_migrations_20260828010934_90_roster_carries_avatars_sql_public_group_cycles"
+    ],
+    "194": [
+      "supabase_migrations_20260828012020_92_audit_site_admin_changes"
+    ],
+    "195": [
+      "supabase_migrations_20260901045835_97_notification_type_invited"
+    ],
+    "196": [
+      "supabase_migrations_20260901180442_101_notification_types_for_circle_activity"
+    ],
+    "197": [
+      "supabase_migrations_20260901180457_102_notification_preferences"
+    ],
+    "198": [
+      "supabase_migrations_20260901180457_102_notification_preferences_sql_public_users"
+    ],
+    "199": [
+      "supabase_migrations_20260901182029_104_revoke_execute_on_step_19_trigger_functions"
+    ],
+    "200": [
+      "vitest_server_only_stub"
+    ]
+  },
+  "cohesion": {
+    "0": 0.05308641975308642,
+    "1": 0.07518796992481203,
+    "2": 0.08686868686868687,
+    "3": 0.07897793263646923,
+    "4": 0.11097560975609756,
+    "5": 0.04878048780487805,
+    "6": 0.10526315789473684,
+    "7": 0.05714285714285714,
+    "8": 0.125,
+    "9": 0.10804597701149425,
+    "10": 0.06666666666666667,
+    "11": 0.1402116402116402,
+    "12": 0.1396011396011396,
+    "13": 0.12923076923076923,
+    "14": 0.1476923076923077,
+    "15": 0.14333333333333334,
+    "16": 0.17753623188405798,
+    "17": 0.20346320346320346,
+    "18": 0.18571428571428572,
+    "19": 0.1631578947368421,
+    "20": 0.19298245614035087,
+    "21": 0.19298245614035087,
+    "22": 0.16339869281045752,
+    "23": 0.21568627450980393,
+    "24": 0.24166666666666667,
+    "25": 0.3047619047619048,
+    "26": 0.17142857142857143,
+    "27": 0.13333333333333333,
+    "28": 0.14285714285714285,
+    "29": 0.18681318681318682,
+    "30": 0.1978021978021978,
+    "31": 0.2564102564102564,
+    "32": 0.16666666666666666,
+    "33": 0.18181818181818182,
+    "34": 0.2545454545454545,
+    "35": 0.2545454545454545,
+    "36": 0.2727272727272727,
+    "37": 0.18181818181818182,
+    "38": 0.2,
+    "39": 0.2222222222222222,
+    "40": 0.2222222222222222,
+    "41": 0.26666666666666666,
+    "42": 0.26666666666666666,
+    "43": 0.2222222222222222,
+    "44": 0.3888888888888889,
+    "45": 0.2222222222222222,
+    "46": 0.2222222222222222,
+    "47": 0.2222222222222222,
+    "48": 0.2222222222222222,
+    "49": 0.25,
+    "50": 0.2222222222222222,
+    "51": 0.25,
+    "52": 0.25,
+    "53": 0.25,
+    "54": 0.2857142857142857,
+    "55": 0.2857142857142857,
+    "56": 0.25,
+    "57": 0.3333333333333333,
+    "58": 0.3333333333333333,
+    "59": 0.42857142857142855,
+    "60": 0.38095238095238093,
+    "61": 0.3333333333333333,
+    "62": 0.2857142857142857,
+    "63": 0.6666666666666666,
+    "64": 0.5333333333333333,
+    "65": 0.4,
+    "66": 0.4,
+    "67": 0.3333333333333333,
+    "68": 0.3333333333333333,
+    "69": 0.6666666666666666,
+    "70": 0.4,
+    "71": 0.4666666666666667,
+    "72": 0.4,
+    "73": 0.3333333333333333,
+    "74": 0.3333333333333333,
+    "75": 0.3333333333333333,
+    "76": 0.4,
+    "77": 0.6,
+    "78": 0.4,
+    "79": 0.4,
+    "80": 0.4,
+    "81": 0.4,
+    "82": 0.6666666666666666,
+    "83": 0.6666666666666666,
+    "84": 0.5,
+    "85": 0.5,
+    "86": 0.6666666666666666,
+    "87": 0.5,
+    "88": 0.5,
+    "89": 0.5,
+    "90": 0.5,
+    "91": 0.5,
+    "92": 0.5,
+    "93": 0.5,
+    "94": 0.5,
+    "95": 0.5,
+    "96": 0.6666666666666666,
+    "97": 0.6666666666666666,
+    "98": 0.6666666666666666,
+    "99": 0.6666666666666666,
+    "100": 0.6666666666666666,
+    "101": 0.6666666666666666,
+    "102": 0.6666666666666666,
+    "103": 0.6666666666666666,
+    "104": 0.6666666666666666,
+    "105": 0.6666666666666666,
+    "106": 0.6666666666666666,
+    "107": 0.6666666666666666,
+    "108": 1.0,
+    "109": 1.0,
+    "110": 1.0,
+    "111": 1.0,
+    "112": 1.0,
+    "113": 1.0,
+    "114": 1.0,
+    "115": 1.0,
+    "116": 1.0,
+    "117": 1.0,
+    "118": 1.0,
+    "119": 1.0,
+    "120": 1.0,
+    "121": 1.0,
+    "122": 1.0,
+    "123": 1.0,
+    "124": 1.0,
+    "125": 1.0,
+    "126": 1.0,
+    "127": 1.0,
+    "128": 1.0,
+    "129": 1.0,
+    "130": 1.0,
+    "131": 1.0,
+    "132": 1.0,
+    "133": 1.0,
+    "134": 1.0,
+    "135": 1.0,
+    "136": 1.0,
+    "137": 1.0,
+    "138": 1.0,
+    "139": 1.0,
+    "140": 1.0,
+    "141": 1.0,
+    "142": 1.0,
+    "143": 1.0,
+    "144": 1.0,
+    "145": 1.0,
+    "146": 1.0,
+    "147": 1.0,
+    "148": 1.0,
+    "149": 1.0,
+    "150": 1.0,
+    "151": 1.0,
+    "152": 1.0,
+    "153": 1.0,
+    "154": 1.0,
+    "155": 1.0,
+    "156": 1.0,
+    "157": 1.0,
+    "158": 1.0,
+    "159": 1.0,
+    "160": 1.0,
+    "161": 1.0,
+    "162": 1.0,
+    "163": 1.0,
+    "164": 1.0,
+    "165": 1.0,
+    "166": 1.0,
+    "167": 1.0,
+    "168": 1.0,
+    "169": 1.0,
+    "170": 1.0,
+    "171": 1.0,
+    "172": 1.0,
+    "173": 1.0,
+    "174": 1.0,
+    "175": 1.0,
+    "176": 1.0,
+    "177": 1.0,
+    "178": 1.0,
+    "179": 1.0,
+    "180": 1.0,
+    "181": 1.0,
+    "182": 1.0,
+    "183": 1.0,
+    "184": 1.0,
+    "185": 1.0,
+    "186": 1.0,
+    "187": 1.0,
+    "188": 1.0,
+    "189": 1.0,
+    "190": 1.0,
+    "191": 1.0,
+    "192": 1.0,
+    "193": 1.0,
+    "194": 1.0,
+    "195": 1.0,
+    "196": 1.0,
+    "197": 1.0,
+    "198": 1.0,
+    "199": 1.0,
+    "200": 1.0
+  },
+  "gods": [
+    {
+      "id": "lib_supabase_server_createclient",
+      "label": "createClient()",
+      "degree": 126
+    },
+    {
+      "id": "e2e_db_requireenv",
+      "label": "requireEnv()",
+      "degree": 56
+    },
+    {
+      "id": "lib_errors_tomessage",
+      "label": "toMessage()",
+      "degree": 56
+    },
+    {
+      "id": "lib_errors_actionresult",
+      "label": "ActionResult",
+      "degree": 37
+    },
+    {
+      "id": "lib_ratelimit_enforce",
+      "label": "enforce()",
+      "degree": 32
+    },
+    {
+      "id": "e2e_session_storagestatefor",
+      "label": "storageStateFor()",
+      "degree": 30
+    },
+    {
+      "id": "e2e_db_useridbyemail",
+      "label": "userIdByEmail()",
+      "degree": 24
+    },
+    {
+      "id": "lib_database_types_database",
+      "label": "Database",
+      "degree": 23
+    },
+    {
+      "id": "e2e_db_admin",
+      "label": "admin",
+      "degree": 21
+    },
+    {
+      "id": "e2e_db_sessionfor",
+      "label": "sessionFor()",
+      "degree": 20
+    }
+  ],
+  "surprises": [
+    {
+      "source": "CircleSettingsPage()",
+      "target": "createClient()",
+      "source_files": [
+        "app/(app)/circles/[id]/settings/page.tsx",
+        "lib/supabase/server.ts"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "connects across different repos/directories; bridges separate communities; peripheral node `CircleSettingsPage()` unexpectedly reaches hub `createClient()`"
+    },
+    {
+      "source": "CheckEmailPage()",
+      "target": "createClient()",
+      "source_files": [
+        "app/auth/check-email/page.tsx",
+        "lib/supabase/server.ts"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "connects across different repos/directories; bridges separate communities; peripheral node `CheckEmailPage()` unexpectedly reaches hub `createClient()`"
+    },
+    {
+      "source": "ForgotPasswordPage()",
+      "target": "createClient()",
+      "source_files": [
+        "app/auth/forgot-password/page.tsx",
+        "lib/supabase/server.ts"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "connects across different repos/directories; bridges separate communities; peripheral node `ForgotPasswordPage()` unexpectedly reaches hub `createClient()`"
+    },
+    {
+      "source": "ResetPasswordPage()",
+      "target": "createClient()",
+      "source_files": [
+        "app/auth/reset-password/page.tsx",
+        "lib/supabase/server.ts"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "connects across different repos/directories; bridges separate communities; peripheral node `ResetPasswordPage()` unexpectedly reaches hub `createClient()`"
+    },
+    {
+      "source": "SignUpPage()",
+      "target": "createClient()",
+      "source_files": [
+        "app/auth/sign-up/page.tsx",
+        "lib/supabase/server.ts"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "connects across different repos/directories; bridges separate communities; peripheral node `SignUpPage()` unexpectedly reaches hub `createClient()`"
+    }
+  ],
+  "tokens": {
+    "input": 0,
+    "output": 0
+  }
+}

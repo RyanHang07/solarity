@@ -1,24 +1,4 @@
-// Generated from the live Supabase schema. Do not edit by hand.
-//
-// Regenerate after any migration:
-//   npx supabase gen types typescript --project-id wyuadcnrxisqmzygzhzd > lib/database.types.ts
-//
-// **Redirect with care on Windows.** PowerShell's `>` writes UTF-16LE, which
-// `tsc` tolerates and ESLint rejects outright as "File appears to be binary",
-// and which silently drops this header. If that happens, re-encode as UTF-8:
-//   npx supabase gen types typescript --project-id wyuadcnrxisqmzygzhzd `
-//     | Out-File -Encoding utf8 lib/database.types.ts
-//
-// **This header has been lost once already** — it was absent at HEAD, which is
-// the trap above happening rather than a hypothetical. If it goes missing,
-// paste it back; nothing regenerates it.
-//
-// Note: job_* and admin_* functions appear here because they exist in the
-// public schema. EXECUTE on job_* is granted to service_role only, and every
-// admin_* function checks private.is_admin() as its first statement — Postgres
-// refuses regardless of what these types allow.
-
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -30,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.17"
+    PostgrestVersion: "14.5"
   }
   graphql_public: {
     Tables: {
@@ -191,6 +171,42 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "daily_completion_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      digest_pushes: {
+        Row: {
+          date: string
+          group_id: string
+          pushed_at: string
+          user_id: string
+        }
+        Insert: {
+          date: string
+          group_id: string
+          pushed_at?: string
+          user_id: string
+        }
+        Update: {
+          date?: string
+          group_id?: string
+          pushed_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "digest_pushes_group_id_date_fkey"
+            columns: ["group_id", "date"]
+            isOneToOne: false
+            referencedRelation: "digest_snapshots"
+            referencedColumns: ["group_id", "date"]
+          },
+          {
+            foreignKeyName: "digest_pushes_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users"
@@ -855,16 +871,16 @@ export type Database = {
           display_name: string | null
           id: string
           last_rollover_date: string | null
-          pending_checkin_timezone: string | null
           notify_circle_activity: boolean
           notify_first_finisher: boolean
           notify_goal_achieved: boolean
           notify_last_one_left: boolean
+          pending_checkin_timezone: string | null
           push_shows_circle_name: boolean
-          terms_accepted_at: string | null
-          terms_accepted_version: string | null
           role: Database["public"]["Enums"]["user_role"]
           sun_preset_id: string | null
+          terms_accepted_at: string | null
+          terms_accepted_version: string | null
           today_screen_mode: Database["public"]["Enums"]["today_screen_mode"]
           updated_at: string
           username: string | null
@@ -877,16 +893,16 @@ export type Database = {
           display_name?: string | null
           id: string
           last_rollover_date?: string | null
-          pending_checkin_timezone?: string | null
           notify_circle_activity?: boolean
           notify_first_finisher?: boolean
           notify_goal_achieved?: boolean
           notify_last_one_left?: boolean
+          pending_checkin_timezone?: string | null
           push_shows_circle_name?: boolean
-          terms_accepted_at?: string | null
-          terms_accepted_version?: string | null
           role?: Database["public"]["Enums"]["user_role"]
           sun_preset_id?: string | null
+          terms_accepted_at?: string | null
+          terms_accepted_version?: string | null
           today_screen_mode?: Database["public"]["Enums"]["today_screen_mode"]
           updated_at?: string
           username?: string | null
@@ -899,16 +915,16 @@ export type Database = {
           display_name?: string | null
           id?: string
           last_rollover_date?: string | null
-          pending_checkin_timezone?: string | null
           notify_circle_activity?: boolean
           notify_first_finisher?: boolean
           notify_goal_achieved?: boolean
           notify_last_one_left?: boolean
+          pending_checkin_timezone?: string | null
           push_shows_circle_name?: boolean
-          terms_accepted_at?: string | null
-          terms_accepted_version?: string | null
           role?: Database["public"]["Enums"]["user_role"]
           sun_preset_id?: string | null
+          terms_accepted_at?: string | null
+          terms_accepted_version?: string | null
           today_screen_mode?: Database["public"]["Enums"]["today_screen_mode"]
           updated_at?: string
           username?: string | null
@@ -920,6 +936,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      accept_terms: { Args: { p_version: string }; Returns: undefined }
       admin_list_admins: {
         Args: never
         Returns: {
@@ -1023,15 +1040,18 @@ export type Database = {
           role: string
           sky_closed: boolean
           streak_grace: boolean
-          sun_preset_id: string | null
+          sun_preset_id: string
           total_count: number
           user_id: string
           username: string
         }[]
       }
-      accept_terms: { Args: { p_version: string }; Returns: undefined }
       complete_onboarding: {
-        Args: { p_terms_version: string; p_timezone: string; p_username: string }
+        Args: {
+          p_terms_version: string
+          p_timezone: string
+          p_username: string
+        }
         Returns: undefined
       }
       create_circle: {
@@ -1056,6 +1076,10 @@ export type Database = {
         Returns: string
       }
       export_user_data: { Args: never; Returns: Json }
+      invite_user_to_circle: {
+        Args: { p_group_id: string; p_user_id: string }
+        Returns: undefined
+      }
       job_list_expired_photos: {
         Args: { p_days?: number; p_limit?: number }
         Returns: {
@@ -1080,10 +1104,6 @@ export type Database = {
           bucket: string
           path: string
         }[]
-      }
-      invite_user_to_circle: {
-        Args: { p_group_id: string; p_user_id: string }
-        Returns: undefined
       }
       join_circle: { Args: { p_token: string }; Returns: string }
       my_pending_checkin_timezone: { Args: never; Returns: string }
@@ -1208,12 +1228,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1237,11 +1257,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1262,11 +1282,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1287,11 +1307,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1304,11 +1324,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

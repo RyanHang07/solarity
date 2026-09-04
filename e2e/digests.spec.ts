@@ -223,6 +223,16 @@ test("a snapshot with no roll call still shows its counts", async ({ browser }) 
 
 /* ------------------------------------------------------------------ 11c --
  * Digests leave the Notifications tab, and its badge.
+ *
+ * **Migration 112 made these rows impossible, and the tests stay.** Nothing
+ * writes a `digest` notification any more — the snapshot is the digest, and
+ * `digest_pushes` records delivery — so the exclusion in
+ * `TAB_NOTIFICATION_TYPES` is now a guard against a fossil enum value rather
+ * than a rule about live data.
+ *
+ * The rows below are inserted by the service key, which is the only thing that
+ * can still create one. That is the point: a guard nothing exercises is a guard
+ * nobody notices removing, and the enum value cannot be dropped in Postgres.
  */
 
 test("the tab lists events and never a digest, and the badge agrees", async ({
@@ -327,6 +337,33 @@ test("an unread digest never lights the badge", async ({ browser }) => {
     await deleteDigests(groupId)
     await context.close()
   }
+})
+
+/**
+ * Migration 112's standing invariant: nothing writes digest notifications.
+ *
+ * **Asserted over the whole table rather than over a fixture**, because the
+ * failure this catches is a *reintroduction* — `build_daily_digests` growing
+ * its member fan-out back, or a new caller deciding a digest deserves a row.
+ * Either would show up here within a day of the nightly job running, and
+ * nowhere else: the tab and the badge would keep hiding them exactly as the
+ * tests above prove they do, which is what made the old shape survive so long.
+ *
+ * The two tests above insert their own and clean up in `finally`, so a run that
+ * dies mid-test can leave one behind and fail this. That is the right trade: a
+ * stray row is worth a red test.
+ */
+test("nothing writes digest notifications any more", async () => {
+  const { count, error } = await admin
+    .from("notifications")
+    .select("id", { count: "exact", head: true })
+    .eq("type", "digest")
+
+  expect(error?.message ?? null).toBeNull()
+  expect(
+    count,
+    "a digest notification exists, so something is writing rows migration 112 removed",
+  ).toBe(0)
 })
 
 /** The number beside the Notifications tab, or 0 when there is none. */

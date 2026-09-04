@@ -63,10 +63,18 @@ export default function PrivacyPage() {
 
       <PolicySection heading="What is collected">
         <ul className="flex list-disc flex-col gap-1 pl-5">
+          {/*
+            **Rewritten 4 Sept.** This described Google as the only way in,
+            which stopped being true at step 20. A policy that names one of two
+            sign-in methods understates what is collected from the other, and
+            the other is the one with a password in it.
+          */}
           <li>
-            <strong>From signing in.</strong> If you use Google, your email
-            address and the name on your Google account. Solarity never sees your
-            Google password.
+            <strong>From signing in.</strong> Your email address, either way. If
+            you use Google, also the name on your Google account — and Solarity
+            never sees your Google password. If you sign up with a password
+            instead, it is stored scrambled by Supabase in a form that cannot be
+            turned back into what you typed, and nobody here can read it.
           </li>
           <li>
             <strong>Your profile.</strong> A username, an optional display name,
@@ -83,7 +91,20 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong>Notifications.</strong> If you turn on push, the address your
-            browser gives us to reach that device, and a label for it.
+            browser gives us to reach that device, and a label for it.{" "}
+            {/*
+              **The push service is a recipient and was not named.** The
+              endpoint belongs to Apple, Google or Mozilla depending on the
+              browser, and sending a notification means contacting it. Nothing
+              here chooses it and nothing is configured — the browser hands the
+              address over — but "who else touches it" is exactly the question
+              this page exists to answer.
+            */}
+            <span className="opacity-70">
+              That address belongs to your browser&apos;s own push service —
+              Apple, Google or Mozilla — so sending you a notification means
+              contacting them.
+            </span>
           </li>
           <li>
             <strong>Your IP address.</strong> Every site sees one. Solarity does
@@ -92,10 +113,20 @@ export default function PrivacyPage() {
             against it so a stranger cannot guess their way into a Circle.
           </li>
         </ul>
+        {/*
+          **"It sends you no email today" was true until step 20 and is not
+          now.** Confirmation links, password resets and the resend button all
+          send mail. The correction matters twice: the claim itself was wrong,
+          and the sentence built on it — that there is no way to reach you —
+          was the reasoning behind advice on `/terms` about exporting your data
+          rather than expecting notice. Both are fixed in the same commit,
+          which is the rule this page sets for itself.
+        */}
         <p className="opacity-70">
           There is no analytics, no advertising, and no tracking across other
-          sites. Solarity does not sell anything about you. It also sends you no
-          email today, which is why it has no way to reach you outside the app.
+          sites. Solarity does not sell anything about you. The only email it
+          sends is about your account — confirming your address and resetting
+          your password — and there is no mailing list to be on.
         </p>
       </PolicySection>
 
@@ -262,7 +293,8 @@ export default function PrivacyPage() {
           */}
           Not in the file: your notifications, the devices you turned push on
           for, who you have blocked, reports you filed, your notification
-          settings, and the email address Google gave us. Write to{" "}
+          settings, your sun colour, when you accepted these terms, and your
+          email address. Write to{" "}
           <a href={`mailto:${CONTACT_EMAIL}`} className="underline">
             {CONTACT_EMAIL}
           </a>{" "}
@@ -393,6 +425,22 @@ export default function PrivacyPage() {
           app, so a bug in a screen cannot show someone a goal they were not
           meant to see.
         </p>
+        {/*
+          **A breach paragraph, which was the one structural gap.** GDPR asks
+          for notification to the supervisory authority within 72 hours and to
+          affected people without undue delay where the risk is high. A security
+          section that describes only the defences reads as though nothing could
+          go wrong, and the promise here has to be one a single person can
+          actually keep: email is the only channel, and it now exists.
+        */}
+        <p>
+          <strong>If something goes wrong.</strong> If data is exposed in a way
+          that puts you at risk, you will be emailed at the address on your
+          account as soon as the scope is understood, and the relevant regulator
+          told within 72 hours of it being discovered. That is a commitment from
+          one person, not a team with a rota, which is exactly why it is written
+          down here.
+        </p>
         <p className="opacity-70">
           No system is perfect, and this one is early. If you find something
           wrong, please write.
@@ -405,16 +453,23 @@ export default function PrivacyPage() {
         </p>
         <p className="opacity-70">
           {/*
-            This used to promise notice in the app before a change took effect.
-            Nothing implements that: there is no acceptance record, no banner,
-            and the app sends no email, so the promise had no mechanism behind
-            it. A policy that overstates its own machinery is the exact failure
-            this page is meant to avoid.
+            **The conclusion survived two rewrites; the reasoning did not.**
+            It first promised notice in the app before a change took effect,
+            which nothing implemented. It was then corrected to "does not send
+            email" — which step 20 falsified, and which had been offered as the
+            *reason* the date was the notice.
+
+            The reason now is narrower and actually true: transactional mail
+            exists, an announcement channel does not. Broadcasting to every
+            account would be a thing to build, not a switch to flip. Recorded
+            because a policy that overstates its own machinery is the exact
+            failure this page is meant to avoid, and it has now been made in
+            both directions.
           */}
-          It will not email you, because Solarity does not send email. There is
-          no in-app announcement yet either, so the honest version is that the
-          date is the notice. That changes when the signup flow does, and this
-          paragraph changes with it.
+          It will not email you about a change. Solarity can send mail about
+          your own account, but there is no announcement list and nothing that
+          writes to everyone, so the honest version is that the date is the
+          notice. If that ever changes, this paragraph changes with it.
         </p>
       </PolicySection>
     </PolicyPage>

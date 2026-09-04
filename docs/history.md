@@ -4290,9 +4290,9 @@ Covered by `gates.spec.ts`, using the `withNoActiveGoals` fixture that already e
 
 ---
 
-## The manual pass, rows 1 to 24 ✅ run
+## The manual pass ✅ complete
 
-**Everything on this list had failed in a browser while passing headless**, which is why it existed at all. Two sittings: rows 1 to 15 on 1 September, rows 16 to 24 on 4 September. What is still outstanding is in `build-plan.md` and is a short list.
+**Everything on this list had failed in a browser while passing headless**, which is why it existed at all. Two sittings: rows 1 to 15 on 1 September, and rows 16 to 30 plus twelve re-checks on 4 September. **All of it is run.** Eight defects, none of them reachable by any test in the suite.
 
 ### Rows 1 to 15 — 1 September, on a real iPhone installed to the home screen
 
@@ -4316,7 +4316,7 @@ Covered by `gates.spec.ts`, using the `withNoActiveGoals` fixture that already e
 
 **All fifteen passed and none needed a fix.** The avatar pipeline was the last feature shipped with no run on hardware: the label-opened picker, EXIF rotation, HEIC, all four render sites, the fixed key across two reloads.
 
-### Rows 16 to 24 — 4 September, the galaxy on a phone
+### Rows 16 to 30 — 4 September, the galaxy and the five auth screens
 
 Run against `npm run preview`. **Worst frame at 10 × 10 was 17ms**, a clean 60, which settles the question the lab was built to ask: no fallback renderer, no alpha-shaped albedo, the clip mask stays.
 
@@ -4333,18 +4333,21 @@ Run against `npm run preview`. **Worst frame at 10 × 10 was 17ms**, a clean 60,
 | 24 | Reduce Motion, both surfaces | ✅ Still scene, no transition |
 | 24b | Closing the expanded view keeps the camera where the finger left it | ❌ Not on the original list, and it should have been |
 
-### The six defects that run found
+### The eight defects that run found
 
 | Finding | The fix, and why it is not the obvious one |
 |---|---|
 | **Pinch does nothing; the whole page zooms** | `touch-action: pan-y` on the canvas is what lets a thumb scroll the page through an embedded galaxy, and a comment claimed it left multi-touch alone. It does not: once `touch-action` names a browser gesture **iOS routes the entire stream to the browser**, so two fingers become a page zoom and the canvas is sent `pointercancel` mid-gesture. The trade is real in a card and worthless full screen, so it is made per state now — `setPageScrollThrough(!expanded)`. The card also got its zoom buttons back; they had been removed on the reasoning that "pinch is better than a button at it", which was true and left a phone with no way to zoom at all |
 | **And the card's gestures still felt inconsistent afterwards** | Reported again on the Circle, which is where the sky is most worth moving. The first fix stopped the page zooming and left the two-finger *pan* in place — running on whichever events the browser had not already claimed, against coordinates it was concurrently scaling. **Not a gesture that failed, a gesture that half-worked**, which is worse: it responds sometimes, so it reads as a bad implementation rather than as a boundary. **On touch the card now ignores fingers entirely** and the camera bar is the whole control set; expanding hands the canvas the gesture outright. A mouse or stylus is untouched in either state, because neither ever competed with a scroll |
 | **A tap names nobody** | Two fixes, and the first was aimed at the wrong file. The host returned early on `(pointer: coarse)`, on the sound worry that a name shown on tap would stick — a finger's "leave" arrives as it lifts, so honour it and the label dies in the same breath. That half is right: the leave is ignored on touch and the label **expires on a timer**. But it was still silent on a phone, because the *scene* only announced a system on `pointerover`, and **over and out are a mouse's vocabulary** — what a touch screen synthesises around a tap varies, especially when the browser has claimed the gesture. The name is now also bound to `pointertap`, which is the event `bindPlanetSelect` and `bindSunSelect` already use and therefore demonstrably fires on this hardware. On a Circle a planet tap had no other job anyway |
-| **Expanded, the Dynamic Island sat on the Close button** | Only in the installed PWA, which is why a browser tab never showed it. `body` pays the `env(safe-area-inset-*)` that the root layout's `viewport-fit=cover` asks for — and **`position: fixed` is laid out against the viewport, not against that padded box**, so the expanded frame was the one thing in the app that never got the margin back. Padding on the open frame rather than insets, so the sky still reaches every edge while the canvas and the controls, both `inset-0`, resolve against the padding box |
 | **`pointercancel` was never handled** | Found while reading the above, not by using it. A cancelled pointer never comes up, so its entry sat in `activePointers` forever — the next single finger looked like the second of a pair, started a pinch against a stale coordinate, and left `cameraInteracting` stuck true, which silently disables auto-fit for the rest of the mount |
 | **The camera survived the close** | Closing now calls `resetCamera()`. And `resetCamera` now clears `focusedId`, which it did not: focus is state the *caller* reads, so a reset that moved the camera home while still naming a member left the next tap on that one member's sun asking to pull back out from a view already out. One member, silently dead, only after a reset |
+| **The camera bar wrapped into three ragged rows** | `--touch > :first-child { grid-column: 4 }`, written when the touch set was five buttons with reset at the front. Restoring zoom made it wrong **silently**, because it referred to a *position* rather than to the button it meant. Replaced by a class on the first arrow, applied to both bars: "controls, then a row of arrows" is the layout in each, so stating it once is what stops the two drifting again |
+| **Expanded, the Dynamic Island sat on the Close button — and it took three arrangements** | `body` pays the `env(safe-area-inset-*)` that `viewport-fit=cover` asks for, and **`position: fixed` is laid out against the viewport rather than that padded box**, so the expanded frame was the one thing in the app that never got the margin back. Only in the installed PWA, which is why a browser tab never showed it. `padding: env(...)` on `[data-viewhole][data-open]` did nothing; a `display-mode: standalone` floor under it did nothing either, **and its theory was wrong** — the probe measured **62 / 0 / 34 / 0 standalone**, 0 in a tab, so the inset was always there. What the measurement ruled out was the *value*, leaving the rule not reaching the element. Rather than a third round guessing why an attribute selector on a `view-transition-name`d element behaves oddly, the inset moved to the two things that need it: an inline style on the Close button and a plain class on the host for the camera bar. **The frame is full-bleed now, and that is the better picture anyway** — nothing in the canvas is a control, so a sky that reaches the edges loses nothing |
 
-**The lesson, and it is the file's recurring one.** Four of these six are a rule that was right somewhere and applied one case too wide, and in three of them **the comment asserting the rule was itself wrong** — `touch-action` "does not govern multi-touch here" was the sentence that stood in front of the pinch bug for the whole port. A comment stating a browser behaviour is a claim, and a claim nothing tests is a claim that drifts.
+**The lesson, and it is the file's recurring one.** Five of these eight are a rule that was right somewhere and applied one case too wide, and in three of them **the comment asserting the rule was itself wrong** — `touch-action` "does not govern multi-touch here" was the sentence that stood in front of the pinch bug for the whole port. A comment stating a browser behaviour is a claim, and a claim nothing tests is a claim that drifts.
+
+**The second lesson is about how the last one was found.** Two fixes for the safe area were shipped on reasoning and neither changed anything on the device; the third began by *measuring*, and the measurement immediately ruled out the entire class of cause both fixes had been aimed at. **A probe that prints four numbers cost less than either wrong fix.** The same shape appears three times in this file now: the goal gate found by asking the database which accounts it would divert, `unsafe-eval` found by reading the reason the mount actually rejected with, and this. When a symptom has two possible causes that look identical from the outside, the cheap move is not to pick one.
 
 ---
 
@@ -4361,6 +4364,72 @@ Three reports from one friend's first session. **None was a renderer bug, and tw
 **The first-goal preview, and the one honesty problem in it.** The planet's colour is real and the surface is not: the renderer hashes a goal's id to pick a surface, and the row's id does not exist until the form is submitted. A convincing-looking uuid there would be a promise the next screen breaks, so the placeholder id is named as one. `beltMode` is `"off"` rather than `"auto"` for the same reason — the belt is rolled by migration 107's column default at insert, and `auto` would show a ring the real goal has a four-in-five chance of not getting: a coin flip presented as a preview.
 
 **And it cannot be tested end to end**, which is recorded rather than worked around. The onboarding gate is "never had a goal", goal rows are never deleted, so no fixture account can be in that state — and minting one leaves an `auth.users` row nothing in the app can clean up. The snapshot builder is unit-tested; the wiring is a manual row. That same unreachability is why this screen shipped the disabled-`<option>` defect that an audit, not a person, caught.
+
+---
+
+## The second legal accuracy pass ✅ done
+
+**Step 20 falsified both policy pages and neither noticed for four days.** The 31 August review had left them accurate; adding email-and-password sign-in made two load-bearing sentences untrue, and nothing in the repository could have caught it — the pages are prose, and prose does not typecheck.
+
+| Claim | What it had become |
+|---|---|
+| "Solarity sends you no email" — on **both** pages | False. `signUp`, `resend` and `resetPasswordForEmail` send confirmation links, resends and password resets. **And the sentence was load-bearing**: `/terms` used it as the *reason* for advising people to export their data rather than expect notice |
+| "If you use Google, your email address and the name on your Google account" | Described one of two sign-in methods, and omitted the one with a password in it |
+| Brevo — "Configured and unused today, because Google is the only way in" | The busiest processor in the list. It handles an address and a one-time link for every password account |
+| The export gap list — "the email address Google gave us" | Now applies to every account, and had not gained `sun_preset_id` or the terms-acceptance columns |
+| `TERMS_VERSION` — "Nothing records acceptance yet" | Migration 105 gave it columns and step 20c gave it a screen. The comment sat directly above the page it was wrong about |
+| `MINIMUM_AGE` — "The signup flow is where a confirmation goes" | Signup shipped. The confirmation did not, and a constant nobody reads was describing a check that does not exist |
+| Push endpoints | Named as collected, never named as *sent to*. The address belongs to Apple, Google or Mozilla, and delivering a notification means contacting them |
+
+**One structural gap rather than a stale sentence:** there was no breach paragraph. A security section that lists only defences reads as though nothing could go wrong. `/privacy` now commits to emailing affected people and telling the regulator within 72 hours — and says plainly that it is a commitment from one person rather than a team with a rota, because that is the fact a reader is entitled to weigh.
+
+### What was learned, and what now enforces it
+
+**Brevo is the entry worth studying.** The 31 August review nearly deleted it: nothing in the repository sent email, and a grep would have said it was unused. It was kept on the rule that **a processor is named for what it is wired to receive, not for what it happened to handle this month** — it was Supabase's SMTP sender in project settings, outside the codebase. Step 20 turned that judgement from cautious to correct within a week.
+
+**The same rule is why Cloudflare is deliberately absent** and why adding it is now step 0 of the Turnstile runbook rather than something to do in advance. Turnstile is off, so Cloudflare receives nothing today. The moment the toggle flips it receives an IP address and browser signals from three auth screens, and the disclosure has to ship *before* the processing rather than after.
+
+**`legal.spec.ts` gained an assertion shaped like the defect.** It already checked the absence of "told in the app" — a promise with no machinery. It now also checks the absence of any claim that Solarity sends no email, which is the same failure from the other side: a page written to avoid *over*stating its machinery spent a release **under**stating it. Asserted as an absence because the accurate wording is a judgement while the inaccurate one is a fixed phrase.
+
+**The rule this leaves behind**, and it is the one the pages already set for themselves: *when the code changes what happens to somebody's data, the page changes in the same commit.* It has now been broken once in each direction, which is the strongest argument available that the rule needs a test rather than a memory.
+
+---
+
+## Digests leave the notifications table ✅ done — migration 112
+
+**Deferred to v3 on 31 August and built on 4 September**, because the cost estimate in the deferral turned out to be the expensive half of a cheap change.
+
+### What was wrong with the old shape
+
+Step 11c replaced the digest *list* with the day boxes on Overview, which read `digest_snapshots`. From that moment a `notifications` row of type `digest` was rendered nowhere. It existed to be found by `send-digest-push`, and nothing else: `read_at` never applied, the badge excluded it, the tab excluded it, and `TAB_NOTIFICATION_TYPES` existed to keep three readers agreeing about a row none of them wanted.
+
+**A type filter is not a boundary.** Three readers each had to remember the exclusion, and each drift direction is its own silent bug — a badge counting rows the tab hides is a number you cannot clear by looking anywhere. The constant was the guard that fitted the risk, and it was still a memory with a comment on it.
+
+### What replaced it
+
+| | |
+|---|---|
+| `digest_pushes` | One row per member per digest. `(group_id, date, user_id)`, deny-all RLS, no grants — only the sender's service key touches it. A client that could insert here could suppress its own digests |
+| `build_daily_digests` | The member fan-out is gone. It writes one snapshot per Circle-day and nothing else |
+| `send-digest-push` | Two sources, one delivery path: events from `notifications`, digests from `digest_snapshots` |
+
+**The composite foreign key is the part worth copying.** `digest_pushes` cascades from `digest_snapshots (group_id, date)`, so the existing retention sweep clears delivery records for free — `run_retention_sweep` keeps its signature and its two counters and never learns the table exists. The deferral had estimated "a `pushed_at` equivalent, per member rather than per Circle" as the expensive part; making it a child of the snapshot removed the sweep half entirely.
+
+### Two things that came free, and one that had to be bounded
+
+**The audience is resolved at delivery time.** The old fan-out froze it when the snapshot was written, so somebody who joined overnight never got that day's digest and somebody who left still had a row addressed to them. Reading membership in the sender fixes both, and neither was the point of the change.
+
+**A window had to be invented, because the old design could not have had this problem.** A notification row existed or it did not, and retention eventually removed it. Reading snapshots directly means a Circle whose members all lacked a subscription for a week would deliver seven days of "yesterday" the moment one appeared. `DIGEST_WINDOW_DAYS = 3` covers a scheduler that missed a run or two, which is the case worth surviving; older than that is not news, and a notification that is not news is the thing this project has twice decided not to send.
+
+**And the delivery record is written even for accounts with no subscription**, matching what `pushed_at` already did for events. Without it every member without a device would be reconsidered on every run for three days.
+
+### The fossil, and what still tests it
+
+Postgres cannot drop an enum value, so `digest` remains a member of `notification_type` and always will. Nothing writes it and every existing row was deleted — 147 of them, backfilled into `digest_pushes` first so the new sender would not re-push three months of history at everybody.
+
+The exclusion in `TAB_NOTIFICATION_TYPES` therefore stays as a **guard rather than a rule**, and `digests.spec.ts` still exercises it through the service key, which is the only thing that can now create such a row. It also gained the invariant the change is really about: **a count over the whole table asserting nothing writes digest notifications any more.** A reintroduced fan-out would show up there within a day of the nightly job, and nowhere else — the tab and the badge would go on hiding them exactly as before, which is how the old shape survived as long as it did.
+
+**One assertion failed on its first draft** and is worth recording for the next migration: it compared `pg_get_constraintdef` against a literal `'PRIMARY KEY (group_id, date, user_id)'` and Postgres quotes `date`. An assertion that fails for a reason unrelated to its claim is worse than none, so it asks by column name now.
 
 ---
 
@@ -4392,6 +4461,8 @@ Three reports from one friend's first session. **None was a renderer bug, and tw
 | 24 | The Circle's sky | ✅ no migration. `GalaxyCard` shared by both surfaces, the sky above the roster, and a viewhole that can sit mid-page |
 | 21 | The galaxy ports, and the sky gets its data | ✅ migrations 107–109. `lib/galaxy` with two entry points, the client host, `goals.belt_visible`, `private.group_day_closed`, and a roster that can describe a Circle's sky |
 
-**What that means.** A person can sign in, set goals, check them off with a note and a photo, invite a friend **by name** into a Circle, see who finished today, hear about it while the day is still going, keep a streak, and read a five-day digest. **The premise the product exists to test is now testable.**
+**What that means: v1 functionality is complete, and it has been used on a phone.** A person can sign up with email or Google, pick a username and a sun colour, leave onboarding with a goal already in the app, check it off with a note and a photo, invite a friend **by name** into a Circle, see who finished today, hear about it while the day is still going, keep a streak through a grace day, read a five-day digest, retire or achieve a goal and read its record, report and block, and delete the account and everything in it. Both galaxies draw — their own and their Circle's — at **17ms a frame with a hundred planets on an installed iPhone**.
 
-**What it does not mean.** Nothing has shipped to anyone yet. That sentence used to continue "and the only way in is a Google button on a page that explains nothing" — step 20 closed exactly that, and it is kept here because the gap is what the step was for. What is left before anyone outside the two test accounts sees it is the design pass, a device run over the five new auth screens, and a regenerated code graph.
+**And the manual pass is run, all thirty rows plus twelve re-checks.** That is the half worth stating separately, because everything on that list had failed in a browser while passing headless at least once. It found eight defects across two sittings and none of them was reachable by any test in the suite: an `unsafe-eval` CSP that meant the renderer had **never run in a production build**, two-finger gestures the browser was quietly claiming, a name that appeared on a mouse and not on a finger, a camera bar wrapping into three ragged rows, and controls under a Dynamic Island that took three arrangements to place.
+
+**What it does not mean.** Nothing has shipped to anyone but two test accounts and one friend. What is left is **not functionality**: the design pass, and one code-graph cache to regenerate after it.

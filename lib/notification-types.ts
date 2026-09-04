@@ -8,9 +8,23 @@ type NotificationType = Database["public"]["Enums"]["notification_type"]
  * ## Why this list exists at all
  *
  * `digest` rows are no longer rendered anywhere in that list — the day boxes on
- * Overview replaced them, from `digest_snapshots` — so a digest row now exists
- * for exactly one purpose: carrying a push. `notifications` became an outbox
- * for these four types and a **delivery queue** for digests.
+ * Overview replaced them, from `digest_snapshots` — so a digest row existed for
+ * exactly one purpose: carrying a push. `notifications` was an outbox for these
+ * types and a **delivery queue** for digests.
+ *
+ * ## Migration 112 removed the second job, and this list stayed
+ *
+ * `send-digest-push` reads `digest_snapshots` directly now and records what it
+ * delivered in `digest_pushes`, so **nothing writes a `digest` row any more**
+ * and every existing one was deleted. What remains is a fossil: Postgres
+ * cannot drop an enum value, so `digest` is still a member of
+ * `notification_type` and always will be.
+ *
+ * So the exclusion below is a **guard rather than a rule**. It costs nothing,
+ * it is exercised by `digests.spec.ts` through the service key — the only thing
+ * that can still create one — and it is the reason a reintroduced fan-out would
+ * be caught by a count rather than by somebody noticing a badge that will not
+ * clear.
  *
  * ## One list, three readers, on purpose
  *
@@ -23,9 +37,10 @@ type NotificationType = Database["public"]["Enums"]["notification_type"]
  * | Tab lists digests, badge ignores them | a list that never explains its own badge |
  * | Mark-read includes digests | the app claims you read something it never showed |
  *
- * A shared constant is not much of a guard, but it is the guard that fits the
- * size of the risk. The structural fix — digests leaving this table entirely —
- * is in `build-plan.md`, under Deferred.
+ * A shared constant is not much of a guard, but it was the guard that fitted
+ * the size of the risk. **The structural fix landed as migration 112** and the
+ * three drift directions above are now unreachable for digests, because there
+ * is nothing to drift about.
  *
  * ## `read_at` does not apply to a digest
  *

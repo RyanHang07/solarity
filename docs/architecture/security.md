@@ -115,11 +115,14 @@ This is the stronger posture: access is an allowlist, and a forgotten grant fail
 | `invite_links` | admins | none, RPC only | `enabled` | none |
 | `group_cycle_stats` / `group_daily_completion` | cycle members | none | none | none |
 | `group_member_category_stats` / `digest_snapshots` | circle members | none | none | none |
+| `digest_pushes` | **nobody** | none | none | none |
 | `notifications` | self | none | `read_at` | own |
 | `push_subscriptions` | self | own | `device_label` | own |
 | `user_blocks` | blocker only | own | none | own |
 | `content_reports` | own submissions | own, circle-mate target | none | none |
 | `audit_log`, `username_history` | none | none | none | none |
+
+**`digest_pushes` is one of the three rows above nobody holds a grant on**, and it is the strictest: RLS is on with no policies *and* every grant revoked, so `authenticated` cannot reach it even to be refused. Only `send-digest-push` touches it, holding the service key, which bypasses both. Migration 112 — a client that could insert here could suppress its own digests, and nobody has a reason to read their own delivery receipts.
 
 ### Policy mechanics
 
@@ -352,6 +355,7 @@ Self-serve in-app deletion, not a support ticket: Apple requires it for apps off
 | `delete-account` | yes | caller's JWT | user id comes from the token, **never** the body |
 | `export-data` | yes | caller's JWT | runs as the user; RLS enforces isolation |
 | `purge-expired-photos` | no | `x-cron-secret` | scheduler-invoked; **fails closed** if the secret is unset |
+| `send-digest-push` | no | `x-cron-secret` | scheduler-invoked; **fails closed** if the secret or either VAPID key is unset. Reads two sources since migration 112 — `notifications` for events, `digest_snapshots` for digests |
 
 **`delete-account` ordering is load-bearing:**
 
