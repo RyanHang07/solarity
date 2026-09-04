@@ -87,10 +87,12 @@ export async function completeOnboarding(
   // Redirect here rather than from an effect in the form, so there's no window
   // where the write has succeeded and the browser still shows the form.
   //
-  // **To the install nudge, not the dashboard.** The two screens after this one
-  // are the only place either is asked for, and both are skippable, so nothing
-  // here can strand someone who has just typed their name.
-  redirect("/onboarding/install")
+  // **To the first goal, then the two nudges.** Step 25 put the goal step
+  // immediately after this one because it is the only *required* step of the
+  // four: install and notifications are both skippable, and a requirement
+  // placed behind two things a person may decline is a requirement placed where
+  // they have already started saying no.
+  redirect("/onboarding/goal")
 }
 
 /**

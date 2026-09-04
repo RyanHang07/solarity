@@ -4,7 +4,10 @@ import { createClient } from "@/lib/supabase/server"
 import { getCheckinDate } from "@/lib/supabase/checkin-date"
 import { getTodayData } from "@/lib/supabase/today"
 import { getDigestDays } from "@/lib/supabase/digests"
+import { getPersonalGalaxy } from "@/lib/supabase/galaxy"
 import { TodayPanel } from "./today-panel"
+import { GalaxyPanel } from "./galaxy-panel"
+import { PageBlocks, ViewholeProvider } from "@/components/viewhole"
 import { DigestPanel } from "./digest-panel"
 import { Notice } from "@/components/notice"
 import { TAB_NOTIFICATION_TYPES } from "@/lib/notification-types"
@@ -77,6 +80,26 @@ export default async function OverviewPage({
   const todayData = await getTodayData(supabase, userId, today)
 
   /**
+   * Step 22. The galaxy, built on the server and handed down as a prop.
+   *
+   * **After `getTodayData`, not beside it.** `dayClosed` is that read's
+   * `completedToday`, so the sun and the fraction printed above it are the same
+   * fact rather than two reads of one row that could disagree.
+   *
+   * **A snapshot, not a client fetch.** `buildPersonalSnapshot` lives behind
+   * `lib/galaxy/data`, which is proven to reach no renderer code, so a server
+   * component can build the whole picture without PixiJS entering the graph.
+   * `GalaxyPanel` is the `"use client"` boundary and the only thing that mounts
+   * a canvas.
+   */
+  const galaxy = await getPersonalGalaxy(
+    supabase,
+    userId,
+    today,
+    todayData.completedToday,
+  )
+
+  /**
    * Step 11. Five days of digests, grouped into boxes.
    *
    * **Two reads, both cheap, and neither per Circle.** The snapshots are one
@@ -123,7 +146,16 @@ export default async function OverviewPage({
   const digestDays = await getDigestDays(supabase, membership, needsAttention)
 
   return (
-    <>
+    /**
+     * **The provider wraps the whole page and knows nothing about it.**
+     *
+     * `GalaxyPanel` opens the viewhole; `PageBlocks` is everything that gets
+     * out of its way. Neither names the other, so moving a panel or adding one
+     * is a change to this file alone — which is the point of the split, and the
+     * reason the surroundings are one wrapper rather than a class on each
+     * block.
+     */
+    <ViewholeProvider>
       {/* Here rather than in the layout, because layouts do not receive
           `searchParams` — and every `?notice=` redirect in the codebase targets
           a bare `/dashboard`, so there is nothing to spread. */}
@@ -138,6 +170,22 @@ export default async function OverviewPage({
         hid the goals list, which does not depend on today's date, while the copy
         claimed only today's progress was missing.
       */}
+      {/*
+        **First, above Today.** It was under it for one release, on the argument
+        that the thing you came to do should lead — and that is true of the
+        *goals*, which are one scroll away regardless. Overview's job is to say
+        where you stand, and the galaxy says it in the form worth looking at.
+
+        It is also the block most likely to be absent, which is the cost of
+        leading with it and is why `GalaxyPanel` removes itself rather than
+        rendering an empty frame.
+      */}
+      {/* Null when a read failed. The panel is additive, so absence is the
+          honest answer — see `getPersonalGalaxy`. */}
+      {galaxy ? <GalaxyPanel snapshot={galaxy} /> : null}
+
+      <PageBlocks>
+
       {today ? (
         <TodayPanel
           goals={todayData.goals}
@@ -174,6 +222,7 @@ export default async function OverviewPage({
       </div>
 
       <DigestPanel days={digestDays} viewerId={userId} today={today} />
-    </>
+      </PageBlocks>
+    </ViewholeProvider>
   )
 }

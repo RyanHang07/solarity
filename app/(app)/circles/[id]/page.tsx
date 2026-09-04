@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server"
 import { RefreshOnReturn } from "./refresh-on-return"
 import { StreakDecision } from "./streak-decision"
 import { TodayRoster } from "./today-roster"
+import { CircleGalaxyPanel } from "./circle-galaxy-panel"
+import { PageBlocks, ViewholeProvider } from "@/components/viewhole"
 import { getCircleRoster } from "@/lib/supabase/circle-roster"
 
 export const metadata = { title: "Circle — Solarity" }
@@ -135,7 +137,8 @@ export default async function CirclePage({
   const deadline = formatDeadline(cycle?.deadline ?? null)
 
   return (
-    <div className="flex flex-col gap-6">
+    <ViewholeProvider>
+      <div className="flex flex-col gap-6">
       {/*
         8g phase 1, and only on a Circle that is still running. An inactive
         Circle's roster is frozen at a past instant, so a refresh cannot change
@@ -144,6 +147,26 @@ export default async function CirclePage({
       */}
       {circle.group_status === "active" ? <RefreshOnReturn /> : null}
 
+      {/*
+        **First on the page, the same as Overview.**
+
+        It sat between the tabs and the roster for one revision, which put a
+        picture of today's progress below three blocks of chrome about the
+        Circle. The galaxy is what this screen is for looking at; the name, the
+        deadline and the tabs are how you steer once you have looked.
+
+        **Only on the Today tab**, because it is drawn from the roster and the
+        roster is only read there. Members and Overview answer different
+        questions and have no sky.
+
+        Moving it up also collapsed the two `PageBlocks` regions back into one:
+        with the frame at the top, everything else is contiguous again.
+      */}
+      {view === "today" && roster ? (
+        <CircleGalaxyPanel members={roster} frozen={!!roster[0]?.as_of} />
+      ) : null}
+
+      <PageBlocks className="flex flex-col gap-6">
       <header className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h1 className="text-xl font-semibold">{circle.name}</h1>
@@ -254,16 +277,28 @@ export default async function CirclePage({
               </p>
             ) : null}
 
-            <TodayRoster
-              members={roster}
-              frozen={!!roster[0]?.as_of}
-              groupId={id}
-            />
+            {/*
+              **Above the roster, and the roster stays.** The sky is additive:
+              it is a picture of what the list underneath already says, and the
+              list is the source of truth that survives a device with no WebGL.
 
-            <p className="text-xs opacity-60">
-              Each person&apos;s day is counted in their own timezone, so someone
-              ahead of you may already have finished.
-            </p>
+              `ViewholeProvider` is local to this branch rather than around the
+              whole page, because the frame it drives only exists here — the
+              Members and Overview tabs render no canvas, and a provider that
+              spanned them would be state nothing could change.
+            */}
+            <>
+              <TodayRoster
+                members={roster}
+                frozen={!!roster[0]?.as_of}
+                groupId={id}
+              />
+
+              <p className="text-xs opacity-60">
+                Each person&apos;s day is counted in their own timezone, so
+                someone ahead of you may already have finished.
+              </p>
+            </>
           </>
         )
       ) : (
@@ -322,7 +357,9 @@ export default async function CirclePage({
           </p>
         </>
       )}
-    </div>
+      </PageBlocks>
+      </div>
+    </ViewholeProvider>
   )
 }
 

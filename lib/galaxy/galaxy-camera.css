@@ -1,0 +1,68 @@
+/**
+ * The camera bar.
+ *
+ * **These are the host app's buttons, drawn on the galaxy's background.** The
+ * first version was dark chips with a gold hover — the module's own look, which
+ * is a second design system arriving through a component. Solarity is hairline
+ * borders, small text, and opacity for hierarchy, and this is that, resolved
+ * light because it sits on a night sky rather than on the page.
+ *
+ * `currentColor` throughout, so a host that wants a different colour sets one
+ * property on the bar instead of restating four rules.
+ */
+.galaxy-camera-controls {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  width: 104px;
+  color: #f4f1de;
+  pointer-events: auto;
+}
+
+/**
+ * Reset, then the four arrows: five buttons, so the first row is one button
+ * wide and the arrows fill the second.
+ *
+ * `grid-column: 1 / -1` on the first child would centre it across four columns
+ * and leave a hole; starting it at the last column puts it above the `→` it is
+ * nearest, which is where a thumb already is.
+ */
+.galaxy-camera-controls--touch > :first-child {
+  grid-column: 4;
+}
+
+.galaxy-camera-btn {
+  color: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  padding: 4px 0;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+/*
+ * **Opacity, not a colour change.** It is the app's own hierarchy rule, it
+ * needs no second value to keep in step with a theme, and it reads on any sky
+ * the galaxy's palette produces.
+ */
+.galaxy-camera-btn:hover,
+.galaxy-camera-btn:focus-visible {
+  opacity: 1;
+  outline: none;
+}
+
+/*
+ * A visible focus ring for keyboard users, since the hover style above is the
+ * only other affordance and opacity alone is not a focus indicator.
+ */
+.galaxy-camera-btn:focus-visible {
+  box-shadow: 0 0 0 2px currentColor;
+}

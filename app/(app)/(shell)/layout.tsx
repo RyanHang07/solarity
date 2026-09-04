@@ -94,6 +94,64 @@ export default async function ShellLayout({
    * `alreadySeen` only reads cookies, because a render cannot set one. `/today`
    * marks itself seen once it has painted.
    */
+  /**
+   * Step 25. **No goal, no shell** — for an account that has never had one.
+   *
+   * A gate rather than a step in a flow, for the same reason as the username
+   * and terms gates one layout up: `/onboarding/goal` can be abandoned by
+   * closing the tab, and only something evaluated on every protected
+   * navigation catches that.
+   *
+   * ## Here, and not in `(app)/layout.tsx`, and that was a real bug
+   *
+   * It was in the outer layout for one revision, which put it in front of
+   * **`/settings` and `/admin` as well**. Two consequences, and the second is
+   * the serious one:
+   *
+   *   * the admin account has never created a goal — moderation has nothing to
+   *     do with goals — so the console became unreachable
+   *   * somebody who signs up, abandons at the goal step and later wants to
+   *     **delete their account** could not reach settings to do it. A gate that
+   *     stands between a person and leaving is not a nudge
+   *
+   * The gate belongs to the product loop, so it guards the loop's screens. The
+   * shell is `/dashboard`, its sections and `/profile` — where every session
+   * starts, so nobody who has skipped this gets far. `/settings`, `/admin`,
+   * `/today` and `/circles/[id]` stay reachable.
+   *
+   * ## "Never had a goal", not "has none now"
+   *
+   * Goals have no DELETE grant, so archiving and achieving both leave the row
+   * and the table answers this on its own. The other reading would drag
+   * somebody who archived their last goal back into onboarding, which is a gate
+   * applied to a person who has already passed it.
+   *
+   * **The layout is cached across section switches**, so this costs one `head`
+   * count per visit rather than per tap — the same property the `/today` gate
+   * below relies on.
+   */
+  const { count: everHadAGoal, error: goalCountError } = await supabase
+    .from("goals")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
+
+  /**
+   * **The error is read, and that is the whole point of reading it.**
+   *
+   * A failed count comes back as `count: null`, so `!everHadAGoal` alone treats
+   * "I could not tell" as "definitely none" — and this is a *gate*, so the cost
+   * of that conflation is sending an established account into onboarding
+   * because one read hiccuped. `patterns.md`, "a default that answers a
+   * question the read never answered": for anything a person will act on,
+   * absence and failure are not the same thing, and the fix is a third state
+   * rather than a better default.
+   *
+   * The third state here is "carry on". A person who has passed this gate sees
+   * their dashboard; a person who has not gets asked again on the next
+   * navigation, which costs one screen and strands nobody.
+   */
+  if (!goalCountError && everHadAGoal === 0) redirect("/onboarding/goal")
+
   const mode = profile?.today_screen_mode ?? "once_daily"
   if (
     !(await alreadySeen(mode, today)) &&

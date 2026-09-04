@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/server"
 import { enforce } from "@/lib/ratelimit"
 import { containsProfanity } from "@/lib/profanity"
 import { toMessage, type ActionResult } from "@/lib/errors"
+import { getCheckinDate } from "@/lib/supabase/checkin-date"
+import { writeSeen } from "@/lib/today-gate"
 
 /** Mirrors goals_title_length. */
 const TITLE_MAX = 100
@@ -56,6 +58,20 @@ export async function createGoal(
 
   if (!category) return { ok: false, error: "Pick a category." }
 
+  /**
+   * Whether they had any goal at all before this one.
+   *
+   * **Read before the insert**, because afterwards the answer is always "yes"
+   * and the question is about the state the person was in when they pressed
+   * Add. See the note under the insert for what it is for.
+   */
+  const { count: activeBefore } = await supabase
+    .from("goals")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .is("archived_at", null)
+    .is("achieved_at", null)
+
   const { error } = await supabase.from("goals").insert({
     user_id: user.id,
     title,
@@ -66,6 +82,40 @@ export async function createGoal(
   // which `toMessage` resolves. No special case here, and no matching on
   // message text.
   if (error) return { ok: false, error: toMessage(error) }
+
+  /**
+   * **The first goal must not divert its own author to `/today`.**
+   *
+   * `hasUnfinishedDay` is "there is at least one active goal and the day is not
+   * complete". Someone with no goals fails the first half, so the gate has been
+   * silent for them since they signed up — and then their very first goal
+   * satisfies it, `revalidatePath` re-renders the dashboard, and the shell
+   * redirects them off the screen they were setting up.
+   *
+   * **Only the first**, deliberately. An existing user adding an eleventh goal
+   * genuinely does have an unfinished day, and the daily prompt is the product
+   * working. What is wrong here is narrower than that: a person who has never
+   * had a goal being told to go finish one, in the same breath as creating it.
+   *
+   * Writing the marker rather than skipping the check, because the marker is
+   * per device and per day and already means "do not divert me": there is no
+   * second mechanism to keep in step, and tomorrow the prompt returns on its
+   * own. The date comes from the database — a client value would let a stale
+   * tab suppress the wrong day, which is why `markTodaySeen` reads it the same
+   * way.
+   */
+  if (activeBefore === 0) {
+    const { data: profile } = await supabase
+      .from("users")
+      .select("today_screen_mode")
+      .eq("id", user.id)
+      .maybeSingle()
+
+    await writeSeen(
+      profile?.today_screen_mode ?? "once_daily",
+      await getCheckinDate(supabase),
+    )
+  }
 
   revalidatePath("/dashboard")
   return { ok: true, data: undefined }

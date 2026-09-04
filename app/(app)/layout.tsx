@@ -80,6 +80,7 @@ export default async function AppLayout({
    */
   if (!profile.terms_accepted_at) redirect("/onboarding/terms")
 
+
   /**
    * 15f. Your own picture in the header.
    *

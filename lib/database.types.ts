@@ -285,6 +285,7 @@ export type Database = {
         Row: {
           achieved_at: string | null
           archived_at: string | null
+          belt_visible: boolean
           category_id: string
           created_at: string
           deadline: string | null
@@ -297,6 +298,7 @@ export type Database = {
         Insert: {
           achieved_at?: string | null
           archived_at?: string | null
+          belt_visible?: boolean
           category_id: string
           created_at?: string
           deadline?: string | null
@@ -309,6 +311,7 @@ export type Database = {
         Update: {
           achieved_at?: string | null
           archived_at?: string | null
+          belt_visible?: boolean
           category_id?: string
           created_at?: string
           deadline?: string | null
@@ -1003,6 +1006,8 @@ export type Database = {
       circle_roster: {
         Args: { p_group_id: string }
         Returns: {
+          achievement_count: number
+          all_completed: boolean
           as_of: string
           avatar_url: string
           checked_count: number
@@ -1011,7 +1016,9 @@ export type Database = {
           display_name: string
           goals: Json
           is_self: boolean
+          joined_at: string
           role: string
+          sky_closed: boolean
           streak_grace: boolean
           total_count: number
           user_id: string

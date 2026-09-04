@@ -243,10 +243,22 @@ test("achieving a goal is announced, unless the goal is hidden there", async () 
 
   try {
     // The control first: a visible goal reaches the Circle.
+    /**
+     * **`"now"`, not `new Date().toISOString()`.**
+     *
+     * `goals_achieved_not_future` is `achieved_at <= now()`, and `now()` is the
+     * *database's* clock. A timestamp taken from the test runner's clock fails
+     * that check whenever the runner is even milliseconds ahead of Postgres —
+     * which is not a hypothetical, it is what made this test red.
+     *
+     * Postgres parses the string `now` as the transaction timestamp, so the
+     * value is produced on the same clock the constraint is checked against and
+     * the skew cannot exist. `goals.spec.ts` has always done it this way.
+     */
     assertOk(
       await admin
         .from("goals")
-        .update({ achieved_at: new Date().toISOString() })
+        .update({ achieved_at: "now" })
         .eq("id", s.goals.owner)
         .select("id"),
       "achieve the owner's goal",
@@ -290,7 +302,8 @@ test("achieving a goal is announced, unless the goal is hidden there", async () 
 
     await admin
       .from("goals")
-      .update({ achieved_at: new Date().toISOString() })
+      // The database's clock, not the runner's. See the note above.
+      .update({ achieved_at: "now" })
       .eq("id", hidden.data.id)
 
     expect(

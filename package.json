@@ -24,6 +24,7 @@
     "browser-image-compression": "^2.0.2",
     "next": "16.3.0",
     "obscenity": "^0.4.6",
+    "pixi.js": "^8.8.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "web-push": "^3.6.7",

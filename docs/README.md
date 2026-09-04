@@ -7,7 +7,7 @@ Friends in invite-only Circles (max 10) see each other's daily progress.
 | You want to… | Go to |
 |---|---|
 | Build the next thing | [`build-plan.md`](build-plan.md) — open work only. **All twenty steps are built and the suite is green.** Verify commands, the manual pass, the route map, and what is deferred |
-| Work on the design pass | [`build-plan/`](build-plan/README.md) — six parts. The design system, the app restyle, and porting the PixiJS galaxy. **This is the current work** |
+| Work on the galaxy or the design pass | [`build-plan.md`](build-plan.md) — steps 22 to 24 and the design system. **This is the current work** |
 | Understand how something works | [`architecture/`](architecture/README.md) — schema, security, time, app |
 | Avoid a bug this codebase keeps having | [`patterns.md`](patterns.md) — forty-nine shapes, plus the standing checks |
 | Run it, test it, or verify a release | [`testing.md`](testing.md) |

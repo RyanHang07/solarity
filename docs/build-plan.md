@@ -104,17 +104,73 @@ After that: `/admin` appears, a link shows up at the bottom of Settings, and fur
 
 ---
 
-## Next: visual design
+## The galaxy
 
-**The plan is [`build-plan/`](build-plan/README.md)** — six parts, because it is large enough that keeping it here would have doubled this file. This section is the summary; that folder is the work.
+**Steps 1 to 21 are built.** Every step's reasoning is in `history.md`; step 21 is the renderer's port and its data half — `lib/galaxy`, `components/galaxy-view.tsx`, migrations 107 to 109, and 212 unit tests.
 
-Steps 1 to 20 are built and the suite is green — 15 passed on 1 September. Every step's reasoning is in `history.md`.
+**What is left is the verification pass, a polish pass over the viewhole, and then the restyle.**
 
-**The near-term work is the galaxy, not an app-wide restyle.** `pixijs-galaxy` is a finished, portable PixiJS module with its own handoff manual, read on 1 September. It ports well; four defects need fixing before the copy; and the nine `goal_categories` colours seeded in migration 4 match its palette exactly — a decision made three weeks before the renderer existed.
+### Where it lands
 
-**It lands twice.** A compact personal galaxy on `/dashboard` Overview, then a multi-user Circle galaxy above the roster on a Circle's Today tab — many suns in one sky. The second is the point of the project and needs scene topology the module does not have, which is why it is fourth rather than first. **The restyle is part 6, deferred behind all of it.**
+**Twice, and the second is the point.** A compact personal galaxy on `/dashboard` Overview — in the space the deleted goal summary freed — and then a Circle galaxy above the roster on a Circle's Today tab, many suns in one sky. The personal one is first because it is the same code in its simplest form: the mount lifecycle, the touch-scroll behaviour and the snapshot round trip are all problems the Circle has too, on a surface where getting them wrong affects one person's view of their own data.
 
-**What "unstyled" currently means.** It is not that nothing has been styled — it is that styling was allowed to be provisional, on the explicit understanding that a design pass would come. Three surfaces named that deferral in writing while they were built:
+### The rule the whole thing holds itself to
+
+**The galaxy is a reward for using the app, never a way to use it.**
+
+Everything it shows is already legible elsewhere: goals on `/dashboard`, achievements on `/dashboard/goals/archived`, the day in the streak header, the roster beside the Circle sky. If checking in is ever only possible by clicking a planet, the product has a WebGL dependency for its core loop — on a device that may have lost its context, in a canvas no screen reader can enter.
+
+So every galaxy surface is additive and every route stays fully usable with the canvas absent. `onPlanetSelect` is worth wiring as a *shortcut* to a goal, beside the list that already links there.
+
+---
+
+## Step 26: verification
+
+| | Check | Why it cannot be skipped |
+|---|---|---|
+| 1 | ✅ **`npm install` and `npm run build`** | **Green, 3 September.** The one check nothing else substitutes for: `data.boundary.test.ts` is a proxy for the server/client boundary and `next build` is what actually enforces it. It also confirms the `dynamic(ssr: false)` the first audit restored — a static `pixi.js` import would have compiled fine and simply shipped |
+| 2 | ✅ **The e2e suite** | **Green, 3 September.** Three failures, all preconditions rather than product defects: a client clock against a database CHECK, a race on a check-in that had not landed, and step 25's gate meeting two accounts that had never created a goal. Written up in `history.md` |
+| 3 | **Ten members × ten goals on a real phone** | Up to 100 planets, each with a stencil mask, in one canvas. The fps and worst-frame readout exists in the playground and has never been run on hardware. **The worst frame is the number that matters** — an average of 58fps hides the stall when a member joins, and the stall is what a person notices |
+| 4 | **The touch-scroll check, with a thumb** | A mouse in a desktop browser will never show it |
+| 5 | **A regenerated `graphify-out/`** | It was generated on 1 September, before `lib/galaxy` existed, so the graph describes a repository 76 files smaller than the real one |
+
+**And the rule a restyle has to hold itself to, which applies here too:** every locator in the suite names a heading, a role, a label or a landmark, so the suite is the check that a visual change stayed visual. If a spec goes red, either the markup lost something a person needed or the test was naming a class of thing it should not have been. Both are worth stopping for.
+
+---
+
+## Step 27: a polish pass over the viewhole
+
+**Shipped and working; the numbers have not been lived with.** Two rounds of fixes landed the mechanism — a missing `width` on the transition snapshots, and a commit hook so the canvas resizes inside the transition rather than a frame after it — and what is left is judgement rather than defects.
+
+| Dial | Where | What to weigh |
+|---|---|---|
+| `--viewhole-ms`, currently 420ms | `globals.css`, mirrored by `VIEWHOLE_MS` in `galaxy-panel.tsx` | Long enough to read as a reveal, short enough not to be in the way twice a session. **The two constants must move together** — one is a CSS animation and the other is `requestAnimationFrame` |
+| The page's 12px drop | `viewhole-page-out` / `-in` | It was 24px and read as a second object with its own journey. 12px may now be too subtle to register at all |
+| The camera's 1.3 and 0.82 | `galaxy-panel.tsx` | How far the picture pulls back. Tied to the panel's height, so the day the panel's size changes these want re-checking |
+| The curve | `--viewhole-ease` | Shared by the frame, the page and the camera. Changing it means changing the cubic in the rAF loop as well, which is written out by hand |
+
+**One measurement, on hardware:**
+
+**A view transition snapshots the page into textures, twice.** This page holds a full-screen WebGL canvas, on a device whose GPU memory is the reason `mountGalaxy` caps the DPR at 2 and listens for `webglcontextlost`. Two full-viewport snapshots on top of a live renderer is the kind of thing that is free on a desktop and is the whole budget on a four-year-old phone.
+
+Nothing in the CSS can answer that — `mix-blend-mode: normal` is already the cheap direction, since the pseudo-elements default to `plus-lighter` and `normal` removes the blend rather than adding one. What is left is the allocation, and the way to know is the fps and worst-frame readout with the frame opening and closing repeatedly.
+
+**If it does cost too much, the fallback already exists**: `transition()` skips `startViewTransition` under reduced motion, and the same branch can skip it on a device that cannot afford it. The state change still happens; only the animation is dropped. **Safari only shipped same-document view transitions in 18**, so an older iPhone is already taking that path and is worth watching as the honest floor.
+
+**And two things not yet decided rather than not yet tuned:**
+
+- **Tap-to-expand as a gesture.** The control is a button, deliberately, because tapping a planet already opens that goal. A gesture is still possible with a hit-test that defers to planets, and it was left out rather than ruled out.
+- **What the Circle sky does with it.** The viewhole is generic and the Circle page will want one too. Whether both surfaces share `ViewholeProvider` or each page mounts its own is a decision that arrives with step 24, and `view-transition-name` must be unique per document, which constrains it.
+
+---
+
+## The design system, and what still blocks it
+
+**Deferred behind the galaxy, and blocked on one unanswered question:** what form the design system is in — Figma, tokens, references, or nothing yet.
+
+The galaxy's own design question is answered. `--galaxy-sky` is a token in `globals.css`, deliberately outside the light/dark swap, because a galaxy is a night sky in both themes and the nine category colours were seeded to glow on black — `#FFD500` and `#6EE62E` are near-unreadable on white.
+
+**What "unstyled" currently means.** Not that nothing has been styled — that styling was allowed to be provisional, on the explicit understanding that a design pass would come. Three surfaces named that deferral in writing while they were built:
 
 | Surface | What was deliberately left plain |
 |---|---|
@@ -122,13 +178,7 @@ Steps 1 to 20 are built and the suite is green — 15 passed on 1 September. Eve
 | The five auth screens | 20e to 20j. Forms with borders and gaps and no more |
 | `/support` | Seven `<Answer>` sections and a `mailto:` |
 
-**The rest of the app is not plain**, and that is the harder half: the dashboard, the roster, the Circle page and the goal record all carry hand-written Tailwind that was tuned per screen. A design system has to absorb those without regressing them.
-
-### The one design question the galaxy needs answered
-
-**What colour is the sky in light mode?** `DEFAULT_BACKGROUND` is a hardcoded near-black and Solarity has real light and dark modes. It is a one-line change either way and it has to be decided rather than arrived at. [Part 3, step 3a](build-plan/03-personal-galaxy.md).
-
-**The larger question — what form the design system is in** — is Figma, tokens, references or nothing yet, and is still unanswered. It blocks part 6 and nothing before it.
+**The rest of the app is not plain**, and that is the harder half: the dashboard, the roster, the Circle page and the goal record all carry hand-written Tailwind tuned per screen. A design system has to absorb those without regressing them.
 
 ### What is already in place, and what it constrains
 
@@ -138,12 +188,9 @@ Steps 1 to 20 are built and the suite is green — 15 passed on 1 September. Eve
 | The tab bar lives in `(shell)/layout.tsx` and is never unmounted | A restyle must not make it remount. Manual pass row 7 checks exactly this |
 | `env(safe-area-inset-*)` is consumed by the header | The layout already pays for `viewport-fit=cover`. New chrome at the top or bottom has to as well |
 | **`script-src`** is nonce-based; **`style-src`** deliberately keeps `'unsafe-inline'` | Checked rather than assumed, and it came out the opposite way round to the guess: inline styles are fine, because `next/font` and Tailwind need them and a nonce on `style-src` would switch `'unsafe-inline'` off. So a CSS-in-JS library is not a CSP problem. **A design library that ships a `<script>` is**, and it needs a nonce or an origin in `lib/security-headers.ts`. Also: any new origin must go in both the dev and prod arms, which step 20h's Turnstile entry got wrong once |
+| The galaxy needs no CSP change at all | Checked directive by directive. `pixi.js` is bundled so `script-src: 'self'` covers it; textures are canvas-generated and `img-src` already allows `data:` and `blob:`; `worker-src` already allows `blob:`, widened in step 13 for the photo compressor. **Worth knowing before someone widens it just in case** |
 | Placeholder icons are still in `public/` | Icons are on the v2 list and belong to this pass |
 | The e2e suite locates by role and accessible name | A restyle that changes markup can break locators. `getByLabel` in particular reads **all** of a `<label>`'s text — see `patterns.md`, "a label that names more than the label" |
-
-### The rule this pass should hold itself to
-
-**A restyle must not change what anything is called.** Every locator in the suite names a heading, a role, a label or a landmark, so the suite is the check that a visual change stayed visual: if a spec goes red during the design pass, either the markup lost something a person needed, or the test was naming a class of thing it should not have been. Both are worth stopping for.
 
 ---
 
@@ -210,18 +257,20 @@ Keep the posture **deny-by-default**: enumerate what is *public*, so a forgotten
 
 ### Before launch
 
-**Two things left, and neither is a feature.**
+**Three things left, and none is a feature.**
 
 | | | |
 |---|---|---|
 | 1 | **Regenerate `graphify-out/`** | `graphify . update`, then `node scripts/graph-freshness.mjs` until it exits clean |
 | 2 | **A device pass for the new auth screens** | Signup, confirmation, reset, the landing page and `/support` have only been driven in a desktop browser. The manual pass above is the regression list; these five screens are the new ones. Worth folding into the design pass, since they are the screens most likely to change |
+| 3 | **A device pass for the galaxy** | Ten members by ten goals with the worst-frame readout, and the two-finger pan with a thumb. Step 26 |
 
 **Also worth a run before any deploy:** `E2E_PROD=1 npm run test:e2e:ios`, which is the only pass that sees the CSP that ships — and it matters more now, because step 20h added two directives to it.
 
 **Closed since this list was written**
 
-- ~~A green suite~~ — **15 passed, 1 September.** The last full run had failed in three separate ways and every one was the test rather than the app: the terms gate was a new precondition `auth.setup.ts` did not meet; `getByLabel("Password", { exact: true })` could not match a field whose accessible name had absorbed its own hint; and `getByRole("alert")` was reading Next's empty dev-overlay node instead of the error on screen. All three are in `patterns.md`.
+- ~~`npm run build`~~ — **green, 3 September**, with `pixi.js` installed and the renderer behind a dynamic import.
+- ~~A green suite~~ — **green again, 3 September**, after the galaxy, three migrations and two new gates. The last full run had failed in three separate ways and every one was the test rather than the app: the terms gate was a new precondition `auth.setup.ts` did not meet; `getByLabel("Password", { exact: true })` could not match a field whose accessible name had absorbed its own hint; and `getByRole("alert")` was reading Next's empty dev-overlay node instead of the error on screen. All three are in `patterns.md`.
 - ~~Security headers~~ — step 12.
 - ~~`pushsubscriptionchange` handler~~ — step 10f. `sw.js` listens and `resubscribeIfPermitted` repairs a rotated endpoint without ever prompting.
 - ~~Wire rate limits into each new action~~ — **every limit in `lib/ratelimit.ts` now has a caller.** `searchUsers` and `inviteUser` were the last two.
@@ -241,7 +290,7 @@ Turning Turnstile on, which is configuration in three dashboards and a decision 
 ### Deferred to v2
 
 - Replace the placeholder icons — **folded into the design pass above.**
-- ~~All visual design~~ — **no longer deferred. It is the current work.** See the plan in [`build-plan/`](build-plan/README.md) and `product-and-design.md`.
+- ~~All visual design~~ — **no longer deferred. It is the current work.** See the galaxy steps above and `product-and-design.md`.
 - ~~A moderation console~~ — **pulled out of v2 and made step 17.**
 
 ---
@@ -249,8 +298,6 @@ Turning Turnstile on, which is configuration in three dashboards and a decision 
 ## Deferred
 
 **Designed, argued, and not built.** Each item keeps its reasoning so the decision does not have to be made twice.
-
-This was `deferred.md` until 1 September. It stopped earning a file of its own: the public-surface section it was mostly made of shipped as step 20, and what survives is two items, one of which is a runbook for a switch. **A separate file that is one screen long is a file people forget to read.** The reasoning for the shipped section is in `history.md`, including the three decisions overturned while building it — the signup form does not collect a username, `/support` is a `mailto:` rather than a contact form, and Turnstile is wired but off.
 
 ### v3 — turn Turnstile on
 

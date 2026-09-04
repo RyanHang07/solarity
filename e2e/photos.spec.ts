@@ -348,6 +348,32 @@ test("a photo picked on the dashboard reaches a circle-mate, and hiding takes it
     await row.getByRole("button", { name: "Check in" }).click()
 
     /**
+     * **Wait for the check-in to land before looking for the photo control.**
+     *
+     * `click()` returns as soon as the click is dispatched. The button then
+     * reads `…` and is disabled while the server action runs, and the photo
+     * control does not exist at all until there is a `progress_entries` row to
+     * attach it to — `entryId` is what renders it.
+     *
+     * So the assertion below was racing a round trip to a remote database on a
+     * five-second budget, and the failure it produced said "no labelled file
+     * input for this goal", which points at the markup rather than at the wait.
+     * The page snapshot from the failing run showed the row mid-flight:
+     * `button "…" [disabled]`.
+     *
+     * **Raising the expect timeout would have been the wrong fix.** It would
+     * have made this test slower to fail and left every other assertion in the
+     * file paying for one action's latency. `Undo` is the actual completion
+     * signal — the button only reads that once the entry exists — so waiting
+     * for it is both faster in the good case and honest about what is being
+     * waited on.
+     */
+    await expect(
+      row.getByRole("button", { name: "Undo" }),
+      "the check-in never landed",
+    ).toBeVisible({ timeout: 20_000 })
+
+    /**
      * **The control is a `<label>`, and the input is off-screen rather than
      * `display:none`.** iOS Safari can open the sheet from a hidden input and
      * then hand nothing back when a source is chosen; a label opens the picker

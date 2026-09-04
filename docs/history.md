@@ -3651,9 +3651,499 @@ Rows 1 to 15 of the checklist itself live in `build-plan.md`, because they are r
 
 ---
 
+## Step 21: the galaxy ports, and the sky gets its data ✅ done
+
+3 September. Migrations 107–109. The renderer moves into the app, the roster learns to describe a Circle's sky, and a graph pass over the codebase found that three of the plan's claims about Solarity were false.
+
+### The port
+
+`pixijs-galaxy` was read on 1 September and judged genuinely portable, with four defects to fix **before** copying — cheaper where the playground can see them than after the module is inside Solarity. All four were fixed upstream, and a fifth thing that had only been named was built.
+
+| Defect | Fix |
+|---|---|
+| **The pure half dragged PixiJS in through one string array.** `buildSnapshot → planetCosmetics → render/planetTexture → pixi.js`. `SURFACE_KINDS` is six strings living in a module that imports the renderer, so the *server-side* data mapper transitively imported the whole of it | `SURFACE_KINDS` moved to `constants.ts`, and the entry point split |
+| **The adapter files had never been typechecked** — `tsconfig.json` excluded `src/adapters`, so the only files intended to be copied were the only files with no compiler over them | The exclusion removed. It found three broken relative imports immediately |
+| **`dynamic(ssr: false)` cannot live in a Server Component** and Next 16 fails the build rather than the render | `components/galaxy-view.tsx` is `"use client"` and takes the snapshot as a prop |
+| **A snapshot update during mount was dropped.** `mountGalaxy` is async; a snapshot arriving while it awaited was lost, and the galaxy showed the state it started with. Unlikely on a slow screen and **exactly what a check-in does** | A ref holds the latest and applies it once the handle resolves |
+| Named but not required: **no WebGL context-loss handling.** iOS reclaims contexts from backgrounded tabs and the canvas goes permanently blank with no error | Built. `onContextLost` re-applies the pending snapshot |
+
+**Two entry points, and a test that walks the import graph.**
+
+| Entry | Contains | Safe from |
+|---|---|---|
+| `lib/galaxy/data.ts` | `buildGalaxySnapshot`, categories, cosmetics, palettes, tiers, every type | A server component |
+| `lib/galaxy/index.ts` | `mountGalaxy`, plus `export * from "./data"` | Client only |
+
+`lib/galaxy/data.boundary.test.ts` asserts the data half reaches **no external module at all** — stronger than "not pixi", and a stronger rule is easier to keep. A third case walks `index.ts` and requires that it *does* find `pixi.js`, so a walk that silently resolved nothing would fail rather than pass everything. **Mutation-tested against the real defect**: restoring `planetCosmetics.ts`'s import from `render/planetTexture` turns two of three red with `data.ts reaches pixi.js through render/planetTexture`.
+
+This class of bug is `patterns.md`, "a boundary only the bundler enforces". `tsc` and ESLint both pass on either side of it.
+
+**The background became a token.** `--galaxy-sky` in `globals.css`, read by the component and handed to `mountGalaxy`, so the canvas and the CSS around it cannot disagree. It sits **outside** the light/dark swap on purpose: a galaxy is a night sky in both themes, and a white sky with white stars shows nothing. What the token buys is that the decision is visible beside the other colours instead of being a number inside a renderer.
+
+**ESLint earned its keep on arrival**, catching three ref-during-render writes in the host that the source repo had never linted. They moved into an effect declared before the mount effect, so `pendingRef` still holds the right value when `mountGalaxy` is called.
+
+### The graph pass, and three claims that were false
+
+Run before a line of SQL was written, and the reason none of the SQL is what was planned.
+
+| The plan said | Actually |
+|---|---|
+| Both writes go inside "the existing `create_goal` RPC", raising `GOAL_LIMIT` in one transaction | **There is no `create_goal` RPC.** A plain insert in `app/actions/goals.ts`, and the comment above it is a decision: "There is no RPC because a single insert governed by RLS is already atomic". `GOAL_LIMIT` arrives as a `check_violation` carrying a hint |
+| A backfill script must import the real roll so the distribution cannot drift | **The roll is one coin flip.** `createGoalCosmeticsRoll()` returns `beltVisible` and nothing else; surface kind is already derived from the goal's uuid and radius is left undefined |
+| "There is no such field on a goal" (of `hidden`) | `goals.hidden_everywhere`, migration 71, three weeks old |
+| `skyClosed` comes from `group_daily_completion` | It does — **the next morning** |
+
+Three of the four are the same mistake: a document describing a codebase from memory rather than from the codebase. The fourth is subtler and is the one worth carrying: the table existed, the column existed, the value was correct, and it was correct **too late**.
+
+### Migration 107: one column, not a table
+
+```sql
+alter table public.goals
+  add column belt_visible boolean not null default (random() < 0.2);
+```
+
+The plan specified a `goal_cosmetics` table — primary key, derived `user_id`, four RLS policies, grants, a second write inside goal creation, and a backfill script. **For one boolean.** The column answers all five of the table's requirements, four of them by construction rather than by care: it is a column of the goal, so there is no `user_id` to forge and no second write; `goals` RLS already governs it; and the `alter` backfills every existing row as it runs, from the same expression that will fill every future one.
+
+**The grants on `goals` were already column-level**, which is what makes it safe without a policy: `authenticated` holds INSERT on exactly `(category_id, deadline, title, user_id)`, so a new column is not writable by anyone until it is granted. Only `select (belt_visible)` was granted. A person cannot choose whether their planet has a belt, which is the v1 decision — cosmetics stored, not editable.
+
+**It rewrites the table on purpose.** Postgres skips the rewrite for a `not null default` only when the default is constant; `random()` is volatile, so the expression is evaluated once per row. A constant-folded default would have given every planet in the app the same answer.
+
+Proved: no nulls; the rate over 5,000 synthetic inserts sits near `PLANET_BELT_CHANCE` in a band wide enough that the assertion is not itself a coin flip; and a negative control — sixty rows in one statement do not all agree, which is what would happen if the default were evaluated per statement. Result on real data: 16 goals, 3 with belts.
+
+**A trigger was chosen and is not needed.** The question asked how the cosmetics *row* should appear and the answer was a trigger on insert; the next answer removed the row. Recorded because the two answers only look contradictory — they were answers to a question that stopped existing between them.
+
+### Migration 108: `skyClosed` was not live
+
+**The finding that cost the most.** `daily_completion` is maintained by triggers on `progress_entries` and `goals`. **`group_daily_completion` is not** — it is written by `run_daily_rollover`, a nightly job. So the Circle-complete moment, the strongest thing the whole feature does, would have played the morning after everyone finished, for nobody.
+
+`private.group_day_closed(p_group_id, p_date)` is now the single definition: every non-grace member has `daily_completion.all_completed` for that date, and a Circle entirely in grace is `false` rather than vacuously true. `private.rollover_group_day` calls it and stores the answer; `circle_roster` calls it and returns it live. **Neither computes it.** Deriving it on the client would have been a fourth copy of a rule migration 71 exists to stop copying, and it would have had to re-derive the grace exclusion to agree.
+
+**Group and date, not cycle**, because the rollover resolved the group as its first act and the rule never needed the cycle. The date is the Circle's day — the owner's — which is what the streak has always been evaluated on.
+
+Two properties it inherits rather than introduces, and they are worth knowing: `daily_completion` is recomputed against the goals active **now**, and `streak_grace` is read as it stands **now**, so a historical date can answer differently today than it did at rollover. That is equally true of the stored row and predates this migration.
+
+### Migration 109: the roster carries what the sky needs
+
+The roster returned no category, for anybody, so a Circle of ten would have drawn nine members in grey. A drop-and-recreate, since the return type changed.
+
+| Added | Level | For |
+|---|---|---|
+| `category_slug` | goal | The planet's colour |
+| `belt_visible` | goal | Its shape |
+| `joined_at` | member | Their slot in the sky |
+| `all_completed` | member | Whether their sun is lit |
+| `sky_closed` | Circle | The Circle-complete moment |
+| `achievement_count` | Circle | The ambience tier |
+
+**`joined_at` had to come whether or not it was asked for.** The roster orders itself `is_self desc, joined_at asc` and returned neither term. That order is right for a list — you are at the top of your own roster — and wrong for a sky, where every viewer would see a different arrangement of the same Circle. The layout makes one promise: a member's slot depends only on when they joined, so nobody moves when somebody else arrives. That cannot be kept from a viewer-dependent order, and it cannot be kept from user ids.
+
+**Two dates, and they may disagree.** `all_completed` is each member's own check-in date, matching the counts printed beside it. `sky_closed` is the Circle's. A member in another timezone can therefore have a lit sun under an open sky. That split is not introduced here — it is the one that already exists between a member's roster row and the Circle's streak — and resolving it in a renderer would mean the galaxy disagreeing with one of the two numbers on the page.
+
+**Hidden goals keep their colour and their belt.** Asked three times, including a middle option using `is_self` and one giving hidden goals a deliberately plain shape; confirmed each time. What it costs, recorded so it is a decision rather than an oversight: nine categories with nine fixed hex values means **the colour is the category**, so a coloured untitled planet says you have a hidden goal in, say, Mindfulness & Mental Health. The belt carries no meaning of its own but it is **a stable fingerprint** — the same hidden goal is recognisably the same planet across days. The plain-shape alternative was rejected because a visibly generic planet is itself a tell. Title, note and photo stay masked, and reverting is one `case` expression since `is_self` is in scope.
+
+**The Circle's achievement total is achieved goals across current members**, so the sky dims when somebody leaves and takes their achievements with them. Chosen over completed cycles and the longest group streak knowingly: the Circle is its members.
+
+### The rule the sky shows without softening
+
+`recompute_daily_completion` writes `v_active > 0 and v_done >= v_active` — **zero active goals is `false`, never vacuously true**, deliberate and labelled "Section 3" in migration 34. The rollover then requires every non-grace member, so one member with no goals stops the Circle from ever closing. The galaxy mirrors it: an empty sun, no orbits, and a sky that does not close. Softening it in the renderer would put the sky and the streak in disagreement about the same day.
+
+### Three assertions that failed, and were right to
+
+Two of the three failures in this step were the assertion blocks catching **the migration that contained them**, which is the only evidence an assertion block is doing anything.
+
+| Failure | What it was |
+|---|---|
+| "rollover_group_day still computes the rule itself" | The check matched on the aggregate's *name*, and the new body contained a comment saying the aggregate had been removed. **A rule about what a function means should be asked of what it reads**, not of its prose. Rewritten to check the tables |
+| "group_day_closed is not stable/definer/search_path-pinned" | Postgres stores `set search_path = ''` as `search_path=""`, **with the quotes**. Matching the unquoted form found nothing and failed a function that was correctly pinned |
+| "Unknown category slug: health-wellness" | In the readers. `asCategorySlug` guarded with `categoryBySlug`, **which throws rather than returning undefined**, so the fallback for an unknown category was itself the crash it existed to prevent. Found only because a test invented a slug |
+
+And one that passed when it should not have: the belt tests asserted on `planet.belt`, which is always built. `beltVisible` is the flag that decides. **The assertion passed for both values of the thing it was testing.**
+
+### The rolled-back proofs
+
+`private.group_day_closed`, six cases, every write discarded by a deliberate `raise`:
+
+| Case | Answer |
+|---|---|
+| everybody completed | closed |
+| one member has no row | open |
+| one member open | open |
+| that member in grace | closed |
+| every member in grace | open |
+| a date with no rows at all | open |
+
+They were necessary because the migration's own equivalence assertion compares against real data, which is 30 (group, date) pairs and contains **no member in grace at all** — so the half of the rule most likely to be got wrong was not exercised by it.
+
+`circle_roster`, as a real circle-mate: a visible goal carries title, slug and belt; the same goal hidden carries a **null title** with slug and belt intact; a non-member is refused with `NOT_A_MEMBER`. **The first run reported the visible control as having no title**, which looked like masking leaking onto everything. It was not — the goal picked at random was already hidden. A negative case that was never positive proves nothing.
+
+### The readers
+
+`lib/galaxy/solarity/snapshots.ts` — `buildPersonalSnapshot` and `buildCircleSnapshot`, 12 tests. It imports `../data` rather than `../`, so the seam between Solarity and the renderer cannot drag PixiJS into a server component.
+
+One test earns its place beyond the mapping: `GOAL_CATEGORIES` is pinned against the nine slugs the database seeds, written out by hand, because a unit test cannot reach the database. A tenth category added on one side and not the other now fails by name instead of turning one planet grey in production.
+
+### The audit
+
+| Check | Result |
+|---|---|
+| **Do the committed migration files match what the server runs?** | **Byte for byte.** `md5(prosrc)` of `circle_roster`, `group_day_closed` and `rollover_group_day` computed from the repo files equals the server's |
+| Does anything but the client host import the renderer? | **No.** One file imports `@/lib/galaxy`; everything else takes `@/lib/galaxy/data` |
+| Is `private.group_day_closed` reachable by a client? | **No.** Absent from the advisor's list of definer functions `authenticated` can execute, which every other RPC appears on. `authenticated` holds USAGE on `private`, so without the revoke it would have been callable for any group id |
+| New security findings? | **None.** Every advisor warning predates this step |
+| Does anything read `goals` with `select *`? | **No.** A new column cannot leak through a wildcard |
+| Do the roster's consumers break on four new columns? | **No.** `getCircleRoster` spreads rather than listing columns |
+| Does the sky degrade safely if a Circle has no owner? | **Yes**, and it was worth asking: `v_circle_date` would be null, the date join matches nothing, and `sky_closed` comes back false rather than erroring. No Circle is ownerless and none has two owners |
+
+**Totals**: 212 unit tests, `tsc` clean, ESLint clean. `npm run build` is **not** among them — `pixi.js` is in `package.json` and not installed, and the build is the only thing that can see a bundler-level boundary leak.
+
+---
+
+## Step 22: the galaxy lands on Overview, and the resize bug is found ✅ done
+
+3 September. The panel, and the end of a bug that had survived two fixes.
+
+### The panel
+
+`lib/supabase/galaxy.ts` reads your goals, today's entries and your achieved goals, and hands them to `buildPersonalSnapshot`. **Deliberately separate from `getTodayData`**, which is the one implementation of "what is checked off today": this is a different projection of the same rows — slugs rather than hexes, `belt_visible`, and the achieved goals `/today` would otherwise pay for on every visit. What it does *not* re-read is `daily_completion`; `dayClosed` is passed in, so the sun and the fraction printed above it are the same fact.
+
+`dashboard/galaxy-panel.tsx` is the client boundary and the only thing that mounts a canvas. The page stays a server component and hands the snapshot down as a prop.
+
+**Three things found by putting it on a screen:**
+
+| | |
+|---|---|
+| **`mountGalaxy`'s rejection was unhandled** | `Application.init` rejects when WebGL is refused — disabled, out of GPU memory, a virtualised browser — and nothing caught it. The host would have sat on its skeleton forever, which reads as the app being broken rather than as the galaxy being absent. `GalaxyView` gained `onReady` and `onUnavailable`; the block now removes itself and the page closes up, with no message, because nothing the person came for is missing |
+| **`compact` was being forced** | The panel passed `compact` as a prop, and `mountGalaxy` resolves `opts.compact ?? isCompactLayout(host)` — so supplying it *replaced* the module's own measurement instead of defaulting it. Every screen got the phone's projection, including a 27-inch monitor. The prop is gone; the module measures |
+| **`h-56` was below the compact threshold anyway** | `isCompactLayout` is `width <= 420 \|\| height <= 320`, and 224px fails on height at any width. `h-64 md:h-96` clears it on desktop, which is why the panel "looked short" — it was being drawn for a phone |
+
+**It sits first on the page.** It was under Today for one release, on the argument that the thing you came to do should lead. That is true of the *goals*, which are one scroll away either way; Overview's job is to say where you stand, and the galaxy says it in the form worth looking at. The cost is that the block most likely to be absent is the first one, which is survivable because it removes itself cleanly.
+
+**The boundary test grew a case.** `lib/supabase/galaxy.ts` is `server-only` and reaches `solarity/snapshots.ts`, so that file is in a server graph now — and it is one hop from `../data`, exactly where a convenient `from "../"` would go unnoticed. Extending the walk also exposed a defect in the walk itself: **`@/lib/roster` was being counted as an external package**, so the new case would have passed by never opening the file. The walk follows the alias into the repo now.
+
+### The resize distortion, third attempt and the last one
+
+**The fix was the previous fix.**
+
+`Galaxy.layout` recomputed the camera fit and kept it only when it shrank:
+
+```ts
+const needed = this.fitScaleForReach(this.measureClusterReach());
+if (needed < this.baseFitScale) { … }
+```
+
+That one-way rule was written to stop a split-pane drag rescaling the scene under the cursor, and it half worked: the galaxy stopped growing, and it also stopped **recovering**. Drag a pane narrow and back and it stayed small. Wiggle it and the galaxy shrank monotonically toward nothing, because every smaller viewport was remembered and no larger one ever was. **A one-way rule made the scene stateful about window history**, which is the one thing a viewport should never be.
+
+`layout` now assigns the fit unconditionally, as `settleReach` and `endReachAnimation` — the other two assignment sites — always did, and consults `shouldAutoFitCamera` before moving the *displayed* fit, which `layout` never did at all. So somebody who had panned or zoomed no longer has their view yanked back by a resize.
+
+**"Resizing shows more sky, it does not zoom" is still honoured**, by the clamp rather than by the ratchet: `fitScaleForReach` is `Math.min(1, …)`, so once the content fits, a bigger window changes no scale.
+
+**Why it took three attempts.** The first stopped an orbit refit that was re-running with nothing to fit — a real bug, and not this one. The second found `isCompactLayout` flipping the tilt from 0.95 to 0.5 as a pane crossed 420px, which squashes every orbit ellipse from 0.81 of its width to 0.48 — also real, also not the whole of it, and the reason the mode is now decided once at mount. Both were confirmed by the observation that **no non-uniform scale exists anywhere in the scene graph**, which was true and pointed away from the answer: `fitScaleForReach` uses `min(width, height)`, so the distortion was uniform scaling against a frame that was not.
+
+The test that replaced the old one asserts the property rather than a direction — **the same viewport gives the same fit, whatever route it arrived by** — plus that a wiggle does not accumulate and that a window past the fit rescales nothing. Mutation-tested: restoring the ratchet fails it with "a bigger viewport drew the galaxy smaller".
+
+---
+
+## Step 23: the galaxy's controls, and expanding it ✅ done
+
+3 September. The interaction, and it is all in the module rather than in a prop.
+
+### One bar, two sets
+
+`attachCameraControls` takes a `touch` flag. A mouse in a wide window gets everything; a finger gets **reset and the four pans, and nothing else.**
+
+The split is `(pointer: coarse)` **or** a compact host, whichever is more restrictive — two conditions rather than one, because either is wrong alone: a phone-sized desktop window is not a touch device, and a large tablet is. A device that lies about one of them gets the more forgiving set.
+
+**Pan looks redundant next to a pannable canvas and is not.** A one-finger vertical drag belongs to the page, so those four buttons are the only way to move the view up or down at all. Reset stays because it is the undo for every other gesture. Zoom goes because pinch is better at it.
+
+**The viewing angle is the real casualty**, and it is asserted rather than dropped quietly: a drag cannot reach tilt on a compact host, so on touch it becomes unreachable. The test names it so it is a decision somebody revisits rather than a gap somebody finds.
+
+### One finger scrolls, two fingers pan
+
+`touch-action: pan-y` already handed vertical drags to the page. It did not stop a **horizontal** one-finger drag panning the galaxy — so the gesture that scrolls and the gesture that pans differed only by angle, and a diagonal thumb did both.
+
+One finger no longer pans on a touch surface. Two do: the pair pinches to zoom, as before, and now also pans from **the midpoint of the two fingers**. The midpoint is what stops the two fighting — pinching moves it hardly at all, so a pinch that drifts reads as one gesture rather than two.
+
+**Decided from `pointerType`, not from the host.** A laptop with a touchscreen has both, and the right answer depends on which is in use at that moment; a mouse or a stylus still drags with one pointer on the same surface.
+
+### The bar is the app's, drawn on the galaxy
+
+Dark chips and a gold hover became `border: 1px solid currentColor`, transparent, `opacity: 0.7` until hover — the app's own hierarchy rule, resolved light because it sits on a night sky rather than on the page. `currentColor` throughout, so a host that wants another colour sets one property instead of restating four rules. A focus ring was added: opacity alone is not a focus indicator.
+
+**Controls are on for the panel in both states.** The module's default is "controls only on a compact host", which is backwards for an embedded panel — the desktop one is the surface a mouse can reach and the one where the viewing angle is worth changing.
+
+### Expanding
+
+**The same canvas, resized.** The host div stays mounted and only its classes change, so the mount effect never re-runs, `resizeTo: host` picks up the new size, and the scene keeps its camera, its animation and its GPU resources. A modal rendering its own `GalaxyView` would pay for a second WebGL context and start from a cold camera every time.
+
+`position: fixed` leaves the document alone, so the page is exactly where it was when this closes, and nothing locks the body scroll — the overlay is opaque and full-screen, and a lock is a thing to remember to undo. Escape closes it.
+
+**A button rather than a tap on the canvas**, which is a departure from the decision as taken, with a reason: tapping a planet already opens that goal, so a bare tap-to-expand would have had to guess which the person meant from where their thumb landed. A named control is also the only version a keyboard can reach.
+
+### The tests
+
+`cameraControls.test.ts` is new and is the one part of this module a jsdom test can see completely. It asserts both button sets by accessible name, that the arrows move the *view* the way they point (`panBy` moves the content, so the signs are inverted — they were backwards once and read as broken), that the angle button cycles rather than settling, and that `detach` takes the bar away so a host that mounts twice does not end up with two.
+
+**218 tests in Solarity, 202 in the module.**
+
+---
+
+## Step 24: the Circle's sky ✅ done
+
+3 September. **The screen the whole project was for**, and by this point it was mostly wiring: the renderer had the topology, migration 109 had the data, and `buildCircleSnapshot` had the mapping with twelve tests over it.
+
+### One card, two surfaces
+
+The dashboard panel and the Circle sky differ in **what a tap on a planet means** and in nothing else, so the shell moved to `components/galaxy-card.tsx` — heading, frame, skeleton, expand control, camera move, the WebGL-absent path. Two files that each carried a copy would have agreed only until one of them changed.
+
+| Surface | A planet tap |
+|---|---|
+| Overview | Opens that goal. A shortcut to a page the list below already links to, never the only way there |
+| A Circle | **Nothing.** These are other people's goals: a hidden one has no destination at all, the rest are named in the row below, and a canvas that navigated on a mis-tap would be doing worse what the roster does well. Tapping a *sun* still flies to that member, which is the module's own default and is about looking rather than going |
+
+### Built in the client, from the roster the page already had
+
+`buildCircleSnapshot` is a pure function over `RosterMember[]`, behind `lib/galaxy/data`, which is proven to reach no renderer code. The roster is already going over the wire for `TodayRoster`, so serialising a second derived copy of the same facts would double the payload for a picture of what the list beside it says.
+
+### A frozen Circle, answered partly and said so
+
+An archived or locked Circle's roster is frozen at a past instant. The backdrop is switched off — a sky that keeps drifting implies live data where there is none — but **the orbits still turn**, because the module has no pause and adding one is scene work rather than a prop. Named in the component rather than left for somebody to notice.
+
+### The viewhole learned that a frame can sit in the middle of a page
+
+On Overview the galaxy leads and everything else is one block beneath it. On a Circle the sky sits between the tabs and the roster, and **a wrapper cannot be discontiguous** — so `PageBlocks` gained `where="before"`, and `globals.css` a second name. A `view-transition-name` must be unique per document, so the two regions are named separately; they animate identically, because the split is a fact about layout rather than a second behaviour.
+
+The first version put the provider inside the Today branch and left the header and tabs outside it. That worked — the overlay is opaque, so they were covered — but they sat still while the roster moved, which is the class of thing that reads as clunky. The provider wraps the page now.
+
+---
+
+## Step 25: onboarding asks for one goal ✅ done
+
+3 September. A person used to finish setting up with a username and an empty app — and the dashboard's whole subject is goals, a Circle is about whether people finished theirs, and the galaxy draws a sun with nothing orbiting it. **The first screen after signing up was the emptiest the product will ever be**, and it is the one where somebody decides whether to come back.
+
+### The three decisions
+
+| | Taken |
+|---|---|
+| Skippable? | **No.** Every account reaches the app with something to check off tonight, and the empty dashboard stops existing for new accounts. The cost is stated rather than hidden: somebody who cannot think of a goal is on a form they cannot leave, and an outage in this one write blocks sign-up |
+| One screen or two? | **Two.** Each screen asks one thing, and a goal field under the username would lengthen the one screen where a long form costs most |
+| Which write first? | **Username, then the goal.** `complete_onboarding` stays the last thing that must succeed for the account to be usable; abandoning between the two leaves a complete account with no goal, which is a state the app already handles. The reverse would leave a goal on an account with no username — recoverable, but a state nothing has ever produced |
+
+### Where it sits
+
+`/onboarding` → **`/onboarding/goal`** → `/onboarding/install` → `/onboarding/notifications`.
+
+Immediately after the username and **ahead of the two nudges**, because it is the only required step of the four. A requirement placed behind two things a person may decline is a requirement placed where they have already started saying no.
+
+### The gate is "never had a goal", not "has none now"
+
+**Deliberately, and it needs no new column.** Goals have no DELETE grant — archiving and achieving both leave the row — so "this account has never created a goal" is a question the `goals` table already answers, and it is true of exactly one population: accounts that have not been through this screen.
+
+The other reading would drag an existing person who archived their last goal back into onboarding, which is a gate applied to somebody who has already passed it. This codebase has shipped that shape before, and `patterns.md` carries it.
+
+It costs one `head` count on an indexed column, and it lives in **`(app)/(shell)/layout.tsx`** rather than one layout up. That placement was a fix rather than a first draft — see the audit below.
+
+### It writes through `createGoal`
+
+Not a second insert path. That action carries the title length check, the profanity screen, the rate limit, the category lookup by slug rather than by uuid, and the first-goal marker that stops the person being thrown at the daily check-in screen the moment they arrive. **The step that makes a first goal universal is the step that most needed that marker to exist.**
+
+The action returns a result rather than redirecting, because four other callers need it to; the form navigates on success, which keeps the action ignorant of which screen called it.
+
+### The test, from the direction that is safe
+
+`gates.spec.ts` asserts that an account which already has goals is sent onward from `/onboarding/goal` — the half most likely to be got wrong. The opposite case needs an account with no goal row that has ever existed, and manufacturing one means deleting rows the app itself cannot delete.
+
+---
+
+## The suite, green again, and what the three failures were ✅ done
+
+3 September. The first full run since the galaxy, three migrations and two new gates. **Every failure was a precondition, and none was a product defect** — which is the pattern this suite keeps producing and the reason it is worth running.
+
+| Failure | What it was |
+|---|---|
+| `goals_achieved_not_future` on an achieve | **A client's clock is not the database's.** The test sent `new Date().toISOString()` at a CHECK evaluated as `achieved_at <= now()` in Postgres, so it failed whenever the runner ran even milliseconds ahead. Both writers now send the string `"now"`, which Postgres resolves to the transaction time — the clock that judges the value is the clock that mints it. `goals.spec.ts` had always done it that way; this file was the odd one out |
+| "no labelled file input for this goal" | **A race the error message disguised.** `click()` returns when the click dispatches, and the photo control does not exist until there is a `progress_entries` row to attach it to. The page snapshot showed the row mid-flight — `button "…" [disabled]` — so a five-second assertion was racing a round trip and reporting it as missing markup. It waits for `Undo`, which is the real completion signal; raising the expect timeout would have made it slower to fail and charged every other assertion for one action's latency |
+| Two accounts sent to `/onboarding/goal` | **Step 25's gate, twice.** `auth.setup.ts` demanded a goal of the admin account, which has never created one because moderation has nothing to do with goals — the same fact that moved the gate out of `(app)/layout.tsx` in the first audit. And `sign-up.spec.ts` mints its own account, which had none |
+
+### The one worth keeping
+
+Fixing the sign-up spec by **seeding a goal armed a different gate**: an account with an unchecked goal has an unfinished day, so `/dashboard` diverted to `/today`. Fresh accounts default to `once_daily` and the three fixture accounts are set to `never` by `auth.setup.ts` for exactly that reason.
+
+**A test that mints its own account owes it every precondition the shared fixtures are given, and `auth.setup.ts` is the list of what those are.** Reading that file would have produced one fix instead of two.
+
+---
+
+## The Circle's rings, and whose galaxy this is ✅ done
+
+3 September, from looking at a real Circle.
+
+### The rings had been rounded away
+
+`orbitStrokeAt` multiplied the stroke width by the cluster legibility, and `clusterRingLegibility` floored at 0.35 — so at ten members a ring was **0.44 physical pixels**. A sub-pixel line is not a faint line: the rasteriser blends it into the background and it is gone. A Circle drew suns with loose planets and no orbits.
+
+Two changes, and the second is the real one:
+
+- the floor is 0.62
+- **the dimming is spent on alpha, and the width keeps most of its weight**, with 0.9px as the floor below which a stroke stops being a stroke. A line that reads as thinner is mostly a line that reads as dimmer
+
+**Nothing had ever constrained the weight of a ring** — the existing tests covered colour and cleanup — which is why it could regress silently. The new one asserts both the pixel floor and that a crowded Circle keeps more than 70% of a solo galaxy's width, and it is mutation-tested: restoring `width * legibility` fails it at 0.775.
+
+### Hovering a member says whose it is
+
+`onSystemHover(systemId | null, x, y)` on the scene's host interface, bound to **the planets as well as the sun** — in a Circle the planets are what a cursor lands on, since the sun is one small disc and the orbits are wide.
+
+**The label is DOM, not canvas.** The scene draws no text and is not going to: a name rendered by the host is styled by the app, selectable, and needs no font atlas in a WebGL context that is already the largest thing on the page. The module reports a member and a position; the host decides what to say.
+
+| Decision | Why |
+|---|---|
+| Circle only | A solo galaxy has one system and it is yours. A label naming you, over your own sun, on your own dashboard, says nothing |
+| `{username}'s galaxy` | The username first, matching `today-roster.tsx`'s own rule: `display_name` is not unique and two people can hold the same one, so a hover reading "Sam's galaxy" twice in one Circle names nobody |
+| `aria-hidden`, `pointer-events: none` | The roster underneath already names every member in order, in text. And a label under the cursor would trigger its own `pointerout` and flicker |
+| Nothing on a coarse pointer | Hover is a mouse idea; on a phone it fires around a tap and the name would stick with nothing to dismiss it |
+
+**ESLint caught the first attempt at clearing it**: `setState` inside an effect, which `patterns.md` already names, with the previous-value pattern as the answer. It is that now.
+
+---
+
+## The second audit: the whole diff against the bug list ✅ done
+
+3 September. The first audit read the new code for defects. This one walked **every file in the diff against `patterns.md`'s forty-nine shapes**, one shape at a time, which found things reading for defects did not.
+
+Twenty-four files changed, three migrations added, and the four findings below.
+
+### 1. A shipped fix, reintroduced, on the one screen nobody can skip
+
+`first-goal-form.tsx`:
+
+```html
+<option value="" disabled>Pick one</option>
+```
+
+`goals-panel.tsx`, thirty lines of comment, since step 16:
+
+> **Not `disabled`, and that is the whole fix for iOS.** iOS renders a `<select>` as a wheel and skips disabled options entirely. With the placeholder disabled the wheel opened showing the first real category *highlighted* while the element's value was still `""`, so tapping Done moved nothing, fired no `change`, and submitted an empty category.
+
+The same defect, on **the screen most likely to be met on a phone and the only one in the app nobody can skip**. Writing a new form is exactly when a fix that lives in another form gets lost, and neither `tsc` nor ESLint has an opinion about a boolean attribute.
+
+**Found by the checklist, not by reading the file.** "A platform that renders your control differently" is one row of a table, and it names the markup.
+
+### 2. A gate that treats a failed read as "no"
+
+`(app)/(shell)/layout.tsx`:
+
+```ts
+const { count: everHadAGoal } = await supabase…
+if (!everHadAGoal) redirect("/onboarding/goal")
+```
+
+A failed count comes back as `count: null`, so `!everHadAGoal` conflates "I could not tell" with "definitely none" — and this is a gate, so the cost is **sending an established account into onboarding because one read hiccuped**. `patterns.md`, "a default that answers a question the read never answered": for anything a person will act on, absence and failure are not the same, and the fix is a third state rather than a better default.
+
+The third state is "carry on": someone who has passed the gate sees their dashboard, someone who has not is asked again on the next navigation.
+
+`getPersonalGalaxy` had the same shape with a quieter cost — `(goals ?? [])` draws a bare sun, which is a *claim* the read never made. It returns null now and the panel removes itself, which is the honest answer for an additive surface.
+
+### 3. The setup project did not assert the new precondition
+
+`patterns.md`: **"a new gate is a new precondition for every signed-in test"** — the terms interstitial shipped correct in step 20 and broke ten tests across four files, each naming a missing landmark on a page it was never on.
+
+All three accounts have goals, so nothing would have failed today. But the check now lives in `auth.setup.ts`, because the failure it produces names the account and the reason, and the failures it prevents name neither.
+
+### 4. PostgREST was serving a schema from before migration 109
+
+`circle_roster` was **dropped and recreated with four more columns**. The signature is unchanged, so this is milder than the `PGRST202` case in the bug list — but the shape is the same one, and the remedy costs nothing: `notify pgrst, 'reload schema';`, run.
+
+### Shapes checked and found clean
+
+| Shape | Where it would have been |
+|---|---|
+| A client's clock is not the database's | The only new timestamps are `"now"` in `circle-activity.spec.ts` and `getCheckinDate` in `createGoal` — both the database's |
+| A function in `public` is an API endpoint | Migration 108's function is in `private` with `execute` revoked; 109 restates the roster's grants. `get_advisors` clean |
+| A cast standing in for a check | `asCategorySlug` casts **after** a membership test; the `startViewTransition` cast is behind a feature check |
+| A boundary only the bundler enforces | `data.boundary.test.ts` walks it, and the first audit moved `GalaxyView` behind `dynamic` |
+| A control that moved, asserted through a landmark | Every `getByRole("region")` in the suite is named; the new sections are `Your galaxy` and `This Circle's sky` |
+| Cleanup that only runs on the happy path | The new gates test creates a goal titled `E2E …`, which `deleteE2EGoals` reaches by prefix even if a timeout skips the `finally` |
+| An assertion that cannot fail | The resize and boundary tests were mutation-tested; the new gate test fails if the redirect is removed |
+| Stale `useActionState` outliving what produced it | `FirstGoalForm` navigates on the result and remounts on return |
+
+---
+
+## The audit over steps 22 to 25 ✅ done
+
+3 September, run over the galaxy surfaces, the viewhole and the onboarding gate. **Three defects, and the first would have locked an account out of the app.**
+
+### 1. The goal gate stood in front of `/settings` and `/admin`
+
+It was written into `(app)/layout.tsx`, which wraps **every** signed-in route — not just the ones about goals.
+
+Found by asking the database which accounts the gate would divert, rather than by reasoning about it:
+
+```
+username      goals_ever   active_now
+ryahnadmin             0            0
+ryahn3                 1            1
+ryahn1                 2            2
+ryahn2                14            3
+```
+
+**The admin account has never created a goal**, because moderation has nothing to do with goals, so the console became unreachable behind a form asking it to name one.
+
+And the sharper consequence, which the admin case only pointed at: somebody who signs up, abandons at the goal step, and later wants to **delete their account** could not reach `/settings` to do it. **A gate that stands between a person and leaving is not a nudge.**
+
+The gate belongs to the product loop, so it now guards the loop's screens: `(app)/(shell)/layout.tsx`, which is `/dashboard`, its sections and `/profile`. Every session starts there, so nobody who skipped gets far; `/settings`, `/admin`, `/today` and `/circles/[id]` stay reachable. The shell layout is cached across section switches, so it also costs one count per visit rather than one per tap.
+
+**A query that names the affected population is worth more than an argument about who is affected.** The reasoning for "never had a goal, not has none now" was right and the placement was wrong, and only the data showed which.
+
+### 2. The whole renderer was in the client bundle of both surfaces
+
+`GalaxyCard` imported `GalaxyView` directly, and `GalaxyView` statically imports `pixi.js` — so the renderer landed in the client bundle of **Overview and a Circle's Today tab**, which between them are most of the app.
+
+That is exactly what the handoff's `dynamic(ssr: false)` arrangement existed to prevent, and part 1 of the plan named it as one of four defects to fix before copying. It was fixed in the port and then lost again by a component that imported the component the ordinary way.
+
+Now `dynamic(() => import(...), { ssr: false })` inside the card, which is legal because the card is a Client Component — Next 16 forbids `ssr: false` only in a Server Component, and that is the reason the boundary is drawn at this file rather than at the page. No `loading` option: the card already renders a skeleton until `onReady`, and a second placeholder underneath it would be two answers to one question.
+
+### 3. `useViewhole` outside a provider was a new object every render
+
+```ts
+useContext(ViewholeContext) ?? { open: false, setOpen: () => {}, onCommit: () => () => {} }
+```
+
+A fresh identity per render, `onCommit` included — so every effect keyed on it would tear down and re-register on every render, forever, on any page that rendered a card without a provider. Not a loop and not visible, which is the kind that survives. Frozen at module scope now, so the no-provider case is as stable as the real one.
+
+### What was checked and found sound
+
+| | |
+|---|---|
+| The gate cannot loop | `/onboarding/goal` is outside `(app)`, like `/onboarding` and the two nudges |
+| `view-transition-name` uniqueness | One frame per page, and the two `PageBlocks` regions are separately named. A second card on one page would break it, and the CSS says so |
+| The e2e accounts | All three have goal rows that have ever existed, and `withNoActiveGoals` archives rather than deletes — so the suite does not trip the new gate |
+| Section labels | `galaxy-heading` and `circle-galaxy-heading`, so a page with both would not collide |
+| The commit hook's lifetime | Registered in an effect, unregistered on cleanup, and `handle.resize()` is a no-op after destroy |
+| The frozen-Circle path | `ambientEffects={false}`, with the orbits still turning — a partial answer, named in the component rather than left to be found |
+
+---
+
+## The first goal, and the gate it tripped ✅ done
+
+3 September, reported from real use: **adding a goal threw you straight into the daily check-in screen.**
+
+`hasUnfinishedDay` is two conditions — at least one active goal, and an incomplete day. The second has always been true for a new account; the first is what kept the gate quiet. So the very first goal satisfies both at once, `revalidatePath("/dashboard")` re-renders the shell, and the person is redirected off the screen they were in the middle of setting up. **In the same breath as pressing Add.**
+
+`createGoal` now reads whether there were any active goals **before** the insert, and writes the today marker when there were none. Three narrower and wider options were considered:
+
+| Option | Why not |
+|---|---|
+| Any goal creation defers the prompt | Simplest, and it weakens the daily prompt for everyone to fix a first-run problem. Someone who adds a goal at 9am and never checks in loses the nudge for the day |
+| Never divert on a render that followed a write | The most precise reading of the bug — the gate should fire on arrival, not on a revalidate — and a server component has no signal for it. The most machinery for the same outcome |
+| **Only the first goal** | Chosen. An existing user adding an eleventh goal genuinely does have an unfinished day, and being told so is the product working |
+
+**The marker rather than a skip.** It is already per device and per day and already means "do not divert me", so there is no second mechanism to keep in step and the prompt returns tomorrow on its own. The date comes from the database, the same way `markTodaySeen` reads it — a client value would let a stale tab suppress the wrong day.
+
+Covered by `gates.spec.ts`, using the `withNoActiveGoals` fixture that already existed, and asserting **both** that the redirect does not happen and that a fresh navigation to `/dashboard` afterwards still does not redirect. The first assertion alone would pass if the marker were never written and the revalidate simply had not re-run the layout.
+
+---
+
 ## The index: every numbered step, and where its reasoning is
 
-**All twenty are built, and the suite is green — 15 passed on 1 September.** Step 20 was the last functional work; the next body of work is visual design, which is in `build-plan.md`. Everything in this table is written up above, in this file.
+**All twenty-one are built, and the unit suite is green.** Step 20 was the last functional work before the galaxy; step 21 is the galaxy's data half. What remains of it — the two screens and the design system — is in `build-plan.md`. Everything in this table is written up above, in this file.
 
 | # | Step | State |
 |---|---|---|
@@ -3671,6 +4161,11 @@ Rows 1 to 15 of the checklist itself live in `build-plan.md`, because they are r
 | 18 | Inviting a person, not a link | ✅ migrations 96–100. Username search, an invite that arrives as a notification, and a join page that says who is already inside |
 | 19 | A Circle that talks back | ✅ migrations 101–104. Four intraday notification types, four per-type switches, coalesced activity, and the copy variance that stops a daily notification going stale |
 | 20 | The front door | ✅ migrations 105–106. Email and password auth, terms acceptance, Turnstile wired, a landing page and `/support` |
+| 22 | The galaxy lands on Overview | ✅ no migration. The panel, the WebGL-absent path, and the end of the resize distortion |
+| 23 | The galaxy's controls, and expanding it | ✅ no migration. Two button sets from one bar, two-finger pan, and expand-in-place on the same canvas |
+| 25 | Onboarding asks for one goal | ✅ no migration. A required step after the username, gated on "never had a goal" |
+| 24 | The Circle's sky | ✅ no migration. `GalaxyCard` shared by both surfaces, the sky above the roster, and a viewhole that can sit mid-page |
+| 21 | The galaxy ports, and the sky gets its data | ✅ migrations 107–109. `lib/galaxy` with two entry points, the client host, `goals.belt_visible`, `private.group_day_closed`, and a roster that can describe a Circle's sky |
 
 **What that means.** A person can sign in, set goals, check them off with a note and a photo, invite a friend **by name** into a Circle, see who finished today, hear about it while the day is still going, keep a streak, and read a five-day digest. **The premise the product exists to test is now testable.**
 

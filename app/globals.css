@@ -22,6 +22,162 @@
    * exactly as the media query below does. Two mechanisms, one answer.
    */
   color-scheme: light dark;
+
+  /*
+   * The galaxy's sky.
+   *
+   * **Deliberately outside the light/dark swap below.** A galaxy is a night
+   * sky in both themes — a white sky with white stars shows nothing — so this
+   * value is the same in each. What the token buys is that the decision lives
+   * here with the other colours instead of as a number inside the renderer,
+   * where a designer would never find it.
+   *
+   * Read by `components/galaxy-view.tsx` and handed to `mountGalaxy`, so the
+   * canvas and the CSS around it cannot disagree.
+   */
+  --galaxy-sky: #07070e;
+
+  /*
+   * **One duration and one curve for everything the viewhole moves.**
+   *
+   * `galaxy-panel.tsx` keeps `VIEWHOLE_MS` in step with this, because the
+   * camera runs on `requestAnimationFrame` rather than on a CSS animation. Two
+   * values that merely look similar drift, and the drift is exactly what
+   * "clunky" is.
+   */
+  --viewhole-ms: 420ms;
+  --viewhole-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/*
+ * ─── the viewhole ────────────────────────────────────────────────────────────
+ *
+ * **Two named groups and no component names.** `components/viewhole.tsx` opens
+ * a frame to full screen; everything else on the page departs. The contract is
+ * exactly these two names, so rearranging a page changes nothing in either the
+ * CSS or the component:
+ *
+ *   [data-viewhole]     the frame that opens. One per page.
+ *   [data-page-blocks]  whatever else is on that page. One per page, and its
+ *                       contents are none of this file's business.
+ *
+ * A `view-transition-name` must be unique per document, which is why these are
+ * attributes on single wrappers rather than classes on many elements.
+ */
+[data-viewhole] {
+  view-transition-name: viewhole;
+}
+
+[data-page-blocks] {
+  view-transition-name: page-blocks;
+}
+
+/*
+ * The frame morphs between its two rectangles, which is the whole effect: a
+ * card-sized window widening in all four directions at once, and narrowing back.
+ *
+ * **The cross-fade stays, and turning it off was the bug.**
+ *
+ * `animation: none` on these two looked right — the picture inside has not
+ * changed, only how much of it is visible, so why fade? Because the *group*
+ * takes the whole duration to travel between the two rectangles, and an image
+ * with no animation is **fully opaque from the first frame**. So on close the
+ * new snapshot — card-sized, with the app's border drawn round it and the
+ * camera bar in its corner — was painted at 100% of a group box that was still
+ * nearly full-screen. A card's border stretched across the window, controls
+ * outside it, and then a jump when the group finally arrived.
+ *
+ * With the fade restored the new image arrives as the box does, which is what
+ * makes the morph read as one movement. The ghosting this was meant to avoid
+ * is not visible in practice: the two images are the same sky.
+ *
+ * **`mix-blend-mode: normal` is the cheap direction, not the expensive one.**
+ * Blending is a genuine cost on iOS — it pulls an element out of simple
+ * compositing, makes the backdrop readable, and WebKit handles it worse than
+ * Chromium. But these two pseudo-elements default to **`plus-lighter`**, which
+ * *is* blending: the UA picks it so a symmetric cross-fade of two opaque copies
+ * does not dip in the middle. Setting `normal` removes the blend rather than
+ * adding one, and it also stops a night sky being brightened against itself for
+ * the length of the crossing. The appearance argument is the weaker of the two.
+ *
+ * **The real cost on a phone is elsewhere and is not fixable here.** A view
+ * transition snapshots the page into textures — twice, old and new — and this
+ * page contains a full-screen WebGL canvas on a device whose GPU memory is the
+ * reason `mountGalaxy` caps the DPR at 2 and listens for context loss. That is
+ * a measurement to take on hardware, not a line to tune; step 27 carries it.
+ *
+ * **`width` as well as `height`**: without both, a snapshot keeps its intrinsic
+ * size in the free dimension, so the full-screen image sat inside the
+ * card-sized group at its original width and hung outside it.
+ */
+::view-transition-old(viewhole),
+::view-transition-new(viewhole) {
+  mix-blend-mode: normal;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+::view-transition-group(viewhole) {
+  animation-duration: var(--viewhole-ms);
+  animation-timing-function: var(--viewhole-ease);
+}
+
+/*
+ * The page departs downward and returns from below.
+ *
+ * Down rather than up, and it is the difference between the page being pushed
+ * off and the frame being lifted over it: the window opens toward you, so
+ * everything else settles out of the way beneath it.
+ *
+ * **12px, not 24px.** The travel was doubled and the effect was worse: over a
+ * distance that long the page reads as a second object with its own journey,
+ * competing with the frame for attention. A short move that shares the frame's
+ * curve reads as one thing happening.
+ */
+@keyframes viewhole-page-out {
+  to {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+@keyframes viewhole-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+/*
+ * **Both on the frame's duration and curve, and neither delayed.**
+ *
+ * The first version ran the page out over 260ms and back over 380ms after a
+ * 120ms wait, on two different curves — a deliberate asymmetry that turned out
+ * to be the clunkiness: the page finished moving while the frame was still
+ * going, then waited, then moved again. Three timings in one gesture is three
+ * events, however carefully each is eased.
+ */
+::view-transition-old(page-blocks) {
+  animation: viewhole-page-out var(--viewhole-ms) var(--viewhole-ease) both;
+}
+
+::view-transition-new(page-blocks) {
+  animation: viewhole-page-in var(--viewhole-ms) var(--viewhole-ease) both;
+}
+
+/*
+ * **The reduced-motion answer is no transition at all**, not a faster one. The
+ * component already skips `startViewTransition` in that case; this is the
+ * belt-and-braces half, because a transition can also be started by something
+ * else on the page later.
+ */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
 }
 
 @theme inline {

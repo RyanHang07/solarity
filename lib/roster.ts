@@ -20,6 +20,24 @@ export type RosterGoal = {
   title: string | null
   hidden: boolean
   checked: boolean
+  /**
+   * The goal's category. **Present even when the goal is hidden**, which is a
+   * masking decision rather than an oversight: nine categories with nine fixed
+   * colours means the colour *is* the category, so a coloured untitled planet
+   * tells a circle-mate what kind of thing you hid. Migration 109 records why
+   * it was taken anyway and how to revert it.
+   */
+  category_slug: string
+  /**
+   * Whether this planet has a belt. Rolled once by migration 107's column
+   * default and then permanent — a planet that changed shape on every load is
+   * the kind of thing nobody reports and everybody notices.
+   *
+   * Also unmasked for hidden goals, and it is the sharper half of that
+   * decision: the belt carries no meaning, but it makes a hidden planet
+   * recognisably the same planet across days.
+   */
+  belt_visible: boolean
   note: string | null
   /**
    * Yours only; null on everyone else's rows.
@@ -71,8 +89,34 @@ export type RosterMember = {
   /** Null while the Circle is live; the closing instant once it is not. */
   as_of: string | null
   checkin_date: string
+  /**
+   * When they joined this Circle.
+   *
+   * **The roster's own order cannot answer this**, because it puts the viewer
+   * first: every member would see a different arrangement of the same sky. The
+   * galaxy sorts by this instead, so a member's slot depends only on when they
+   * joined and nobody moves when somebody else arrives.
+   */
+  joined_at: string
   checked_count: number
   total_count: number
+  /**
+   * `daily_completion.all_completed` for **their own** check-in date, the same
+   * date the two counts above are computed against.
+   */
+  all_completed: boolean
+  /**
+   * Whether the whole Circle closed its day — `private.group_day_closed`, the
+   * definition the group streak is stored from. The same value on every row.
+   *
+   * **It can disagree with every member's `all_completed` being true**, for a
+   * member whose timezone puts them on a different date than the owner. That
+   * split is older than the galaxy: it is the one between a member's row and
+   * the Circle's streak.
+   */
+  sky_closed: boolean
+  /** Achieved goals across the Circle's current members. The same on every row. */
+  achievement_count: number
   goals: RosterGoal[]
 }
 

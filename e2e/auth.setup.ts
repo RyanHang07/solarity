@@ -155,6 +155,43 @@ for (const [who, email] of Object.entries(ACCOUNTS)) {
     // up later as a confusing redirect to the sign-in page.
     expect(cookies.length, `no auth cookies produced for ${email}`).toBeGreaterThan(0)
 
+    /**
+     * **Step 25 added a gate, and a gate is a new precondition for every test
+     * that enters the shell.**
+     *
+     * `(app)/(shell)/layout.tsx` sends an account that has never created a goal
+     * to `/onboarding/goal`, so an account without one would fail every
+     * dashboard spec **naming a missing landmark on a page it was never on**.
+     * The terms interstitial did exactly this in step 20 and broke ten tests
+     * across four files; `patterns.md` carries it.
+     *
+     * **The admin is exempt, and it is the same fact twice.** That account has
+     * never created a goal because moderation has nothing to do with goals —
+     * which is precisely why the gate was moved out of `(app)/layout.tsx` and
+     * into the shell, after an audit found it standing in front of `/admin` and
+     * `/settings`. `admin.spec.ts` visits `/admin`, `/admin/*` and `/settings`,
+     * none of which is inside the shell, so demanding a goal of it here would
+     * assert a precondition the app deliberately does not have.
+     *
+     * The first version of this check did demand it, and failed on exactly that
+     * account. It named which and why in one sentence, which is what the check
+     * is for — it was just wrong about the scope.
+     *
+     * "Ever", not "active": archiving leaves the row, which is the predicate
+     * the gate uses.
+     */
+    if (who !== "admin") {
+      const { count: goalsEver, error: goalCountError } = await admin
+        .from("goals")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", await userIdByEmail(email))
+      if (goalCountError) throw goalCountError
+      expect(
+        goalsEver ?? 0,
+        `${email} has never created a goal, so every spec that opens the dashboard will be redirected to /onboarding/goal`,
+      ).toBeGreaterThan(0)
+    }
+
     fs.writeFileSync(
       statePath(who as E2EAccount),
       JSON.stringify({ cookies, origins: [] }, null, 2),

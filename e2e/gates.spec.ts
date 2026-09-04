@@ -101,6 +101,38 @@ test("an onboarded account passes every gate", async ({ browser }) => {
   }
 })
 
+test("/onboarding/goal sends an account that has already had one onward", async ({
+  browser,
+}) => {
+  /**
+   * **The half of step 25's gate most likely to be got wrong.**
+   *
+   * The rule is "this account has never created a goal", not "has none right
+   * now". Goals have no DELETE grant, so archiving and achieving both leave the
+   * row and the table answers the question on its own — and the other reading
+   * would drag somebody who archived their last goal back into onboarding,
+   * which is a gate applied to a person who has already passed it.
+   *
+   * Asserted from the direction that is safe to test: the owner account has
+   * goals, so it must be sent on. The opposite case needs an account with no
+   * goal row that has ever existed, and manufacturing one means deleting rows
+   * the app itself cannot delete.
+   */
+  const context = await browser.newContext({
+    storageState: await storageStateFor(requireEnv("E2E_OWNER_EMAIL")),
+  })
+  try {
+    const page = await context.newPage()
+    await page.goto("/onboarding/goal")
+    await expect(
+      page,
+      "an account with goals was asked for another one",
+    ).toHaveURL(/\/onboarding\/install$/)
+  } finally {
+    await context.close()
+  }
+})
+
 test("/onboarding sends a finished account back to the dashboard", async ({
   browser,
 }) => {
@@ -233,6 +265,69 @@ test.describe("the check-in gate", () => {
       await restoreGoalSlots(parked)
     }
   }
+
+  test("a person's first goal does not divert its own author", async ({
+    browser,
+  }) => {
+    /**
+     * **The gate has two halves, and someone with no goals fails the first.**
+     * `hasUnfinishedDay` needs an active goal *and* an incomplete day, so a new
+     * account is never diverted — until it creates its very first goal, at
+     * which point `revalidatePath("/dashboard")` re-renders the shell, both
+     * halves are suddenly true, and the person is redirected off the screen
+     * they were setting up. In the same breath as pressing Add.
+     *
+     * `createGoal` writes the today marker when it sees there were no active
+     * goals before the insert. **Only then** — an existing user adding an
+     * eleventh goal genuinely does have an unfinished day, and the test below
+     * this one is what says that still diverts.
+     */
+    const ownerId = await userIdByEmail(requireEnv("E2E_OWNER_EMAIL"))
+    await setTodayScreenMode(ownerId, "once_daily")
+
+    await withNoActiveGoals(ownerId, async () => {
+      const { page, close } = await freshPage(browser)
+      const title = `E2E first goal ${Date.now().toString().slice(-6)}`
+      try {
+        // No goals, so nothing to divert to. If this already redirects, the
+        // fixture is wrong rather than the feature.
+        await page.goto("/dashboard/goals")
+        await expect(
+          page,
+          "an account with no goals was diverted, so this proves nothing",
+        ).toHaveURL(/\/dashboard\/goals$/)
+
+        const goals = page.getByRole("region", { name: "Your goals" })
+        await goals.getByLabel("Goal title").fill(title)
+        await goals.getByLabel("Category").selectOption({ index: 1 })
+        await goals.getByRole("button", { name: "Add goal" }).click()
+
+        // The goal exists…
+        await expect(goals.getByRole("listitem").filter({ hasText: title })).toBeVisible()
+
+        // …and the person is still where they were. Asserted after a navigation
+        // as well, because the redirect lives in the shell layout and the
+        // revalidate is the render that would have fired it.
+        await expect(page, "creating a first goal diverted to /today").toHaveURL(
+          /\/dashboard\/goals$/,
+        )
+        await page.goto("/dashboard")
+        await expect(
+          page,
+          "the first goal's marker did not survive a fresh navigation",
+        ).toHaveURL(/\/dashboard$/)
+      } finally {
+        // Archive it here rather than leaving it to `restoreGoalSlots`, which
+        // only knows about the goals it parked.
+        await admin
+          .from("goals")
+          .update({ archived_at: "now" })
+          .eq("user_id", ownerId)
+          .eq("title", title)
+        await close()
+      }
+    })
+  })
 
   test("/today never redirects to itself", async ({ browser }) => {
     const { page, close } = await freshPage(browser)

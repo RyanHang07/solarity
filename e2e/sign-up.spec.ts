@@ -533,8 +533,66 @@ test("an account created before the terms existed is asked once", async ({
     await page.getByRole("button", { name: "Continue" }).click()
     await expect(page).not.toHaveURL(/\/onboarding$/)
 
-    // **Now make it look like an account that predates migration 105.**
     const userId = await userIdByEmail(email)
+
+    /**
+     * **A goal, so the account is complete in every way except terms.**
+     *
+     * Step 25 added a second gate: `(app)/(shell)/layout.tsx` sends an account
+     * that has never created a goal to `/onboarding/goal`. This account had
+     * just been made and had none, so the two `/dashboard` assertions below
+     * were landing on the *goal* screen and reporting it as the terms gate
+     * misbehaving.
+     *
+     * **The test's subject is the terms gate**, and a fixture that trips a
+     * different one is asserting about two features at once. Giving it a goal
+     * is the same move `ensureUnfinishedDay` makes elsewhere: state the
+     * precondition rather than inherit it. Third instance today of
+     * `patterns.md`, "a new gate is a new precondition for every signed-in
+     * test" — and the first where the gate was mine.
+     *
+     * Written straight to the table rather than through the UI: this is
+     * scaffolding for a test about something else, and the `E2E ` prefix means
+     * `deleteE2EGoals` reaps it even if the run dies before cleanup.
+     */
+    const category = await admin
+      .from("goal_categories")
+      .select("id")
+      .limit(1)
+      .single()
+    const seeded = await admin
+      .from("goals")
+      .insert({
+        user_id: userId,
+        title: `E2E terms-gate goal ${Date.now().toString().slice(-6)}`,
+        category_id: category.data!.id,
+      })
+      .select("id")
+    expect(seeded.data, "could not seed the goal the shell gate wants").toHaveLength(1)
+
+    /**
+     * **And opt out of the `/today` diversion, for the same reason.**
+     *
+     * Seeding the goal above satisfied one gate and armed another: an account
+     * with an unchecked goal has an unfinished day, so step 9b sends it to
+     * `/today` instead of the dashboard. A fresh account defaults to
+     * `once_daily`; the three fixture accounts are set to `never` by
+     * `auth.setup.ts` for exactly this reason, and this one is fabricated here
+     * so it has to do it itself.
+     *
+     * **The lesson is the general one**: a test that mints its own account owes
+     * it every precondition the shared fixtures are given, and `auth.setup.ts`
+     * is the list of what those are. Fixing one gate collision by creating
+     * another is the shape to watch for.
+     */
+    const quieted = await admin
+      .from("users")
+      .update({ today_screen_mode: "never" })
+      .eq("id", userId)
+      .select("id")
+    expect(quieted.data, "could not opt the account out of /today").toHaveLength(1)
+
+    // **Now make it look like an account that predates migration 105.**
     const cleared = await admin
       .from("users")
       .update({ terms_accepted_at: null, terms_accepted_version: null })
