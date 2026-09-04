@@ -51,19 +51,29 @@ describe("the camera bar", () => {
     detach();
   });
 
-  it("gives a finger reset and the four pans, and nothing else", () => {
+  it("gives a finger zoom, reset and the four pans, and nothing else", () => {
     /**
      * **Pan looks redundant next to a pannable canvas and is not.** A
      * one-finger vertical drag belongs to the page, so these buttons are the
      * only way to move the view up or down at all.
      *
-     * Zoom goes because pinch is better at it. **The viewing angle goes and is
-     * the real casualty** — a drag cannot reach tilt on a compact host, so on
-     * touch it becomes unreachable. Asserted so that is a decision somebody
-     * revisits rather than a gap somebody finds.
+     * **Zoom was dropped once on the grounds that pinch is better at it, and
+     * that shipped a phone with no way to zoom at all.** In an embedded card
+     * `touch-action: pan-y` hands the gesture to the browser to keep the page
+     * scrollable, and iOS then spends two fingers on a page zoom rather than
+     * passing them to the canvas — so there was no pinch for a button to be
+     * worse than. Asserted here because the argument for removing them is
+     * persuasive and wrong.
+     *
+     * **The viewing angle goes and is the real casualty** — a drag cannot
+     * reach tilt on a compact host, so on touch it becomes unreachable.
+     * Asserted so that is a decision somebody revisits rather than a gap
+     * somebody finds.
      */
     const detach = attachCameraControls(host, api(), { touch: true });
     expect(names(host)).toEqual([
+      "Zoom out",
+      "Zoom in",
       "Reset view",
       "Look further up",
       "Look further down",

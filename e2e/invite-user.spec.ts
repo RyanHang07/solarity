@@ -26,6 +26,8 @@ import { storageStateFor } from "./session"
 
 const OWNER = () => requireEnv("E2E_OWNER_EMAIL")
 const JOINER = () => requireEnv("E2E_JOINER_EMAIL")
+/** Only ever a *target*: somebody real who is not in the Circle under test. */
+const ADMIN = () => requireEnv("E2E_ADMIN_EMAIL")
 
 test.afterAll(async () => {
   await deleteE2ECircles()
@@ -234,16 +236,52 @@ test("the invite RPC refuses what it should, and says which", async () => {
   const joiner = await sessionFor(JOINER())
 
   try {
-    // **No link yet, so the first refusal is the one that names a fix.** Also
-    // the proof that the RPC reads a link rather than minting one: if it
-    // minted, this would succeed.
-    const noLink = await owner.rpc("invite_user_to_circle", {
+    /**
+     * **No link yet, and an admin now gets one rather than a refusal.**
+     *
+     * This asserted the refusal until a real person met it: invite by name,
+     * be told to go generate a link, come back, invite again — a second apart
+     * in the timestamps, and remembered afterwards only as "it said something
+     * about expired". Migration 110 mints here instead.
+     *
+     * **The rule it was protecting is intact and is the next assertion.**
+     * `create_invite_link` rotates, so minting over a link people are already
+     * holding would revoke it. Nothing is held when nothing is live, which is
+     * the only case this covers.
+     */
+    const minted = await owner.rpc("invite_user_to_circle", {
       p_group_id: groupId,
       p_user_id: joinerId,
     })
-    expect(noLink.error?.hint, "a Circle with no live link accepted an invite").toBe(
-      "INVITE_LINK_MISSING",
-    )
+    expect(
+      minted.error?.hint ?? null,
+      "an admin inviting into a Circle with no live link was refused",
+    ).toBeNull()
+
+    const [firstInvite] = await invitesFor(joinerId, groupId)
+    const mintedToken = (firstInvite?.payload as { token?: string })?.token
+    expect(
+      mintedToken,
+      "the invite went out without a token, so it is a note rather than a link",
+    ).toBeTruthy()
+
+    /**
+     * **And the second invite reuses it rather than rotating.** This is the
+     * assertion the old refusal was standing in for: if the mint were
+     * unconditional, inviting a second person would hand out a new token and
+     * silently kill the one the first person is holding.
+     */
+    await clearInvites(joinerId, groupId)
+    const again = await owner.rpc("invite_user_to_circle", {
+      p_group_id: groupId,
+      p_user_id: joinerId,
+    })
+    expect(again.error?.hint ?? null).toBeNull()
+    const [secondInvite] = await invitesFor(joinerId, groupId)
+    expect(
+      (secondInvite?.payload as { token?: string })?.token,
+      "a second invite minted a new link and revoked the first one",
+    ).toBe(mintedToken)
 
     await inviteTokenFor(OWNER(), groupId)
 
@@ -296,6 +334,33 @@ test("the invite RPC refuses what it should, and says which", async () => {
       (foundAnywhere ?? []).some((u) => u.id === joinerId),
       "the search cannot find them at all, so the exclusion above proves nothing",
     ).toBe(true)
+
+    /**
+     * **A plain member still cannot mint, and this is the half of migration
+     * 110 with teeth.**
+     *
+     * `create_invite_link` is owner-and-admin; this RPC is any member. So a
+     * mint that did not re-check the role would be a way for an ordinary
+     * member to cause a bearer credential for the Circle to exist, by pressing
+     * a button that says "invite". The refusal they get names who can fix it.
+     *
+     * The joiner is a member by now, and the target is somebody outside the
+     * Circle so the lookup actually reaches the link branch: `ALREADY_MEMBER`
+     * and `NOT_FOUND` are both checked before it.
+     */
+    await admin
+      .from("invite_links")
+      .update({ enabled: false })
+      .eq("group_id", groupId)
+
+    const memberMint = await joiner.rpc("invite_user_to_circle", {
+      p_group_id: groupId,
+      p_user_id: await userIdByEmail(ADMIN()),
+    })
+    expect(
+      memberMint.error?.hint,
+      "a plain member minted this Circle's invite link by inviting somebody",
+    ).toBe("INVITE_LINK_MISSING")
   } finally {
     await admin
       .from("group_members")

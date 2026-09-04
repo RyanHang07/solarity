@@ -75,7 +75,13 @@ export default async function FirstGoalPage() {
           retire it whenever you like.
         </p>
       </div>
-      <FirstGoalForm categories={categories ?? []} />
+      {/*
+        The id, because the sun's colour is derived from it — `memberSun.ts`
+        hashes the account onto six presets, so the sun drawn here is the one
+        every Circle will show. Nothing is read from it on the client; it is a
+        seed, not a credential, and it is already in the session.
+      */}
+      <FirstGoalForm categories={categories ?? []} userId={user.id} />
     </main>
   )
 }

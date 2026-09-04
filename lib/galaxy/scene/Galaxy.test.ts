@@ -343,6 +343,28 @@ describe("Galaxy: the controls the host calls", () => {
     }
   });
 
+  it("gives up the focused system on reset, not just the camera", () => {
+    /**
+     * **Focus is camera state the caller also reads.** `mountGalaxy` toggles on
+     * `getFocusedSystem() === systemId`, so a reset that moved the camera home
+     * while still naming a member left the next tap on *that* member's sun
+     * asking to pull back out from a view already out — one member, silently
+     * dead, and only after a reset. Cheap to assert, invisible to find.
+     */
+    const snap = snapshot([planet("a")]);
+    const galaxy = build(snap);
+    try {
+      const id = snap.systems[0]?.id ?? "";
+      galaxy.focusSystem(id);
+      expect(galaxy.getFocusedSystem()).toBe(id);
+
+      galaxy.resetCamera();
+      expect(galaxy.getFocusedSystem()).toBeNull();
+    } finally {
+      galaxy.destroy();
+    }
+  });
+
   it("clamps zoom rather than letting it run away", () => {
     const galaxy = build(snapshot([planet("a")]));
     try {

@@ -100,15 +100,25 @@ export const mountGalaxy = async (
    * canvas, most of the time.
    *
    * `pan-y` gives vertical drags back to the page and keeps horizontal ones —
-   * so the galaxy still turns, taps still select a planet, and pinch-zoom
-   * still works because `touch-action` does not govern multi-touch here.
+   * so the galaxy still turns and taps still select a planet.
    *
-   * A full-size host keeps Pixi's default: there is nothing behind it to
-   * scroll, and taking the gesture is the point.
+   * **It costs the pinch, and that sentence used to claim otherwise.** The
+   * comment here said multi-touch was unaffected; it is not. Once
+   * `touch-action` names a browser gesture, iOS routes the whole stream to the
+   * browser, and two fingers become a *page* zoom: the canvas is sent
+   * `pointercancel` mid-gesture, the scene's pinch never runs, and the entire
+   * document scales. That is exactly the reported "it auto resizes and won't
+   * let me zoom".
+   *
+   * So the trade is made per state rather than once, by `setPageScrollThrough`
+   * below. In a card inside a scrolling column, page scroll wins and the
+   * camera bar carries the zoom. Full screen there is nothing behind the
+   * canvas to scroll, so the canvas takes the gesture and pinch works.
    */
-  if (compactHost) {
-    app.canvas.style.touchAction = "pan-y";
-  }
+  const setPageScrollThrough = (enabled: boolean): void => {
+    app.canvas.style.touchAction = enabled ? "pan-y" : "none";
+  };
+  setPageScrollThrough(compactHost);
 
   /**
    * **WebGL contexts are not permanent, and iOS is where you find out.**
@@ -364,6 +374,18 @@ export const mountGalaxy = async (
   galaxy.root.on("globalpointermove", handlePointerMove);
   galaxy.root.on("pointerup", handlePointerUp);
   galaxy.root.on("pointerupoutside", handlePointerUp);
+  /**
+   * **A cancelled pointer never comes up, and the map has to hear about it.**
+   *
+   * The browser fires `pointercancel` when it takes a gesture over — a page
+   * scroll starting under `touch-action: pan-y`, an iOS system edge swipe, a
+   * finger leaving the digitiser. Without this the entry sits in
+   * `activePointers` forever, so the next single finger looks like the second
+   * of a pair and starts a pinch against a stale coordinate: the view jumps to
+   * a zoom nobody asked for and `setCameraInteracting(true)` is never undone,
+   * which also disables the auto-fit for the rest of the mount.
+   */
+  galaxy.root.on("pointercancel", handlePointerUp);
   galaxy.root.on("wheel", handleWheel);
 
   const handleVisibility = (): void => {
@@ -471,6 +493,12 @@ export const mountGalaxy = async (
         return;
       }
       galaxy.setSunGrowth(growth);
+    },
+    setPageScrollThrough: (enabled) => {
+      if (destroyed) {
+        return;
+      }
+      setPageScrollThrough(enabled);
     },
     destroy: () => {
       if (destroyed) {

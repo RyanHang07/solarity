@@ -1,7 +1,7 @@
 "use client"
 
 import dynamic from "next/dynamic"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { SkeletonLine } from "@/components/skeleton"
 import { Viewhole, useViewhole } from "@/components/viewhole"
 import type { GalaxyHandle, GalaxySnapshot } from "@/lib/galaxy/data"
@@ -135,6 +135,41 @@ const probeWebgl = (): string => {
 }
 
 /**
+ * Is the OS asking for less motion, right now?
+ *
+ * ## Why this is worth a line on screen
+ *
+ * The renderer honours `prefers-reduced-motion` by holding every orbit still
+ * while drawing the sky perfectly. **That is correct and it is indistinguishable
+ * from a broken renderer**, which is not a hypothetical: the first person
+ * outside the project reported "their planets aren't moving" and the cause was
+ * a setting on their phone that nobody could see from here. A still picture
+ * with no explanation is a bug report waiting to happen.
+ *
+ * ## Subscribed rather than read once
+ *
+ * `mountGalaxy` reads the preference at mount and the scene keeps that answer
+ * for its lifetime, so a person toggling the setting in another app comes back
+ * to a canvas that has not changed. This *does* update — which is the honest
+ * behaviour for a caption, because it describes the system setting rather than
+ * the renderer's copy of it. The gap is one reload wide and only in the
+ * direction of the line appearing before the orbits stop.
+ *
+ * `getServerSnapshot` is `false`: there is no media query on a server, and
+ * guessing `true` would render a sentence the client immediately removes.
+ */
+const subscribeToMotion = (onChange: () => void) => {
+  const query = window.matchMedia("(prefers-reduced-motion: reduce)")
+  query.addEventListener("change", onChange)
+  return () => {
+    query.removeEventListener("change", onChange)
+  }
+}
+const readMotion = () =>
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches
+const motionOnServer = () => false
+
+/**
  * A galaxy in a card, with a frame that opens to full screen.
  *
  * **Both surfaces render this**: your own galaxy on Overview and the Circle's
@@ -173,6 +208,11 @@ export function GalaxyCard({
   const [reason, setReason] = useState<string | null>(null)
   const { open: expanded, setOpen, onCommit } = useViewhole()
   const handleRef = useRef<GalaxyHandle | null>(null)
+  const reducedMotion = useSyncExternalStore(
+    subscribeToMotion,
+    readMotion,
+    motionOnServer,
+  )
 
   /**
    * Whose system the pointer is over, and where.
@@ -188,6 +228,22 @@ export function GalaxyCard({
     x: number
     y: number
   } | null>(null)
+
+  /**
+   * The timer that ends a **tapped** name.
+   *
+   * A mouse says when it left. A finger does not: the leave arrives as the
+   * finger lifts, so a name shown on tap and hidden on leave is a name that
+   * never outlives the tap asking for it. On a coarse pointer the leave is
+   * ignored and this expires the label instead.
+   */
+  const hoverTimer = useRef<number | null>(null)
+  useEffect(
+    () => () => {
+      if (hoverTimer.current) window.clearTimeout(hoverTimer.current)
+    },
+    [],
+  )
 
   /** Filled once the canvas exists, and only read when `showDiagnostics`. */
   const [facts, setFacts] = useState<string[] | null>(null)
@@ -211,6 +267,33 @@ export function GalaxyCard({
    * it hanging outside the card.
    */
   useEffect(() => onCommit(() => handleRef.current?.resize()), [onCommit])
+
+  /**
+   * **What the frame's state means to the canvas**, applied before the camera
+   * animation below — effects run in declaration order, so this settles the
+   * framing the animation then eases away from and back to.
+   *
+   * Two things, and they are the same thing seen from either side:
+   *
+   * **Full screen takes the gesture.** An embedded card lets a one-finger drag
+   * scroll the page, which on iOS costs the pinch entirely: once `touch-action`
+   * names a browser gesture, two fingers become a page zoom and the canvas is
+   * sent `pointercancel`. Full screen there is nothing behind it to scroll, so
+   * the canvas keeps the pointers and pinch works.
+   *
+   * **Closing goes home.** Whatever was panned, zoomed or focused was done to
+   * look around a picture that filled the screen, and it does not survive into
+   * a 256px card: a member focused at 3× fills the card with one sun and no
+   * context, which reads as the galaxy having broken rather than as the camera
+   * being where it was left. The expanded view is the place to explore; the
+   * card is a glance, and a glance has one framing.
+   */
+  useEffect(() => {
+    const handle = handleRef.current
+    if (!handle || state !== "ready") return
+    handle.setPageScrollThrough(!expanded)
+    if (!expanded) handle.resetCamera()
+  }, [expanded, state])
 
   /**
    * **The camera travels rather than jumping.**
@@ -343,6 +426,20 @@ export function GalaxyCard({
                 `css ${Math.round(box.width)} × ${Math.round(box.height)}`,
                 `dpr ${window.devicePixelRatio}`,
                 `webgl ${probeWebgl()}`,
+                /*
+                  **The value the renderer was actually given**, which is the
+                  reason this stays even though the caption below the card now
+                  says the same thing in a sentence. The caption reads the
+                  media query live; this is read at mount, alongside `mountGalaxy`
+                  reading it — so when they disagree, the setting was changed
+                  after the scene was built, and that is worth being able to see
+                  rather than deduce.
+                */
+                `reduced motion at mount ${
+                  window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                    ? "on"
+                    : "off"
+                }`,
                 `systems ${snapshot.systems.length}, planets ${snapshot.systems.reduce(
                   (total, system) => total + system.planets.length,
                   0,
@@ -358,17 +455,49 @@ export function GalaxyCard({
           onSystemHover={
             namesOnHover
               ? (systemId, x, y) => {
+                  /**
+                   * **A finger gets the name too, and used to get nothing.**
+                   *
+                   * This returned early on a coarse pointer, on the reasoning
+                   * that the name would stick — which was the right worry and
+                   * the wrong cure: it left tapping a member on a phone doing
+                   * visibly less than hovering one on a desktop, on the surface
+                   * where a Circle is mostly read. The name is the answer to
+                   * the question the picture raises, and a phone raises it too.
+                   *
+                   * Sticking is handled where it happens instead. On touch the
+                   * leave event arrives as the finger lifts, so honouring it
+                   * would hide the label in the same breath as showing it; it
+                   * is ignored, and the label expires on its own.
+                   */
+                  const coarse = window.matchMedia("(pointer: coarse)").matches
+
                   if (!systemId) {
-                    setHover(null)
+                    if (!coarse) setHover(null)
                     return
                   }
-                  // A coarse pointer gets no hover affordance: on a phone this
-                  // fires around a tap and the name would stick.
-                  if (window.matchMedia("(pointer: coarse)").matches) return
+
                   const label = snapshot.systems.find(
                     (system) => system.id === systemId,
                   )?.label
-                  setHover(label ? { label, x, y } : null)
+                  // A system with no name to show is the same as no system:
+                  // leaving the last one up would point it at somebody else.
+                  if (!label) {
+                    setHover(null)
+                    return
+                  }
+
+                  if (hoverTimer.current) {
+                    window.clearTimeout(hoverTimer.current)
+                    hoverTimer.current = null
+                  }
+                  setHover({ label, x, y })
+                  if (coarse) {
+                    hoverTimer.current = window.setTimeout(() => {
+                      hoverTimer.current = null
+                      setHover(null)
+                    }, 1800)
+                  }
                 }
               : undefined
           }
@@ -427,6 +556,22 @@ export function GalaxyCard({
           </div>
         ) : null}
       </Viewhole>
+
+      {/*
+        **Only once the canvas exists.** If the galaxy could not start there is
+        nothing on screen to explain, and a note about orbits over an absent
+        picture would be answering a question nobody asked.
+
+        Not a `role="alert"`, and not styled as a warning: nothing is wrong.
+        The setting is being respected, and the only reason to say so is that
+        respecting it looks identical to failing.
+      */}
+      {state === "ready" && reducedMotion ? (
+        <p className="text-xs opacity-60">
+          Reduce Motion is on in your device settings, so the planets hold
+          still. Everything else here is live.
+        </p>
+      ) : null}
 
       {/*
         **Facts, not a guess.** A blank canvas and an absent canvas look the

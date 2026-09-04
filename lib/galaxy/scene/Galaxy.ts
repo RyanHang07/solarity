@@ -918,8 +918,19 @@ export class Galaxy {
     this.applyCamera();
   }
 
+  /**
+   * Back to the framing the sky opened with.
+   *
+   * **It clears the focused system too, and that is not tidiness.** Focus is a
+   * camera state that the *caller* also reads: `mountGalaxy` toggles on
+   * `getFocusedSystem() === systemId`, so a reset that moved the camera home
+   * while still reporting a focused member left the next tap on that member's
+   * sun asking to pull *back out* — from a view that was already out. The
+   * member you tapped would do nothing, and only that member.
+   */
   resetCamera(): void {
     this.fx.cancel(CAMERA_FIT_KIND);
+    this.focusedId = null;
     this.camera = { panX: 0, panY: 0, zoom: 1 };
     this.applyCamera();
   }

@@ -120,30 +120,52 @@ Rows 16 to 30 have never been run. **This is the whole of what is left before a 
 | No service worker | An http origin is not a secure context, so the PWA will not install and push will not register. Irrelevant for the galaxy, and the reason the install flow is tested on the deployed URL instead |
 | **Google sign-in bounces to production** | `signInWithGoogle` builds `redirectTo` from the request's `Origin`, which is correct — but **Supabase silently falls back to the Site URL when a `redirectTo` is not in its allowlist**, so the flow completes on the deployed origin instead of the phone. Not a bug and not fixable in code: an allowlist that trusted whatever the caller asked for would be an open redirect. **Sign in with email and password on the LAN instead**, which needs no configuration and no production auth change |
 
-#### The galaxy, on a phone
+#### The galaxy, on a phone — **run, and it found four things**
 
-| | Check | Why it is on this list |
+The pass was run on a real phone against `npm run preview`. **Worst frame at 10 × 10 was 17ms**, which is a clean 60 and settles the question the lab was built to ask: no fallback renderer, no alpha-shaped albedo, the clip mask stays.
+
+| | Check | Result |
 |---|---|---|
-| 16 | **`/admin/galaxy-lab` at 10 × 10.** Reset the worst frame, then drag, pinch and step the counts. **Write the worst frame down** | 100 planets, each with a stencil mask, on hardware nothing has measured. 16.7ms is a clean 60; past ~50ms is a hitch a person sees. If it is bad, the fallback is an alpha-shaped albedo instead of the clip mask — measure before reaching for it |
-| 17 | Same page: **one finger scrolls the page, two fingers pan the galaxy** | A mouse can never show this. The gesture is undiscoverable by design, and the pan buttons are the discoverable path |
-| 18 | Open and close the viewhole **ten times in a row**, watching the worst frame | A view transition snapshots the page into textures, twice, over a live WebGL canvas. Free on a desktop, possibly the whole budget on an old phone |
-| 19 | The same on **an iPhone older than iOS 18** | Safari shipped same-document view transitions in 18. Below it `transition()` falls back to an instant change — the honest floor, and worth seeing |
-| 20 | Overview: the galaxy panel, then **check off a goal** | The planet lights optimistically, before the write returns |
-| 21 | A Circle's Today tab: hover a member's planets on a desktop, then **tap them on a phone** | The name is a mouse affordance and must not stick to a touch screen |
-| 22 | An **archived** Circle's sky | Frozen: orbits, backdrop and starfield still. The camera must still pan and focus |
-| 23 | A Circle with a member who has **no goals** | An empty sun, and a sky that does not close. The rule the streak already has, shown rather than softened |
-| 24 | Turn on **Reduce Motion** in iOS settings, then reload both surfaces | No view transition at all, and a still scene. Not a faster animation |
+| 16 | **`/admin/galaxy-lab` at 10 × 10.** Worst frame | ✅ **17ms.** A hitch starts around 50ms. The stencil mask is affordable on the hardware people have |
+| 17 | One finger scrolls the page, two fingers pan the galaxy | ❌ **Two fingers zoomed the page instead**, and the camera never saw them. Fixed — see below |
+| 18 | Open and close the viewhole ten times | ✅ Stayed clean |
+| 19 | The same on an iPhone older than iOS 18 | ⬜ Still to do. Needs the older device |
+| 20 | Overview, then check off a goal | ✅ The planet lights before the write returns |
+| 21 | Hover a member on a desktop, then tap on a phone | ❌ **Desktop named them, the phone showed nothing.** The touch branch was an early `return`. Fixed — see below |
+| 22 | An archived Circle's sky | ✅ Frozen, and the camera still moves |
+| 23 | A Circle with a member who has no goals | ✅ An empty sun, and the sky does not close |
+| 24 | Reduce Motion, both surfaces | ✅ Still scene, no transition. **Now says so**: a line under the card explains the orbits are held still on purpose, because "their planets aren't moving" was the first report from outside the project and a correctly-honoured setting is indistinguishable from a dead renderer. Re-check that the line appears, and that it disappears when the setting is turned off |
+| 24b | **Closing the expanded view leaves the camera where the finger left it** | ❌ Not on the original list, and worth being: a member focused at 3× fills a 256px card with one sun. Fixed — see below |
+
+##### What those three cost, and what changed
+
+| Finding | The fix, and why it is not the obvious one |
+|---|---|
+| **Pinch does nothing; the whole page zooms** | `touch-action: pan-y` on the canvas is what lets a thumb scroll the page through an embedded galaxy, and a comment here claimed it left multi-touch alone. It does not: once `touch-action` names a browser gesture **iOS routes the entire stream to the browser**, so two fingers become a page zoom and the canvas is sent `pointercancel` mid-gesture. The trade is real in a card and worthless full screen, so it is now made per state — `setPageScrollThrough(!expanded)`. **Pinch works expanded; the card keeps its page scroll and gets its zoom buttons back.** Those buttons had been removed on the reasoning that "pinch is better than a button at it", which was true and left a phone with no way to zoom at all |
+| **A tap names nobody** | The hover handler returned early on `(pointer: coarse)`, on the sound worry that a name shown on tap would stick — a finger's "leave" arrives as it lifts, so honour it and the label dies in the same breath it appears. The cure was aimed at the wrong half: the leave is now ignored on touch and the label **expires on a timer** instead |
+| **`pointercancel` was never handled** | Found while reading the above, not by using it. A cancelled pointer never comes up, so its entry sat in `activePointers` forever — the next single finger looked like the second of a pair, started a pinch against a stale coordinate, and left `cameraInteracting` stuck true, which silently disables auto-fit for the rest of the mount |
+| **The camera survived the close** | Closing now calls `resetCamera()`. And `resetCamera` now clears `focusedId`, which it did not: focus is state the *caller* reads, so a reset that moved the camera home while still naming a member left the next tap on that one member's sun asking to pull back out from a view already out. One member, silently dead, only after a reset |
 
 #### The five auth screens, never driven on a device
 
 | | Check | Why |
 |---|---|---|
 | 25 | Sign up with a **new** email, on the phone | The whole front door, step 20, on hardware for the first time |
-| 26 | The **first goal** screen: open the category picker and choose one | iOS draws a `<select>` as a wheel. This form shipped with a disabled placeholder — the exact defect step 16 fixed — and it was caught by an audit rather than by use |
+| 26 | The **first goal** screen: watch the sun draw, then open the category picker and choose one | Two things at once, and it is the only screen where either can be seen. **iOS draws a `<select>` as a wheel**, and this form shipped with a disabled placeholder — the exact defect step 16 fixed, caught by an audit rather than by use. **And the preview now hangs off that same picker**: choosing a category should put a planet around the sun immediately, in the category's colour, with no belt. **No e2e can reach this screen**, and that is not an oversight — the gate is "never had a goal", goal rows are never deleted, so no fixture account can be in that state and minting one leaves an `auth.users` row nothing can clean up. The snapshot builder is unit-tested; the wiring is this row |
 | 27 | Confirmation email → the confirm link → onboarding | A deep link into an installed PWA behaves differently from a tab |
 | 28 | **Forgot password**, all the way through | Never run outside a desktop browser |
 | 29 | The landing page and `/support` at 375px | Deliberately plain, and never seen small |
 | 30 | `E2E_PROD=1 npm run test:e2e:ios` | The only pass that sees the CSP that ships. **It has already earned its place**: PixiJS needs `new Function`, the dev policy allows it and the shipped one does not, so the galaxy had never run in a production build. `dashboard.spec.ts` now asserts the galaxy renders, which is what turns that class of failure from silence into red |
+
+#### Reported by the first person outside the project
+
+Three reports from one friend's first session. **None of them is a renderer bug, and two are not bugs at all** — which is worth writing down, because each looked like one.
+
+| Report | What it actually is |
+|---|---|
+| "Their planets aren't moving" | Almost certainly **Reduce Motion**, which the scene honours by design: it is read once at mount and holds every orbit still while drawing the sky perfectly. Indistinguishable, to the person holding the phone, from a renderer that stopped ticking — so the lab's diagnostics now **print it**, and the next report of this answers itself. Confirm by asking them to check iOS → Accessibility → Motion |
+| "The invite came back expired straight away" | **Not the invite link, and not "expired".** The message was `INVITE_LINK_MISSING` — "This Circle has no live invite link. Generate one below" — met by inviting somebody by name before any link existed. The timestamps say the rest: link minted 03:12:09, notification 03:12:10, one second apart, so the fix was found and applied immediately and the invite worked. **What survived in memory was not the sentence but a bad feeling about invites**, which is the real cost of a refusal standing between someone and the thing they asked for. Fixed in **migration 110**: an admin inviting into a Circle with no live link now gets one minted. The rule it was protecting is untouched — `create_invite_link` *rotates*, so minting over a live link would revoke what people are holding, and this only fires when nothing is live and there is nothing to revoke. A plain member is still refused, because `create_invite_link` is admins-only and this must not be a way around it |
+| "They couldn't pick their sun colour" | **There is no picker.** Sun colour is derived from the user id by `memberSun.ts` — six presets, hashed, stable across devices, no schema and no settings screen. That was the deliberate answer to goal cosmetics being cut, and `resolveSunColor` already prefers a stored `sunPresetId` the day one exists. So this is a **feature request with the groundwork done**, not a broken control |
 
 ---
 

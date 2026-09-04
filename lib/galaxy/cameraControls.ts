@@ -73,9 +73,17 @@ const nextTilt = (current: number): number => {
  * the touch set, which is the honest answer in both cases. A device that lies
  * about one of the two gets the more forgiving option rather than the less.
  *
- * On touch the bar drops to **reset and the four pans**:
+ * On touch the bar drops to **zoom, reset and the four pans**:
  *
- *   * zoom goes because pinch is better than a button at it
+ *   * **zoom stays, having once been dropped on the grounds that pinch is
+ *     better at it.** Pinch is better at it, and in an embedded card there is
+ *     no pinch to be better: `touch-action: pan-y` hands the gesture to the
+ *     browser so the page scroll survives, and iOS then spends two fingers on
+ *     a page zoom rather than passing them to the canvas. Dropping the buttons
+ *     left a phone with no way to zoom at all, which read as the galaxy being
+ *     broken. Full screen the canvas does take the gesture and pinch works;
+ *     the buttons cost a few pixels there and are the reason it works in the
+ *     other state
  *   * the viewing angle goes, and it is the real casualty — a drag cannot
  *     reach it on a compact host, so on touch it becomes unreachable. Named
  *     rather than quietly dropped
@@ -126,6 +134,12 @@ export const attachCameraControls = (
   bar.append(
     ...(opts.touch
       ? [
+          controlButton("−", "Zoom out", () => {
+            api.zoomBy(0.86);
+          }),
+          controlButton("+", "Zoom in", () => {
+            api.zoomBy(1.16);
+          }),
           controlButton("◎", "Reset view", () => {
             api.resetCamera();
           }),

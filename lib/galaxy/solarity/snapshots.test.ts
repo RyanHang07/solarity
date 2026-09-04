@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest"
 import type { RosterMember } from "@/lib/roster"
 import { GOAL_CATEGORIES } from "../data"
-import { buildCircleSnapshot, buildPersonalSnapshot } from "./snapshots"
+import {
+  buildCircleSnapshot,
+  buildFirstGoalPreview,
+  buildPersonalSnapshot,
+} from "./snapshots"
 
 /**
  * **Ids are uuid-shaped, and that is not decoration.**
@@ -259,5 +263,80 @@ describe("a personal snapshot", () => {
 
     expect(withBelt.systems[0]?.planets[0]?.beltVisible).toBe(true)
     expect(without.systems[0]?.planets[0]?.beltVisible).toBe(false)
+  })
+})
+
+describe("the first-goal preview", () => {
+  it("draws a sun with nothing around it before a category is chosen", () => {
+    // The honest picture of an account with no goals, and the reason choosing
+    // one is visible: a preview that showed a placeholder planet would make
+    // the picker's only effect a colour change nobody was watching for.
+    const snapshot = buildFirstGoalPreview({
+      userId: uuid(1),
+      categorySlug: null,
+    })
+    expect(snapshot.systems).toHaveLength(1)
+    expect(snapshot.systems[0]?.planets).toHaveLength(0)
+    expect(snapshot.systems[0]?.sun).toBeTruthy()
+  })
+
+  it("gives the planet the category's own colour", () => {
+    const health = GOAL_CATEGORIES.find((c) => c.slug === "health")
+    const snapshot = buildFirstGoalPreview({
+      userId: uuid(1),
+      categorySlug: "health",
+    })
+    expect(snapshot.systems[0]?.planets).toHaveLength(1)
+    expect(snapshot.systems[0]?.planets[0]?.color).toBe(health?.color)
+  })
+
+  it("survives a category the renderer has never heard of", () => {
+    // The tenth category, added in SQL and not in TypeScript. One planet the
+    // wrong colour rather than a screen nobody can skip failing to render.
+    const snapshot = buildFirstGoalPreview({
+      userId: uuid(1),
+      categorySlug: "nonexistent-category",
+    })
+    expect(snapshot.systems[0]?.planets).toHaveLength(1)
+  })
+
+  it("shows the sun this account actually gets, not a default", () => {
+    /**
+     * **The whole claim the screen makes.** The copy says "your sun", and it is
+     * only true if this is the same colour the Circle draws for them. Compared
+     * against `buildCircleSnapshot` rather than against a hardcoded hex,
+     * because the thing being asserted is that the two agree.
+     */
+    const id = uuid(1)
+    const preview = buildFirstGoalPreview({ userId: id, categorySlug: null })
+    const inACircle = buildCircleSnapshot([member({ user_id: id })])
+
+    expect(preview.systems[0]?.sun.color).toBe(inACircle.systems[0]?.sun.color)
+
+    // The control: a different account gets a different sun, so the assertion
+    // above is not two calls to one constant.
+    const other = buildFirstGoalPreview({ userId: uuid(4), categorySlug: null })
+    expect(other.systems[0]?.sun.color).not.toBe(preview.systems[0]?.sun.color)
+  })
+
+  it("never shows a belt, because the real one is a coin flip at insert", () => {
+    // `belt_visible` is rolled by migration 107's column default. `auto` here
+    // would show a ring the goal has a four-in-five chance of not getting.
+    for (const slug of GOAL_CATEGORIES.map((c) => c.slug)) {
+      const snapshot = buildFirstGoalPreview({
+        userId: uuid(1),
+        categorySlug: slug,
+      })
+      expect(snapshot.systems[0]?.planets[0]?.beltVisible).toBe(false)
+    }
+  })
+
+  it("does not shine, on a day nobody has checked anything off", () => {
+    const snapshot = buildFirstGoalPreview({
+      userId: uuid(1),
+      categorySlug: "health",
+    })
+    expect(snapshot.systems[0]?.planets[0]?.shine).toBe(false)
+    expect(snapshot.skyClosed).toBe(false)
   })
 })

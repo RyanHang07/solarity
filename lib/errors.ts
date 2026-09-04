@@ -79,12 +79,22 @@ export const BY_HINT: Record<string, string> = {
   // Step 18b. Inviting a named person.
   ALREADY_MEMBER: "They're already in this Circle.",
 
-  // Names the fix, because there is a button for it on the same screen. The
-  // RPC refuses rather than minting a link, since `create_invite_link` disables
-  // every existing one and a silent regeneration would revoke the link members
-  // are already passing around.
+  /**
+   * **Only a plain member can see this now**, which is why it no longer names
+   * a button.
+   *
+   * It used to read "Generate one below, then invite them", pointing at the
+   * panel next to it — and an owner met exactly that: invite by name, be sent
+   * to press Generate, come back, invite again. Migration 110 mints the first
+   * link for an admin instead, since there is nothing live to revoke and the
+   * rotation hazard the refusal existed for cannot arise.
+   *
+   * A member still gets refused, because `create_invite_link` is owner and
+   * admin only and this must not be a way around that. The panel they are
+   * looking at has no Generate button, so the copy names the person who does.
+   */
   INVITE_LINK_MISSING:
-    "This Circle has no live invite link. Generate one below, then invite them.",
+    "This Circle has no live invite link, and only an owner or admin can make one. Ask them to generate one, then invite again.",
 
   /**
    * **Deliberately the same answer for "blocked" and "no such account".**

@@ -274,6 +274,21 @@ export type GalaxyHandle = {
   setAmbientEffects: (enabled: boolean) => void;
   setSunGrowth: (growth: number) => void;
   /**
+   * Should a one-finger vertical drag scroll the page behind the canvas?
+   *
+   * **On for an embedded card, off when the canvas is the whole screen**, and
+   * the two cannot be one answer decided at mount because the same mount is
+   * both: the card expands to full screen without remounting.
+   *
+   * It is really a question about *pinch*. `touch-action: pan-y` hands the
+   * gesture stream to the browser, and iOS then treats two fingers as a page
+   * zoom — the canvas never sees the pointers, so the scene's own pinch is
+   * dead and the whole page scales instead. That trade is worth it in a card
+   * inside a scrolling column and worth nothing full screen, where there is
+   * nothing behind the canvas to scroll.
+   */
+  setPageScrollThrough: (enabled: boolean) => void;
+  /**
    * Re-measure the host **now**, synchronously.
    *
    * The `ResizeObserver` inside the mount coalesces to the next frame, which is

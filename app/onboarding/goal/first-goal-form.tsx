@@ -1,9 +1,11 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useActionState, useEffect } from "react"
+import { useActionState, useEffect, useMemo, useState } from "react"
 import { useFormStatus } from "react-dom"
 import { createGoal } from "@/app/actions/goals"
+import { GalaxyPreview } from "@/components/galaxy-preview"
+import { buildFirstGoalPreview } from "@/lib/galaxy/solarity/snapshots"
 import type { ActionResult } from "@/lib/errors"
 
 function Submit() {
@@ -38,13 +40,37 @@ function Submit() {
  */
 export function FirstGoalForm({
   categories,
+  userId,
 }: {
   categories: { slug: string; name: string }[]
+  /** Fixes the sun's colour. See `buildFirstGoalPreview`. */
+  userId: string
 }) {
   const router = useRouter()
   const [state, action] = useActionState<ActionResult | null, FormData>(
     createGoal,
     null,
+  )
+
+  /**
+   * **Controlled, and only because the picture needs to know.**
+   *
+   * The form still submits `category` as a plain field — nothing about the
+   * write changed — but the canvas beside it has to react to the choice, and a
+   * `change` handler with no state would have nowhere to put the answer.
+   *
+   * Still no `disabled` on the placeholder: see the comment on the option.
+   */
+  const [category, setCategory] = useState("")
+
+  /**
+   * **Memoised on the slug**, so typing a title does not rebuild the snapshot
+   * on every keystroke and hand the renderer a new object identity to diff.
+   * The sun does not change either way; the work would be entirely wasted.
+   */
+  const snapshot = useMemo(
+    () => buildFirstGoalPreview({ userId, categorySlug: category || null }),
+    [userId, category],
   )
 
   /**
@@ -61,6 +87,26 @@ export function FirstGoalForm({
 
   return (
     <form action={action} className="flex w-full max-w-xs flex-col gap-3">
+      {/*
+        **Above the fields, and it is the first thing on the screen for a
+        reason.** Onboarding has been a form asking for text; this is the first
+        moment the product shows what the text is *for*. The sun is already
+        theirs — hashed from their account, the same one their Circles will see
+        — so it is there before they have typed anything, and choosing a
+        category puts a planet around it while their thumb is still on the
+        picker.
+
+        It removes itself when the canvas cannot exist. Nothing below depends
+        on it, which is the rule that lets it be here at all: this is the one
+        screen in the product nobody can skip.
+      */}
+      <GalaxyPreview snapshot={snapshot} />
+      <p className="text-xs opacity-60">
+        {category
+          ? "Your sun, and the planet this goal will be."
+          : "Your sun. Pick a category below and it gets a planet."}
+      </p>
+
       <label htmlFor="title" className="text-sm font-medium">
         Your goal
       </label>
@@ -81,7 +127,10 @@ export function FirstGoalForm({
         id="category"
         name="category"
         required
-        defaultValue=""
+        value={category}
+        onChange={(event) => {
+          setCategory(event.target.value)
+        }}
         className="rounded border px-3 py-2 text-sm"
       >
         {/*
@@ -106,9 +155,11 @@ export function FirstGoalForm({
           </option>
         ))}
       </select>
-      <p className="text-xs opacity-60">
-        The category is the colour this goal gets in your galaxy.
-      </p>
+      {/*
+        The line that used to be here said "the category is the colour this
+        goal gets in your galaxy". The picture above says it now, in the colour
+        itself, which is the whole reason it is there.
+      */}
 
       {/*
         `role="alert"` and never an empty one: an alert node that exists with no
