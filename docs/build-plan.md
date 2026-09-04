@@ -95,8 +95,8 @@ After that: `/admin` appears, a link shows up at the bottom of Settings, and fur
 
 | | Check | Result |
 |---|---|---|
-| A1 | **Installed to the home screen**, expand the galaxy | ⬜ **Failed once, and the second attempt was aimed at the wrong cause.** `env()` changed nothing, so a `display-mode: standalone` floor went in on the theory that `black-translucent` reports zero. The probe then measured **62 / 0 / 34 / 0 standalone**, so the inset was always fine and the floor was defending against nothing. It is removed. Re-check the plain `env()` rule |
-| A1b | The camera bar's shape | ⬜ `− ◎ +` on top, `← ↑ ↓ →` beneath. It wrapped into three ragged rows because a CSS rule referred to a *position* — the old five-button touch set had reset at the front — rather than to the button it meant |
+| A1 | **Installed to the home screen**, expand the galaxy | ⬜ **Failed twice, and the third attempt changes the shape of the answer rather than the value.** `padding: env(...)` on `[data-viewhole][data-open]` did nothing; a `display-mode: standalone` floor under it did nothing either, and the theory behind it was wrong — the probe measured **62 / 0 / 34 / 0 standalone**, 0 in a tab, so the inset was always there. What the measurement rules out is the value, which leaves the rule not reaching the element. **So the frame is now full-bleed and only the two controls are inset**, applied by React and by a plain class, with no attribute selector left to fail. Check the Close button clears the Island and the camera bar clears the home indicator; the sky reaching the edges is intended |
+| A1b | The camera bar's shape | ✅ `− ◎ +` over `← ↑ ↓ →`. It had wrapped into three ragged rows because a CSS rule referred to a *position* — the old five-button touch set had reset at the front — rather than to the button it meant |
 | A2 | Same, landscape | ✅ |
 | A3 | Same, then rotate while expanded | ✅ |
 | A4 | In the card, on touch: one finger, then two | ✅ Neither moves the sky; the page scrolls |
@@ -105,9 +105,9 @@ After that: `/admin` appears, a link shows up at the bottom of Settings, and fur
 | A7 | A Circle: tap a member's planet, then their sun | ✅ |
 | A8 | Expand, focus a member, close, tap that member again | ✅ |
 | A9 | Reduce Motion on, then off without reloading | ✅ |
-| A10 | `/onboarding/goal` on a phone | ✅ **run, then changed under it.** The screen now also carries the sun picker, so it needs one more look: six swatches, opening on the colour the account already renders, and the sun in the canvas following the selection |
+| A10 | `/onboarding/goal` on a phone | ✅ Re-run with the sun picker on it |
 | A11 | Invite into a brand-new Circle with no link generated first | ✅ |
-| **A12** | **The sun picker, end to end** | ⬜ New. Pick a colour that is not the one it opens on, finish onboarding, and check the sun on **Overview and in a Circle** — those are two different reads of the same fact and the failure mode is that they disagree |
+| A12 | The sun picker, end to end | ✅ The chosen colour survives to Overview and to a Circle, which are two different reads of the same fact |
 
 ### B. The five auth screens ✅ run
 
@@ -264,7 +264,7 @@ Keep the posture **deny-by-default**: enumerate what is *public*, so a forgotten
 
 | | | |
 |---|---|---|
-| 1 | **Four rows of the manual pass** | A1, A1b, A10 and A12 in "What is left" above. Everything else on that list is run |
+| 1 | **One row of the manual pass** | A1 — the expanded galaxy's controls clearing the Island and the home indicator, installed to the home screen. Everything else on that list is run |
 | 2 | **`npx tsx scripts/backfill-sun-presets.ts`** | Migration 111's backfill. One-off, idempotent, and it only ever fills a blank — so it is safe to run again if a row fails. It calls `sunPresetIdForMember` rather than re-deriving the hash in SQL, which is the point of it being a script |
 
 **Closed since this list was written**

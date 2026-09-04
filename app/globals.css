@@ -73,51 +73,42 @@
 }
 
 /*
- * ─── the expanded frame gives the notch its margin back ──────────────────────
+ * ─── the expanded galaxy's controls clear the notch ──────────────────────────
  *
- * **`body` pays the safe-area inset and a `fixed` element never sees it.** The
- * root layout asks for `viewport-fit=cover` and a translucent status bar, so
- * the app draws under the camera housing on purpose and `body` hands the
- * content its margin back with padding. `position: fixed` is laid out against
- * the viewport, not against that padded box — so the expanded galaxy is the one
- * thing in the entire app that never got the margin, and installed to the home
- * screen, where there is no browser chrome above it, the Dynamic Island sat on
- * top of the Close button. In a tab it looks fine, which is why it took a PWA
- * to find.
+ * **Full-bleed sky, inset controls**, which is the third arrangement tried and
+ * the first that is not conditional on anything that can silently stop matching.
  *
- * **Padding rather than insets on the fixed box**, so the sky still reaches
- * every edge: a background paints the whole border box, while `inset-0` on the
- * absolutely-positioned canvas and controls resolves against the *padding* box.
- * The picture and the buttons move in; the black does not, and there is no seam
- * because the canvas clears to the same `--galaxy-sky`.
+ * ## What was tried, and what each attempt taught
  *
- * All four sides. Landscape puts the inset on the left or right, and the home
- * indicator takes a slice from the bottom where the camera bar lives.
+ * `body` pays the `env(safe-area-inset-*)` that the root layout's
+ * `viewport-fit=cover` asks for, and **`position: fixed` is laid out against the
+ * viewport rather than against that padded box** — so the expanded frame was the
+ * one thing in the app that never got the margin back, and installed to the home
+ * screen the Dynamic Island sat on the Close button.
  *
- * ## Measured, after a wrong guess
- *
- * This shipped and the Island still sat on the Close button, which left two
- * candidates: the inset resolving to zero, or the rule not matching. **A
- * `display-mode: standalone` floor went in under it on the theory that
- * `black-translucent` reports nothing** — a real iOS behaviour, and not this
- * one. The probe in `galaxy-card.tsx` settled it:
- *
- * | | top / right / bottom / left |
+ * | Attempt | Result |
  * |---|---|
- * | Installed to the home screen | **62px / 0 / 34px / 0** |
- * | The same page in a browser tab | 0 / 0 / 0 / 0, which is correct — the chrome is above the page |
+ * | `padding: env(...)` on `[data-viewhole][data-open]` | No visible change |
+ * | A `display-mode: standalone` floor under it, on the theory that `black-translucent` reports zero | No visible change — **and the theory was wrong.** The probe measured **62 / 0 / 34 / 0 standalone**, 0 in a tab. The inset was always there |
  *
- * So `env()` was always going to be enough and the floor was dead weight
- * defending against a cause that did not exist. Removed. The diagnostic stays,
- * because it is the thing that turned an argument into two rows of numbers.
+ * Two attempts, one measurement, and what the measurement rules out is the
+ * *value*. What is left is the rule not reaching the element, and rather than
+ * spend a third round guessing why an attribute selector on a
+ * `view-transition-name`d element behaves oddly, **the inset moves to the two
+ * things that actually need it**, applied by React and by a plain class.
+ *
+ * ## And it is the better answer anyway
+ *
+ * A galaxy that stops short of the edges to respect a camera housing is a
+ * letterboxed night sky. Nothing in the canvas is a control, nothing in it can
+ * be lost under the Island, and the status bar over a starfield reads as
+ * intended rather than as broken. **Only the Close button and the camera bar
+ * are interactive, and only they move in.**
  */
-[data-viewhole][data-open] {
-  padding-top: env(safe-area-inset-top);
-  padding-right: env(safe-area-inset-right);
-  padding-bottom: env(safe-area-inset-bottom);
-  padding-left: env(safe-area-inset-left);
+.galaxy-expanded .galaxy-camera-controls {
+  right: calc(env(safe-area-inset-right) + 8px);
+  bottom: calc(env(safe-area-inset-bottom) + 8px);
 }
-
 
 /*
  * The frame morphs between its two rectangles, which is the whole effect: a

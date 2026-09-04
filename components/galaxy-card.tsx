@@ -455,7 +455,17 @@ export function GalaxyCard({
           */
           cameraControls
           frozen={frozen}
-          className="absolute inset-0"
+          /*
+            **`galaxy-expanded` is what moves the camera bar off the home
+            indicator**, and it is a class rather than a `[data-open]` rule
+            because two attempts at the latter changed nothing on the device
+            while the inset itself measured 62 / 34. React writes this one, so
+            there is no selector left to be wrong about.
+
+            The host still fills the frame: the sky reaches every edge and only
+            the controls come in.
+          */
+          className={`absolute inset-0${expanded ? " galaxy-expanded" : ""}`}
           onReady={(handle) => {
             handleRef.current = handle
             setState("ready")
@@ -576,6 +586,29 @@ export function GalaxyCard({
           <button
             type="button"
             onClick={() => setOpen(!expanded)}
+            /*
+              **The inset is an inline style, and that is the point of it.**
+
+              Expanded, this button is the only way out of a full-screen view,
+              and installed to the home screen the Dynamic Island sits exactly
+              where `top-2` puts it. Two CSS attempts to give the frame its
+              margin back changed nothing on the device — while the probe
+              measured the inset at 62px — so the value is applied here, by
+              React, where there is no selector to fail to match.
+
+              **Only when expanded.** In the card this button is 8px from a
+              256px box in normal flow, and `body` has already paid the inset
+              for everything in the page; adding it again would push the
+              control off the card.
+            */
+            style={
+              expanded
+                ? {
+                    top: "calc(env(safe-area-inset-top) + 0.5rem)",
+                    right: "calc(env(safe-area-inset-right) + 0.5rem)",
+                  }
+                : undefined
+            }
             className="absolute right-2 top-2 z-10 rounded border border-current px-2 py-1 text-xs text-[#f4f1de] opacity-70 hover:opacity-100"
           >
             {expanded ? "Close" : "Expand"}
