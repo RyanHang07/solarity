@@ -118,6 +118,7 @@ Rows 16 to 30 have never been run. **This is the whole of what is left before a 
 | Windows Firewall | It will ask, or silently block, on the first inbound connection. Allow Node on **private** networks |
 | **http, not https, and it works on purpose** | `upgrade-insecure-requests` would rewrite the page's own bundle to `https://192.168.…`, which nothing answers — and WebKit applies it where Chromium exempts localhost. `proxy.ts` derives `secure` from the *connection*, so a plain-http origin never gets the directive. That trap cost a whole debugging session once; it is handled |
 | No service worker | An http origin is not a secure context, so the PWA will not install and push will not register. Irrelevant for the galaxy, and the reason the install flow is tested on the deployed URL instead |
+| **Google sign-in bounces to production** | `signInWithGoogle` builds `redirectTo` from the request's `Origin`, which is correct — but **Supabase silently falls back to the Site URL when a `redirectTo` is not in its allowlist**, so the flow completes on the deployed origin instead of the phone. Not a bug and not fixable in code: an allowlist that trusted whatever the caller asked for would be an open redirect. **Sign in with email and password on the LAN instead**, which needs no configuration and no production auth change |
 
 #### The galaxy, on a phone
 
@@ -142,7 +143,7 @@ Rows 16 to 30 have never been run. **This is the whole of what is left before a 
 | 27 | Confirmation email → the confirm link → onboarding | A deep link into an installed PWA behaves differently from a tab |
 | 28 | **Forgot password**, all the way through | Never run outside a desktop browser |
 | 29 | The landing page and `/support` at 375px | Deliberately plain, and never seen small |
-| 30 | `E2E_PROD=1 npm run test:e2e:ios` | The only pass that sees the CSP that ships, and step 20h added two directives to it |
+| 30 | `E2E_PROD=1 npm run test:e2e:ios` | The only pass that sees the CSP that ships. **It has already earned its place**: PixiJS needs `new Function`, the dev policy allows it and the shipped one does not, so the galaxy had never run in a production build. `dashboard.spec.ts` now asserts the galaxy renders, which is what turns that class of failure from silence into red |
 
 ---
 

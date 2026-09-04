@@ -1,3 +1,29 @@
+/**
+ * **PixiJS generates shader plumbing with `new Function`, and a real CSP
+ * forbids that.**
+ *
+ * Without this import the renderer throws on init:
+ *
+ *   current environment does not allow unsafe-eval, please use
+ *   pixi.js/unsafe-eval module to enable support
+ *
+ * The polyfill replaces every generated function — shader sync, uniform
+ * uploads, UBO packing, particle updates — with an interpreted equivalent. It
+ * self-installs on import, which is why there is no call here and why this line
+ * must not be tidied away as an unused import.
+ *
+ * **The alternative is `'unsafe-eval'` in `script-src`, and it is not on the
+ * table.** That directive exists to stop a string becoming code; turning it off
+ * across the whole application so a decorative canvas can compile shaders
+ * faster is a security decision made for a picture. The polyfill is slower at
+ * uploading uniforms and that cost is bounded, measurable, and paid only where
+ * the galaxy draws.
+ *
+ * **It has to be imported before `Application.init`**, which is why it sits at
+ * the top of the only module that constructs one.
+ */
+import "pixi.js/unsafe-eval";
+
 import { Application, FederatedPointerEvent, FederatedWheelEvent } from "pixi.js";
 import { attachCameraControls } from "./cameraControls";
 import {

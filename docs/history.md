@@ -3988,40 +3988,51 @@ The action returns a result rather than redirecting, because four other callers 
 
 ---
 
-## The galaxy does not start on a phone — open
+## The galaxy had never worked in production ✅ fixed
 
-3 September, first time anything was opened on a real device. **Every galaxy is blank**: the card's frame paints, then the block removes itself. Desktop is unaffected.
+3 September. Reported as "the frame flashes and then nothing renders on my phone". It was not a phone bug.
 
-### What the symptom means
-
-The block removing itself is `onUnavailable`, so `mountGalaxy` **rejected**. That path exists and is correct — every galaxy surface is additive and a device without WebGL should lose the picture and keep the app — so the behaviour on screen is the designed one. The bug is upstream of it.
-
-### The defect found on the way, which is mine
-
-```ts
-void start().catch(() => {
-  if (!cancelled) failedRef.current?.();
-});
+```
+current environment does not allow unsafe-eval,
+please use pixi.js/unsafe-eval module to enable support
 ```
 
-**The reason was thrown away.** A rejected mount was reported to the person as absence and to whoever was debugging as nothing at all — `patterns.md`, "a protection that fails as absence rather than as refusal", written by the person who put that row in the file.
+**PixiJS builds its shader plumbing with `new Function`** — shader sync, uniform uploads, UBO packing, particle updates are all generated at runtime. `lib/security-headers.ts`:
 
-`onUnavailable` now carries the reason, `galaxy-view.tsx` logs it, and `GalaxyCard` gained `explainAbsence` — off everywhere except the lab, because for a person the absence is not worth a sentence and for somebody holding a phone it is the only thing that matters. **A phone has no console to open**, which is why the lab prints it on screen.
+```ts
+"script-src": dev
+  ? ["'self'", "'unsafe-inline'", "'unsafe-eval'", TURNSTILE]
+  : ["'self'", `'nonce-${nonce}'`, TURNSTILE],
+```
 
-### And the lab started at the load case
+**The development policy allows it and the shipped one does not.** So the galaxy worked on every desktop anybody used, and had never once run in a production build — on any device. The phone was simply the first production build anybody opened.
 
-10 × 10 by default, which teaches nothing when 10 × 10 is what fails: no canvas, no curve, and the only reading is "no". It starts at 3 × 3 and is stepped up, so the reading is *where* it stops.
+### The fix, and the thing that was not the fix
 
-### Candidates, in the order worth checking
+`import "pixi.js/unsafe-eval"` at the top of `mount.ts`. It self-installs, replacing every generated function with an interpreted equivalent, which is why there is no call and why the import must not be tidied away as unused.
+
+**Adding `'unsafe-eval'` to `script-src` was not on the table.** That directive exists to stop a string becoming code; switching it off across the whole application so a decorative canvas can compile shaders faster is a security decision made for a picture. The polyfill is slower at uploading uniforms, the cost is bounded and measurable, and it is paid only where the galaxy draws — which now makes it part of what the device pass measures.
+
+### Why nothing caught it
 
 | | |
 |---|---|
-| **Lockdown Mode** | Disables WebGL on iOS entirely. Would produce exactly this, everywhere, with a working app around it |
-| A Safari setting or an old iOS | WebGL2 has been on since iOS 15; an experimental-features toggle can still remove it |
-| Texture creation | The scene builds its textures on a 2D canvas before uploading. Safari has limits on canvas count and total canvas memory that no desktop browser enforces |
-| Genuinely out of GPU memory | Real, and the *last* candidate rather than the first: the personal galaxy is one sun and up to ten planets, which is the smallest scene the app can draw |
+| `npm run build` | Passing says the bundle compiles. It says nothing about whether it *runs* |
+| The unit tests | 220 of them, and not one mounts a renderer — jsdom has no WebGL |
+| The e2e suite | Runs against the **dev** CSP, where `'unsafe-eval'` is present |
+| `E2E_PROD=1 npm run test:e2e:ios` | **Would have seen the right policy and still passed**, because no spec asserted the galaxy renders. The card removes itself when the canvas cannot start — correct for a person, and indistinguishable from "fine" for a suite that never looked |
 
-**The reason string decides between them**, which is the whole point of having added it.
+`dashboard.spec.ts` now asserts the *Your galaxy* heading is visible. Under the dev CSP it is a formality; under `E2E_PROD=1` it is the regression guard this needed from the start.
+
+### Three wrong diagnoses before the right one
+
+Worth recording, because the pattern is the lesson.
+
+1. **"`mountGalaxy` rejected."** Right, and I had thrown the reason away — the `.catch` reported absence and nothing else. `patterns.md`, "a protection that fails as absence rather than as refusal", in code written by the person who put that row in the file.
+2. **"Lockdown Mode."** A plausible story that would have explained everything, built on one ambiguous symptom.
+3. **"The host is measured at zero before iOS lays it out."** Also plausible, also unfounded.
+
+**The error message was one diagnostic away the whole time.** What produced it was not a better theory but `onUnavailable` carrying its reason and a lab that prints it on screen, because a phone has no console. The instrument answered in one reload what three rounds of reasoning had not.
 
 ---
 

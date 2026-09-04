@@ -64,6 +64,29 @@ test("every section is addressable, and an unknown tab lands on Overview", async
   // with its controls, so the summary was the same titles twice. The digest
   // panel is now the landmark that says this section rendered.
   await p.goto("/dashboard")
+  /**
+   * **The galaxy renders, and this row exists because it did not.**
+   *
+   * PixiJS builds its shader plumbing with `new Function`, which the shipped
+   * CSP forbids and the *dev* CSP allows — `script-src` carries `'unsafe-eval'`
+   * in development and a nonce in production. So the galaxy worked on every
+   * desktop anybody used, failed in every production build, and said nothing:
+   * the card removes itself when the canvas cannot start, which is correct
+   * behaviour for a person and indistinguishable from "the feature is fine" for
+   * a test suite that never looked.
+   *
+   * `npm run build` passing meant nothing about it *running*. **Only
+   * `E2E_PROD=1` sees the policy that ships**, and only an assertion that the
+   * region exists turns a silent absence into a failure.
+   *
+   * The heading rather than the canvas: the canvas is `aria-hidden` on purpose,
+   * and the section is what a person and a locator can both find.
+   */
+  await expect(
+    p.getByRole("heading", { name: "Your galaxy" }),
+    "the galaxy did not render — under E2E_PROD this usually means the CSP",
+  ).toBeVisible()
+
   await expect(p.getByRole("region", { name: "Recent days" })).toBeVisible()
 
   // The way out, and the only thing left of the summary. A tab bar link and a
