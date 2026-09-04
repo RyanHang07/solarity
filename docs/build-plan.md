@@ -102,65 +102,49 @@ After that: `/admin` appears, a link shows up at the bottom of Settings, and fur
 
 **Rows 1 to 15 all passed on 1 September, on a real iPhone installed to the home screen.** The avatar pipeline was the last feature shipped with no run on hardware, and it needed no fixes: the label-opened picker, EXIF rotation, HEIC, all four render sites, the fixed key across two reloads.
 
----
+### The galaxy, and the five new auth screens — **outstanding**
 
-## The galaxy
+Rows 16 to 30 have never been run. **This is the whole of what is left before a deploy**, and everything on it needs either a device or a dashboard.
 
-**Steps 1 to 21 are built.** Every step's reasoning is in `history.md`; step 21 is the renderer's port and its data half — `lib/galaxy`, `components/galaxy-view.tsx`, migrations 107 to 109, and 212 unit tests.
+#### The galaxy, on a phone
 
-**What is left is the verification pass, a polish pass over the viewhole, and then the restyle.**
-
-### Where it lands
-
-**Twice, and the second is the point.** A compact personal galaxy on `/dashboard` Overview — in the space the deleted goal summary freed — and then a Circle galaxy above the roster on a Circle's Today tab, many suns in one sky. The personal one is first because it is the same code in its simplest form: the mount lifecycle, the touch-scroll behaviour and the snapshot round trip are all problems the Circle has too, on a surface where getting them wrong affects one person's view of their own data.
-
-### The rule the whole thing holds itself to
-
-**The galaxy is a reward for using the app, never a way to use it.**
-
-Everything it shows is already legible elsewhere: goals on `/dashboard`, achievements on `/dashboard/goals/archived`, the day in the streak header, the roster beside the Circle sky. If checking in is ever only possible by clicking a planet, the product has a WebGL dependency for its core loop — on a device that may have lost its context, in a canvas no screen reader can enter.
-
-So every galaxy surface is additive and every route stays fully usable with the canvas absent. `onPlanetSelect` is worth wiring as a *shortcut* to a goal, beside the list that already links there.
-
----
-
-## Step 26: verification
-
-| | Check | Why it cannot be skipped |
+| | Check | Why it is on this list |
 |---|---|---|
-| 1 | ✅ **`npm install` and `npm run build`** | **Green, 3 September.** The one check nothing else substitutes for: `data.boundary.test.ts` is a proxy for the server/client boundary and `next build` is what actually enforces it. It also confirms the `dynamic(ssr: false)` the first audit restored — a static `pixi.js` import would have compiled fine and simply shipped |
-| 2 | ✅ **The e2e suite** | **Green, 3 September.** Three failures, all preconditions rather than product defects: a client clock against a database CHECK, a race on a check-in that had not landed, and step 25's gate meeting two accounts that had never created a goal. Written up in `history.md` |
-| 3 | **Ten members × ten goals on a real phone** | Up to 100 planets, each with a stencil mask, in one canvas. The fps and worst-frame readout exists in the playground and has never been run on hardware. **The worst frame is the number that matters** — an average of 58fps hides the stall when a member joins, and the stall is what a person notices |
-| 4 | **The touch-scroll check, with a thumb** | A mouse in a desktop browser will never show it |
-| 5 | **A regenerated `graphify-out/`** | It was generated on 1 September, before `lib/galaxy` existed, so the graph describes a repository 76 files smaller than the real one |
+| 16 | **`/admin/galaxy-lab` at 10 × 10.** Reset the worst frame, then drag, pinch and step the counts. **Write the worst frame down** | 100 planets, each with a stencil mask, on hardware nothing has measured. 16.7ms is a clean 60; past ~50ms is a hitch a person sees. If it is bad, the fallback is an alpha-shaped albedo instead of the clip mask — measure before reaching for it |
+| 17 | Same page: **one finger scrolls the page, two fingers pan the galaxy** | A mouse can never show this. The gesture is undiscoverable by design, and the pan buttons are the discoverable path |
+| 18 | Open and close the viewhole **ten times in a row**, watching the worst frame | A view transition snapshots the page into textures, twice, over a live WebGL canvas. Free on a desktop, possibly the whole budget on an old phone |
+| 19 | The same on **an iPhone older than iOS 18** | Safari shipped same-document view transitions in 18. Below it `transition()` falls back to an instant change — the honest floor, and worth seeing |
+| 20 | Overview: the galaxy panel, then **check off a goal** | The planet lights optimistically, before the write returns |
+| 21 | A Circle's Today tab: hover a member's planets on a desktop, then **tap them on a phone** | The name is a mouse affordance and must not stick to a touch screen |
+| 22 | An **archived** Circle's sky | Frozen: orbits, backdrop and starfield still. The camera must still pan and focus |
+| 23 | A Circle with a member who has **no goals** | An empty sun, and a sky that does not close. The rule the streak already has, shown rather than softened |
+| 24 | Turn on **Reduce Motion** in iOS settings, then reload both surfaces | No view transition at all, and a still scene. Not a faster animation |
 
-**And the rule a restyle has to hold itself to, which applies here too:** every locator in the suite names a heading, a role, a label or a landmark, so the suite is the check that a visual change stayed visual. If a spec goes red, either the markup lost something a person needed or the test was naming a class of thing it should not have been. Both are worth stopping for.
+#### The five auth screens, never driven on a device
+
+| | Check | Why |
+|---|---|---|
+| 25 | Sign up with a **new** email, on the phone | The whole front door, step 20, on hardware for the first time |
+| 26 | The **first goal** screen: open the category picker and choose one | iOS draws a `<select>` as a wheel. This form shipped with a disabled placeholder — the exact defect step 16 fixed — and it was caught by an audit rather than by use |
+| 27 | Confirmation email → the confirm link → onboarding | A deep link into an installed PWA behaves differently from a tab |
+| 28 | **Forgot password**, all the way through | Never run outside a desktop browser |
+| 29 | The landing page and `/support` at 375px | Deliberately plain, and never seen small |
+| 30 | `E2E_PROD=1 npm run test:e2e:ios` | The only pass that sees the CSP that ships, and step 20h added two directives to it |
 
 ---
 
-## Step 27: a polish pass over the viewhole
+## The galaxy ✅ built
 
-**Shipped and working; the numbers have not been lived with.** Two rounds of fixes landed the mechanism — a missing `width` on the transition snapshots, and a commit hook so the canvas resizes inside the transition rather than a frame after it — and what is left is judgement rather than defects.
+**Steps 21 to 27 are done and are written up in `history.md`** — the port, three migrations, both surfaces, the viewhole, the controls, a first goal at signup, and the lab that measures ten by ten on a device.
+
+What is left of it is **not code**. It is the manual pass above, the design system below, and the two dials nobody has lived with yet:
 
 | Dial | Where | What to weigh |
 |---|---|---|
-| `--viewhole-ms`, currently 420ms | `globals.css`, mirrored by `VIEWHOLE_MS` in `galaxy-panel.tsx` | Long enough to read as a reveal, short enough not to be in the way twice a session. **The two constants must move together** — one is a CSS animation and the other is `requestAnimationFrame` |
-| The page's 12px drop | `viewhole-page-out` / `-in` | It was 24px and read as a second object with its own journey. 12px may now be too subtle to register at all |
-| The camera's 1.3 and 0.82 | `galaxy-panel.tsx` | How far the picture pulls back. Tied to the panel's height, so the day the panel's size changes these want re-checking |
-| The curve | `--viewhole-ease` | Shared by the frame, the page and the camera. Changing it means changing the cubic in the rAF loop as well, which is written out by hand |
+| `--viewhole-ms`, currently 420ms | `globals.css` — one value, read at runtime by `galaxy-card.tsx` | Long enough to read as a reveal, short enough not to be in the way twice a session |
+| The page's 12px drop, and the camera's 1.3 / 0.82 | `globals.css`, `galaxy-card.tsx` | 12px was 24px and read as a second object with its own journey. It may now be too subtle to register |
 
-**One measurement, on hardware:**
-
-**A view transition snapshots the page into textures, twice.** This page holds a full-screen WebGL canvas, on a device whose GPU memory is the reason `mountGalaxy` caps the DPR at 2 and listens for `webglcontextlost`. Two full-viewport snapshots on top of a live renderer is the kind of thing that is free on a desktop and is the whole budget on a four-year-old phone.
-
-Nothing in the CSS can answer that — `mix-blend-mode: normal` is already the cheap direction, since the pseudo-elements default to `plus-lighter` and `normal` removes the blend rather than adding one. What is left is the allocation, and the way to know is the fps and worst-frame readout with the frame opening and closing repeatedly.
-
-**If it does cost too much, the fallback already exists**: `transition()` skips `startViewTransition` under reduced motion, and the same branch can skip it on a device that cannot afford it. The state change still happens; only the animation is dropped. **Safari only shipped same-document view transitions in 18**, so an older iPhone is already taking that path and is worth watching as the honest floor.
-
-**And two things not yet decided rather than not yet tuned:**
-
-- **Tap-to-expand as a gesture.** The control is a button, deliberately, because tapping a planet already opens that goal. A gesture is still possible with a hit-test that defers to planets, and it was left out rather than ruled out.
-- **What the Circle sky does with it.** The viewhole is generic and the Circle page will want one too. Whether both surfaces share `ViewholeProvider` or each page mounts its own is a decision that arrives with step 24, and `view-transition-name` must be unique per document, which constrains it.
+**And one thing left out rather than ruled out**: tap-to-expand as a gesture. The control is a button because tapping a planet already opens that goal; a gesture is possible with a hit-test that defers to planets.
 
 ---
 
@@ -257,13 +241,12 @@ Keep the posture **deny-by-default**: enumerate what is *public*, so a forgotten
 
 ### Before launch
 
-**Three things left, and none is a feature.**
+**Two things left, and neither is a feature.**
 
 | | | |
 |---|---|---|
-| 1 | **Regenerate `graphify-out/`** | `graphify . update`, then `node scripts/graph-freshness.mjs` until it exits clean |
-| 2 | **A device pass for the new auth screens** | Signup, confirmation, reset, the landing page and `/support` have only been driven in a desktop browser. The manual pass above is the regression list; these five screens are the new ones. Worth folding into the design pass, since they are the screens most likely to change |
-| 3 | **A device pass for the galaxy** | Ten members by ten goals with the worst-frame readout, and the two-finger pan with a thumb. Step 26 |
+| 1 | **The manual pass, rows 16 to 30** | The galaxy on a phone and the five auth screens. It is one list above rather than three lists in three places |
+| 2 | **Regenerate `graphify-out/`** | `graphify . update`, then `node scripts/graph-freshness.mjs` until it exits clean |
 
 **Also worth a run before any deploy:** `E2E_PROD=1 npm run test:e2e:ios`, which is the only pass that sees the CSP that ships — and it matters more now, because step 20h added two directives to it.
 

@@ -25,6 +25,12 @@ type GalaxyViewProps = {
   cameraControls?: boolean;
   compact?: boolean;
   ambientEffects?: boolean;
+  /**
+   * The data behind this sky stopped changing. Orbits, backdrop and starfield
+   * stop; the camera does not, because panning and focusing are things the
+   * viewer is doing now.
+   */
+  frozen?: boolean;
   className?: string;
   /**
    * The canvas is up and has drawn its first snapshot.
@@ -91,6 +97,7 @@ export const GalaxyView = ({
   cameraControls = true,
   compact,
   ambientEffects = true,
+  frozen = false,
   className,
   onReady,
   onUnavailable,
@@ -150,6 +157,7 @@ export const GalaxyView = ({
         cameraControls,
         compact,
         ambientEffects,
+        frozen,
         background: skyColorFrom(host),
         onSystemHover: (systemId, x, y) => {
           hoverRef.current?.(systemId, x, y);
@@ -220,7 +228,7 @@ export const GalaxyView = ({
       handleRef.current?.destroy();
       handleRef.current = null;
     };
-  }, [ambientEffects, cameraControls, compact]);
+  }, [ambientEffects, cameraControls, compact, frozen]);
 
   useEffect(() => {
     handleRef.current?.setSnapshot(snapshot);

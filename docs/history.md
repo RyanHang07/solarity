@@ -3954,6 +3954,107 @@ The action returns a result rather than redirecting, because four other callers 
 
 ---
 
+## Steps 21 to 27, and what the galaxy cost ✅ done
+
+3 September, one day. The full index is below; this is the shape of it.
+
+| Step | |
+|---|---|
+| 21 | The module ports into `lib/galaxy`, two entry points, migrations 107–109 |
+| 22 | The panel on Overview, and the end of the resize distortion |
+| 23 | Two control sets from one bar, two-finger pan, expand in place |
+| 24 | The Circle's sky, and `GalaxyCard` shared by both surfaces |
+| 25 | Onboarding asks for one goal |
+| 26 | The lab, and a green suite |
+| 27 | A frozen sky, one duration, brighter rings, hover names |
+
+### What it actually cost, which is not what the plan estimated
+
+**Three of the plan's four claims about Solarity were false**, and a graph pass over the codebase found all three before a line of SQL was written: there is no `create_goal` RPC, `goals.hidden_everywhere` exists, and the "roll" that needed a whole table was one coin flip. The fourth was true too late — `group_daily_completion` is written by a nightly job, so the Circle-complete moment would have played the morning after, to nobody.
+
+**Two audits found six defects between them**, and the sharpest was not in the galaxy at all: a gate placed one layout too high stood in front of `/settings`, so somebody who abandoned at the goal step could not reach the screen that deletes their account. It was found by asking the database which accounts the gate would divert rather than by reasoning about it.
+
+**Three e2e failures, all preconditions.** A client clock against a database CHECK, a race on a check-in that had not landed, and my own new gate meeting two accounts that had never created a goal. Fixing the last one by seeding a goal armed a *different* gate — a test that mints its own account owes it every precondition the shared fixtures get, and `auth.setup.ts` is that list.
+
+### The two that took three attempts each
+
+**The resize distortion.** The fix was the previous fix: a one-way ratchet written to stop a split-pane drag rescaling the scene, which stopped it growing and also stopped it recovering. Wiggling the window shrank the galaxy monotonically toward nothing. Two earlier attempts found real bugs that were not this one, and the observation that no non-uniform scale exists anywhere was true and pointed away from the answer.
+
+**The viewhole.** `animation: none` on the transition snapshots looked right — the picture has not changed, only how much is visible — and was the cause of a card's border stretched across the window: an image with no animation is opaque from the first frame, painted into a box that is still travelling. Then the canvas had to resize *inside* the transition rather than a frame after it, which is what the commit hook exists for.
+
+### The rule that keeps earning its place
+
+**A rule with no enforcement is a rule that gets broken.** Three instances in one day: two duration constants and a comment asking the next person to keep them in step, now one token read at runtime; a "keep the fit in step" ratchet that became a property test; and a ring weight nothing had ever constrained, which is why a sub-pixel stroke could vanish silently.
+
+---
+
+## Two things the plan called partial ✅ done
+
+3 September, before the device pass — the parts of step 27 that were work rather than judgement.
+
+### A frozen Circle is now still
+
+The backdrop was switched off for an archived Circle and **the orbits were left turning**, named in the component as "a partial answer: the module has no pause, and adding one is real scene work". It turned out to be one line, because `Galaxy.tick` already computes a `motion` boolean for reduced motion and threads it everywhere:
+
+```ts
+const motion = !this.reducedMotion && !this.frozen;
+```
+
+**A separate option from `reducedMotion` even though the effect is identical**, because they are different claims: one is a person's preference about animation, the other is a fact about the rows. Naming a frozen Circle "reduced motion" would make the next person reading `tick` believe an accessibility setting was involved.
+
+**`tickFx` stays outside it**, deliberately: focus, the camera fly-to and the refit are things the *viewer* is doing now and should work on a frozen Circle exactly as on a live one. The test asserts both halves — orbits still, camera live — because "freeze everything" is the obvious implementation and it would take the interaction with it.
+
+Two things went wrong writing that test, both worth keeping:
+
+- it landed in the wrong `describe` and could not see the fixture helpers, which is what `circle is not defined` was
+- **the control failed at zero**: it read the planet body's own `x`/`y`, and the body sits inside an orbit node that is the thing the orbit moves. Local coordinates never change. `getGlobalPosition()` asks the question that was meant — did this planet move on screen — and the control is what caught it
+
+Mutation-tested: dropping `&& !this.frozen` fails with "a frozen Circle kept orbiting: expected 4.36 to be less than 0.001".
+
+### The animation had two durations and a comment
+
+`--viewhole-ms` in CSS and `VIEWHOLE_MS` in the card, with a note telling the next person to keep them in step. **A rule with no enforcement is a rule that gets broken by somebody adjusting the CSS and never opening the other file** — and the symptom would be subtle: a camera settling slightly before or after the frame, which reads as two events rather than one and is exactly the clunkiness this animation has already been through once.
+
+The card reads the token at runtime now, the same trick `skyColorFrom` uses for `--galaxy-sky`, with a fallback for the server render. One value, and the comment describing a discipline is gone because the discipline is gone.
+
+---
+
+## The galaxy lab ✅ done
+
+3 September. Step 26 wanted a number from a phone, and nothing in Solarity could produce one.
+
+### It fabricates, it does not seed
+
+**No members are created, no goals are inserted, nothing is cleaned up.** The page builds `RosterMember[]` in the client and hands it to `buildCircleSnapshot`, which is a pure function — so the Circle exists only for as long as the tab is open.
+
+The alternative was seeding real rows, which would have exercised `circle_roster` at ten members as well. It was turned down on the cost: fabricated accounts mean `auth.users` rows **the app itself has no way to delete**, plus a teardown that has to survive a half-finished run, in the production database, to learn something about a canvas. The query's cost is a separate question and gets a separate answer.
+
+**Stated as a limit rather than left implied**: this measures the renderer, not the read.
+
+### Why it is not just the playground
+
+`pixijs-galaxy` has staged 1–10 members with an fps and worst-frame readout since step 4c. What it cannot do is run **on a phone, in the real shell, with the real page around it** — the header, the roster, the viewhole, the app's CSS, and Safari rather than a desktop Chromium. Those are the conditions the number is wanted for.
+
+So the lab renders `GalaxyCard` itself, not `GalaxyView`: the same skeleton, the same expand, the same camera move, the same `dynamic` boundary. A lab that reached past the card would measure something the app does not ship.
+
+### The details that make the reading trustworthy
+
+| | |
+|---|---|
+| **uuid-shaped ids** | The shape of an id has already caused a shipped bug here: `hashString % 6` reaches three of six planet surfaces over uuids and all six over `member-3`. A lab with friendly ids would measure a picture the app cannot draw |
+| **Deterministic per index** | Stepping the count up and down must not reshuffle who is who, or the layout's one promise — a member keeps their slot when somebody else arrives — could not be seen |
+| **Half the goals checked** | A shining planet costs more than an idle one, and a Circle that was all of one would measure half the picture |
+| **Every category in rotation** | So the colour mix and the sky's blended palette are the ones a real Circle produces |
+| **Memoised on the two numbers** | Otherwise the fps readout's own re-render would rebuild the roster twenty times a second, and the thing being measured would be measuring the measurement |
+
+### The gate is the layout's, and the spec knows about it
+
+`(app)/admin/layout.tsx` already answers `notFound()` to a non-admin, so the page adds no check of its own — one gate rather than two that could disagree.
+
+**But it is the first admin screen with no second refusal underneath it.** Every other one is a courtesy in front of an RPC that checks `private.is_admin()` on its own; this page reads nothing, so the layout is the only control. `admin.spec.ts`'s refusal loop gained the route, with that written down as the reason it matters *more* here rather than less.
+
+---
+
 ## The suite, green again, and what the three failures were ✅ done
 
 3 September. The first full run since the galaxy, three migrations and two new gates. **Every failure was a precondition, and none was a product defect** — which is the pattern this suite keeps producing and the reason it is worth running.
@@ -4163,6 +4264,8 @@ Covered by `gates.spec.ts`, using the `withNoActiveGoals` fixture that already e
 | 20 | The front door | ✅ migrations 105–106. Email and password auth, terms acceptance, Turnstile wired, a landing page and `/support` |
 | 22 | The galaxy lands on Overview | ✅ no migration. The panel, the WebGL-absent path, and the end of the resize distortion |
 | 23 | The galaxy's controls, and expanding it | ✅ no migration. Two button sets from one bar, two-finger pan, and expand-in-place on the same canvas |
+| 27 | The galaxy's polish | ✅ no migration. A frozen sky that is actually still, one duration for the viewhole, brighter rings, hover names |
+| 26 | Verification, and the lab | ✅ no migration. Build green, suite green, and `/admin/galaxy-lab` for the device pass |
 | 25 | Onboarding asks for one goal | ✅ no migration. A required step after the username, gated on "never had a goal" |
 | 24 | The Circle's sky | ✅ no migration. `GalaxyCard` shared by both surfaces, the sky above the roster, and a viewhole that can sit mid-page |
 | 21 | The galaxy ports, and the sky gets its data | ✅ migrations 107–109. `lib/galaxy` with two entry points, the client host, `goals.belt_visible`, `private.group_day_closed`, and a roster that can describe a Circle's sky |

@@ -844,6 +844,79 @@ describe("Galaxy: many systems in one sky", () => {
     }
   });
 
+  it("stops the orbits when the sky is frozen, and keeps the camera", () => {
+    /**
+     * **An archived Circle's roster is captured at the instant it stopped**, so
+     * a planet that kept moving would be motion standing for liveness that is
+     * not there. The backdrop was switched off for that reason and the orbits
+     * were left running, which was half an answer.
+     *
+     * The camera is deliberately not frozen: panning and focusing are things
+     * the *viewer* is doing now. Asserted, because "freeze everything" is the
+     * obvious implementation and it would take the interaction with it.
+     */
+    const scene = (frozen: boolean) =>
+      new Galaxy({
+        snapshot: circle([member("amy", [planet("a", { orbitRadius: 200 })])]),
+        width: 900,
+        height: 700,
+        reducedMotion: false,
+        frozen,
+      });
+
+    /**
+     * **The global position, not the body's own `x`/`y`.**
+     *
+     * A planet body sits inside an orbit node, and it is the *node* that the
+     * orbit advances — so the body's local coordinates never change and the
+     * first version of this test failed its own control at zero. Reading
+     * through the ancestors asks the question that was meant: did this planet
+     * move on screen.
+     */
+    const positionOf = (galaxy: Galaxy): { x: number; y: number } => {
+      const body = galaxy.root.getChildByLabel("planet-body-a", true);
+      if (!body) return { x: 0, y: 0 };
+      const point = body.getGlobalPosition();
+      return { x: point.x, y: point.y };
+    };
+
+    const live = scene(false);
+    const still = scene(true);
+    try {
+      const liveBefore = positionOf(live);
+      const stillBefore = positionOf(still);
+
+      for (let frame = 0; frame < 30; frame++) {
+        live.tick(16);
+        still.tick(16);
+      }
+
+      const liveAfter = positionOf(live);
+      const stillAfter = positionOf(still);
+
+      // The live one is the control: without it, a scene that never moves at
+      // all would pass this test.
+      expect(
+        Math.hypot(liveAfter.x - liveBefore.x, liveAfter.y - liveBefore.y),
+        "the live galaxy did not move, so this proves nothing",
+      ).toBeGreaterThan(0.5);
+
+      expect(
+        Math.hypot(stillAfter.x - stillBefore.x, stillAfter.y - stillBefore.y),
+        "a frozen Circle kept orbiting",
+      ).toBeLessThan(0.001);
+
+      // And the camera still answers, which is what separates "frozen" from
+      // "asleep".
+      still.panBy(40, 0);
+      const cluster = still.root.getChildByLabel("cluster");
+      expect(cluster instanceof Container ? cluster.x : 0).not.toBe(450);
+    } finally {
+      live.destroy();
+      still.destroy();
+    }
+  });
+
   describe("focus", () => {
     const tenMembers = () =>
       circle(
@@ -1115,4 +1188,5 @@ describe("Galaxy: teardown frees what it owns", () => {
     galaxy.destroy();
     expect(galaxy.root.destroyed).toBe(true);
   });
-});
+
+})

@@ -27,10 +27,14 @@ import { buildCircleSnapshot } from "@/lib/galaxy/solarity/snapshots"
  * ## A frozen Circle
  *
  * An archived or locked Circle's roster is frozen at a past instant, so its
- * numbers stopped changing then. The backdrop is switched off, because a sky
- * that keeps drifting implies live data where there is none. **The orbits still
- * turn**, which is a partial answer: the module has no pause, and adding one is
- * scene work rather than a prop.
+ * numbers stopped changing then and **the sky stops with them** — orbits,
+ * backdrop and starfield. The camera does not: panning and focusing are things
+ * the viewer is doing now.
+ *
+ * For one release this was half an answer, with the backdrop off and the orbits
+ * still turning. Motion standing for liveness that is not there was the
+ * objection to the backdrop; leaving the orbits running left the objection in
+ * place on the larger half of the picture.
  */
 export function CircleGalaxyPanel({
   members,
@@ -44,7 +48,7 @@ export function CircleGalaxyPanel({
       id="circle-galaxy-heading"
       title="This Circle's sky"
       snapshot={buildCircleSnapshot(members)}
-      ambientEffects={!frozen}
+      frozen={frozen}
       /*
         **Only here.** A solo galaxy has one system and it is yours, so a label
         naming you over your own sun says nothing. In a Circle it answers the

@@ -81,6 +81,16 @@ type GalaxyOptions = {
   onPlanetSelect?: (planetId: string) => void;
   onSystemSelect?: (systemId: string) => void;
   onSystemHover?: (systemId: string | null, x: number, y: number) => void;
+  /**
+   * The data behind this sky stopped changing at some past instant.
+   *
+   * **A separate option from `reducedMotion` even though the effect is the
+   * same**, because they are different claims: one is a person's preference
+   * about animation, the other is a fact about the rows. Naming a frozen
+   * Circle "reduced motion" would make the next person reading `tick` believe
+   * an accessibility setting was involved.
+   */
+  frozen?: boolean;
   previewNebula?: boolean;
   compact?: boolean;
   starScale?: number;
@@ -175,6 +185,7 @@ export class Galaxy {
   private onPlanetSelect?: (planetId: string) => void;
   private onSystemSelect?: (systemId: string) => void;
   private onSystemHover?: (systemId: string | null, x: number, y: number) => void;
+  private readonly frozen: boolean;
   private previewNebula: boolean;
   /**
    * **Fixed at mount, not re-derived on resize.**
@@ -231,6 +242,7 @@ export class Galaxy {
     this.onPlanetSelect = opts.onPlanetSelect;
     this.onSystemSelect = opts.onSystemSelect;
     this.onSystemHover = opts.onSystemHover;
+    this.frozen = opts.frozen ?? false;
     this.previewNebula = opts.previewNebula ?? false;
     this.compact = opts.compact ?? isCompactLayout(opts.width, opts.height);
     this.starScale = opts.starScale ?? (this.compact ? COMPACT_STAR_SCALE : 1);
@@ -1211,7 +1223,19 @@ export class Galaxy {
   tick(deltaMS: number): void {
     this.elapsedMs += deltaMS;
     this.tickFx(deltaMS);
-    const motion = !this.reducedMotion;
+    /**
+     * **A frozen sky is still, and that is the whole of the answer.**
+     *
+     * An archived Circle's roster is captured at the instant it was archived,
+     * so nothing in it can change again. Orbits that kept turning would be
+     * motion standing for liveness that is not there — the same objection that
+     * switched the backdrop off, applied to the half that was left running.
+     *
+     * `tickFx` above is deliberately outside this: focus, the camera fly-to and
+     * the refit are things the *viewer* is doing now, and they should work on a
+     * frozen Circle exactly as they do on a live one.
+     */
+    const motion = !this.reducedMotion && !this.frozen;
     this.starfield?.tick(
       this.elapsedMs,
       motion,

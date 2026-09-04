@@ -138,7 +138,21 @@ test("a standard user is refused by the database, not only by the page", async (
      * assertions above are what make it a security claim rather than a
      * cosmetic one.
      */
-    for (const path of ["/admin", "/admin/people", `/admin/reports/${reportId}`]) {
+    /**
+     * **Every admin screen, including the ones that read nothing.**
+     *
+     * `/admin/galaxy-lab` fabricates its Circle in memory and touches no table,
+     * so it has no second refusal in the database underneath it — the layout's
+     * `notFound()` is the only thing standing there. That makes it *more*
+     * important to assert here, not less: for every other screen this loop is a
+     * courtesy check over a control that also exists in SQL.
+     */
+    for (const path of [
+      "/admin",
+      "/admin/people",
+      "/admin/galaxy-lab",
+      `/admin/reports/${reportId}`,
+    ]) {
       await page.goto(path)
       await expect(
         page.getByRole("heading", { name: "Admin" }),

@@ -215,6 +215,17 @@ export type MountOptions = {
    * matters.
    */
   onSystemHover?: (systemId: string | null, x: number, y: number) => void;
+  /**
+   * The data behind this sky stopped changing at some past instant — an
+   * archived or locked Circle, whose roster is frozen at the moment it stopped.
+   *
+   * Orbits stop, the backdrop stops, the starfield stops. **The camera does
+   * not**: panning, zooming and focusing are things the viewer is doing now.
+   *
+   * Distinct from `reducedMotion`, which is read from the platform and is a
+   * preference rather than a fact about the data.
+   */
+  frozen?: boolean;
   /** Playground-only. Product nebula still requires 5+ category colours. */
   previewNebula?: boolean;
   /** Overlay zoom/pan/rotate controls (recommended on compact hosts). */

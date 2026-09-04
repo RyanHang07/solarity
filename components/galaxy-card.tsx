@@ -29,14 +29,32 @@ const GalaxyView = dynamic(
 )
 
 /**
- * How long the frame takes, in milliseconds.
+ * How long the frame takes, read from the stylesheet rather than restated here.
  *
- * **The same number as `--viewhole-ms` in `globals.css`, and it has to be.**
- * The camera runs on `requestAnimationFrame` and the frame runs on a CSS
- * animation; two durations that merely look similar drift, and a camera that
- * settles before or after the frame reads as two events rather than one.
+ * **There were two constants and a comment telling the next person to keep them
+ * in step.** A rule with no enforcement is a rule that gets broken by somebody
+ * adjusting the CSS and never opening this file — and the symptom would be
+ * subtle: a camera that settles slightly before or after the frame, which reads
+ * as two events rather than one and is exactly the "clunky" this animation has
+ * already been through once.
+ *
+ * `--viewhole-ms` is the single value now. The same trick `skyColorFrom` uses
+ * for `--galaxy-sky`: the token is the source, and the code asks.
  */
-const VIEWHOLE_MS = 420
+const FALLBACK_MS = 420
+
+const viewholeMs = (): number => {
+  if (typeof window === "undefined") return FALLBACK_MS
+  const raw = getComputedStyle(document.documentElement)
+    .getPropertyValue("--viewhole-ms")
+    .trim()
+  const ms = raw.endsWith("ms")
+    ? Number.parseFloat(raw)
+    : raw.endsWith("s")
+      ? Number.parseFloat(raw) * 1000
+      : Number.NaN
+  return Number.isFinite(ms) && ms > 0 ? ms : FALLBACK_MS
+}
 
 export type GalaxyCardProps = {
   snapshot: GalaxySnapshot
@@ -53,14 +71,15 @@ export type GalaxyCardProps = {
    */
   onPlanetSelect?: (planetId: string) => void
   /**
-   * Off for a Circle whose roster is frozen.
+   * The Circle's roster is frozen at a past instant — archived or locked.
    *
-   * An archived Circle's numbers stopped changing at a past instant, and a
-   * backdrop that keeps drifting implies live data where there is none. **It is
-   * a partial answer**: the orbits still turn, because the module has no pause
-   * and adding one is real scene work. Named rather than hidden.
+   * **The whole sky stops**, not just the backdrop. This was half an answer for
+   * one release: the ambient effects were switched off and the orbits left
+   * turning, which is motion standing for liveness that is not there. The
+   * camera still works, because panning and focusing are things the viewer is
+   * doing now rather than claims about the data.
    */
-  ambientEffects?: boolean
+  frozen?: boolean
   /**
    * Show whose system the pointer is over, as `{label}'s galaxy`.
    *
@@ -100,7 +119,7 @@ export function GalaxyCard({
   title,
   id,
   onPlanetSelect,
-  ambientEffects = true,
+  frozen = false,
   namesOnHover = false,
 }: GalaxyCardProps) {
   const [state, setState] = useState<"waiting" | "ready" | "absent">("waiting")
@@ -171,9 +190,10 @@ export function GalaxyCard({
 
     let frame = 0
     const started = performance.now()
+    const duration = viewholeMs()
 
     const step = (now: number) => {
-      const t = Math.min(1, (now - started) / VIEWHOLE_MS)
+      const t = Math.min(1, (now - started) / duration)
       // `cubic-bezier(0.22, 1, 0.36, 1)` to three places, so the camera and the
       // frame are on the same curve rather than on two that merely both ease.
       const eased = 1 - Math.pow(1 - t, 3)
@@ -247,7 +267,7 @@ export function GalaxyCard({
             choice.
           */
           cameraControls
-          ambientEffects={ambientEffects}
+          frozen={frozen}
           className="absolute inset-0"
           onReady={(handle) => {
             handleRef.current = handle

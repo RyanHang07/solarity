@@ -39,6 +39,9 @@ export default async function AdminLayout({
           <Link href="/admin/people" className="underline opacity-70">
             Administrators
           </Link>
+          <Link href="/admin/galaxy-lab" className="underline opacity-70">
+            Galaxy lab
+          </Link>
           <Link href="/dashboard" className="underline opacity-70">
             Back to the app
           </Link>

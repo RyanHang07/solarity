@@ -123,6 +123,7 @@ export const mountGalaxy = async (
     onPlanetSelect: opts.onPlanetSelect,
     onSystemSelect: opts.onSystemSelect,
     onSystemHover: opts.onSystemHover,
+    frozen: opts.frozen,
     previewNebula: opts.previewNebula,
     compact: opts.compact,
     starScale: opts.starScale,
