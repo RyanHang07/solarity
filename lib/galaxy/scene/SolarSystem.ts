@@ -804,10 +804,30 @@ export class SolarSystem {
    * `pointerover`/`pointerout` rather than `pointerenter`/`pointerleave`: Pixi's
    * federated events model the first pair, and the bubbling difference does not
    * arise here because these are leaf hit targets.
+   *
+   * ## And `pointertap`, which is the one a finger can rely on
+   *
+   * **Over and out are a mouse's vocabulary.** What a touch screen synthesises
+   * around a tap varies by browser and by whether the gesture was claimed
+   * mid-flight, and a name that appears on a desktop and not on a phone is
+   * exactly what was reported — twice, once after a fix aimed at the host
+   * rather than at here.
+   *
+   * `pointertap` is not synthesised: it is the event `bindPlanetSelect` and
+   * `bindSunSelect` already use, so it demonstrably fires on this hardware for
+   * these very nodes. Binding the name to it makes a tap say whose system this
+   * is even on a Circle, where **a planet tap has no other job** — those are
+   * other people's goals and there is nowhere to navigate.
+   *
+   * On a mouse it fires on click and re-announces a name already on screen,
+   * which costs a `setState` with the same values and shows nothing new.
    */
   private bindSystemHover(node: Container): void {
     node.eventMode = "static";
     node.on("pointerover", (event) => {
+      this.host.onSystemHover(this.id, event.global.x, event.global.y);
+    });
+    node.on("pointertap", (event) => {
       this.host.onSystemHover(this.id, event.global.x, event.global.y);
     });
     node.on("pointerout", () => {

@@ -115,7 +115,9 @@ export const mountGalaxy = async (
    * camera bar carries the zoom. Full screen there is nothing behind the
    * canvas to scroll, so the canvas takes the gesture and pinch works.
    */
+  let scrollThrough = compactHost;
   const setPageScrollThrough = (enabled: boolean): void => {
+    scrollThrough = enabled;
     app.canvas.style.touchAction = enabled ? "pan-y" : "none";
   };
   setPageScrollThrough(compactHost);
@@ -253,6 +255,30 @@ export const mountGalaxy = async (
     if (isSelectableLabel(event.target?.label)) {
       return;
     }
+
+    /**
+     * **While the page can scroll through it, a finger drives nothing.**
+     *
+     * The rule used to be "one finger belongs to the page, two pan the sky",
+     * and on iOS the second half was never true: `touch-action: pan-y` hands
+     * the gesture stream to the browser, which spends two fingers on a page
+     * zoom and sends the canvas `pointercancel`. So the pair-handler below ran
+     * on a fraction of the events, against coordinates the browser was already
+     * scaling — which is what "the controls feel inconsistent" was. Not a
+     * gesture that failed, a gesture that half-worked.
+     *
+     * So the card is honest instead: **on touch it is a picture with buttons**,
+     * the page always scrolls, and every camera move is on the bar where it can
+     * be seen. Expanding turns scroll-through off, and the same canvas then
+     * owns pan and pinch outright because there is nothing behind it to scroll.
+     *
+     * A mouse or stylus is unaffected in either state: neither competes with a
+     * scroll, and neither was ever cancelled.
+     */
+    if (scrollThrough && event.pointerType === "touch") {
+      return;
+    }
+
     activePointers.set(event.pointerId, {
       x: event.global.x,
       y: event.global.y,
@@ -269,13 +295,12 @@ export const mountGalaxy = async (
     }
 
     /**
-     * **One finger does not pan a touch surface. Two do.**
+     * **One finger does not pan. Two do**, once the canvas owns the gesture.
      *
-     * The panel lives in a scrolling page, which is the situation every
-     * embedded map gets wrong. `touch-action: pan-y` already hands vertical
-     * drags to the page; without this, a horizontal one still panned, so the
-     * gesture that scrolls and the gesture that pans differed only by angle
-     * and a diagonal thumb did both.
+     * Unreachable from a scroll-through card, which returned above; this is
+     * the full-screen state and a touchscreen laptop, where a single finger
+     * still reads as "scroll this" to most people even when nothing behind
+     * the canvas would move.
      *
      * Decided from `pointerType` rather than from the host, because a laptop
      * with a touchscreen has both and the right answer depends on which one

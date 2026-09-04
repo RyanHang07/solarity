@@ -3542,7 +3542,7 @@ Run on 1 September, after 20k. **Two real defects, both in the service worker, b
 
 **One piece of sloppiness of my own, removed:** the reset test clicked a Sign out button inside `.catch(() => {})`. After a reset that button does not exist, and an empty catch makes "this never ran" and "this failed" the same silence.
 
-**Left as known and accepted:** `notifications.payload->>'group_id'` has no index, which is fine at 90-day retention and small volumes; leaked-password protection is still off, which now matters more than it did because passwords exist — it is a paid-plan feature and belongs on the launch list rather than here.
+**Left as known and accepted:** `notifications.payload->>'group_id'` has no index, which is fine at 90-day retention and small volumes; leaked-password protection is off. **That last one was decided rather than deferred on 4 September** — it is a paid-plan toggle checking new passwords against HaveIBeenPwned, and the call was not to add it: Supabase's own length and complexity floor still applies, and the larger share of accounts arrive through Google, where there is no password here to leak. Worth revisiting only if password sign-up becomes the common path.
 
 ---
 
@@ -4287,6 +4287,80 @@ A fresh identity per render, `onCommit` included — so every effect keyed on it
 **The marker rather than a skip.** It is already per device and per day and already means "do not divert me", so there is no second mechanism to keep in step and the prompt returns tomorrow on its own. The date comes from the database, the same way `markTodaySeen` reads it — a client value would let a stale tab suppress the wrong day.
 
 Covered by `gates.spec.ts`, using the `withNoActiveGoals` fixture that already existed, and asserting **both** that the redirect does not happen and that a fresh navigation to `/dashboard` afterwards still does not redirect. The first assertion alone would pass if the marker were never written and the revalidate simply had not re-run the layout.
+
+---
+
+## The manual pass, rows 1 to 24 ✅ run
+
+**Everything on this list had failed in a browser while passing headless**, which is why it existed at all. Two sittings: rows 1 to 15 on 1 September, rows 16 to 24 on 4 September. What is still outstanding is in `build-plan.md` and is a short list.
+
+### Rows 1 to 15 — 1 September, on a real iPhone installed to the home screen
+
+| | Check | Why it was on the list |
+|---|---|---|
+| 1 | Settings → **Add a picture** → Take Photo | The picker is opened by a `<label>`; `input.click()` on a hidden input silently returns nothing on iOS |
+| 2 | Same, from **Photo Library** with a **portrait** shot | Orientation is applied by `createImageBitmap`, which retries without its options argument on older Safari. A sideways avatar means the retry path ran |
+| 3 | Same, with a **HEIC** from the camera roll | HEIC decoding belongs to the browser. Safari can; Chrome on Android cannot, and must say so rather than fail silently |
+| 4 | The picture appears on `/profile` and on a Circle roster row | The bucket is private; every render is a signed URL |
+| 5 | **Replace** it, then reload twice | One fixed key, overwritten in place. A second object means the key is not fixed |
+| 6 | Check in with a photo, add a note | The pipeline that took three device bugs to get right |
+| 7 | Tap all five tabs. The bar must not flash or move | It lives in `(shell)/layout.tsx` and is never unmounted. A flicker means it is being rebuilt |
+| 8 | Open a Circle-mate's profile from a roster row | Reached from the expanded panel, not the row |
+| 9 | Toggle **Show my streaks and totals** off, then view your own profile | Your own stats show either way; only other people lose them |
+| 10 | Block them. Their profile 404s. **Then check from their browser** | Mutual invisibility. The blocker cannot see this half |
+| 11 | Unblock from Settings → Blocked | The only route back, because blocking hides the page Block was on |
+| 12 | Report a photo, a note, and a profile | Three report types, one of them added by migration 88 |
+| 13 | Achieve a goal, set a deadline in the past | Achieving is irreversible and confirms; a past deadline is legitimate and reads as overdue |
+| 14 | Open the delete-account panel and **cancel** | The submit stays disabled until the username matches exactly |
+| 15 | **Goals → a retired goal → its record** | Photos older than 90 days are gone by retention, and the page must say so rather than show a broken frame |
+
+**All fifteen passed and none needed a fix.** The avatar pipeline was the last feature shipped with no run on hardware: the label-opened picker, EXIF rotation, HEIC, all four render sites, the fixed key across two reloads.
+
+### Rows 16 to 24 — 4 September, the galaxy on a phone
+
+Run against `npm run preview`. **Worst frame at 10 × 10 was 17ms**, a clean 60, which settles the question the lab was built to ask: no fallback renderer, no alpha-shaped albedo, the clip mask stays.
+
+| | Check | Result |
+|---|---|---|
+| 16 | `/admin/galaxy-lab` at 10 × 10, worst frame | ✅ **17ms.** A hitch starts around 50ms |
+| 17 | One finger scrolls the page, two fingers pan the galaxy | ❌ **The check itself was wrong.** See below |
+| 18 | Open and close the viewhole ten times | ✅ Stayed clean |
+| 19 | The same on an iPhone older than iOS 18 | ⏭️ **Skipped, accepted.** Below 18 `transition()` falls back to an instant change, which is the honest floor and was designed as one. The device is not on hand and the outcome is known |
+| 20 | Overview, then check off a goal | ✅ The planet lights before the write returns |
+| 21 | Hover a member on a desktop, then tap on a phone | ❌ Desktop named them, the phone showed nothing |
+| 22 | An archived Circle's sky | ✅ Frozen, and the camera still moves |
+| 23 | A Circle with a member who has no goals | ✅ An empty sun, and the sky does not close |
+| 24 | Reduce Motion, both surfaces | ✅ Still scene, no transition |
+| 24b | Closing the expanded view keeps the camera where the finger left it | ❌ Not on the original list, and it should have been |
+
+### The six defects that run found
+
+| Finding | The fix, and why it is not the obvious one |
+|---|---|
+| **Pinch does nothing; the whole page zooms** | `touch-action: pan-y` on the canvas is what lets a thumb scroll the page through an embedded galaxy, and a comment claimed it left multi-touch alone. It does not: once `touch-action` names a browser gesture **iOS routes the entire stream to the browser**, so two fingers become a page zoom and the canvas is sent `pointercancel` mid-gesture. The trade is real in a card and worthless full screen, so it is made per state now — `setPageScrollThrough(!expanded)`. The card also got its zoom buttons back; they had been removed on the reasoning that "pinch is better than a button at it", which was true and left a phone with no way to zoom at all |
+| **And the card's gestures still felt inconsistent afterwards** | Reported again on the Circle, which is where the sky is most worth moving. The first fix stopped the page zooming and left the two-finger *pan* in place — running on whichever events the browser had not already claimed, against coordinates it was concurrently scaling. **Not a gesture that failed, a gesture that half-worked**, which is worse: it responds sometimes, so it reads as a bad implementation rather than as a boundary. **On touch the card now ignores fingers entirely** and the camera bar is the whole control set; expanding hands the canvas the gesture outright. A mouse or stylus is untouched in either state, because neither ever competed with a scroll |
+| **A tap names nobody** | Two fixes, and the first was aimed at the wrong file. The host returned early on `(pointer: coarse)`, on the sound worry that a name shown on tap would stick — a finger's "leave" arrives as it lifts, so honour it and the label dies in the same breath. That half is right: the leave is ignored on touch and the label **expires on a timer**. But it was still silent on a phone, because the *scene* only announced a system on `pointerover`, and **over and out are a mouse's vocabulary** — what a touch screen synthesises around a tap varies, especially when the browser has claimed the gesture. The name is now also bound to `pointertap`, which is the event `bindPlanetSelect` and `bindSunSelect` already use and therefore demonstrably fires on this hardware. On a Circle a planet tap had no other job anyway |
+| **Expanded, the Dynamic Island sat on the Close button** | Only in the installed PWA, which is why a browser tab never showed it. `body` pays the `env(safe-area-inset-*)` that the root layout's `viewport-fit=cover` asks for — and **`position: fixed` is laid out against the viewport, not against that padded box**, so the expanded frame was the one thing in the app that never got the margin back. Padding on the open frame rather than insets, so the sky still reaches every edge while the canvas and the controls, both `inset-0`, resolve against the padding box |
+| **`pointercancel` was never handled** | Found while reading the above, not by using it. A cancelled pointer never comes up, so its entry sat in `activePointers` forever — the next single finger looked like the second of a pair, started a pinch against a stale coordinate, and left `cameraInteracting` stuck true, which silently disables auto-fit for the rest of the mount |
+| **The camera survived the close** | Closing now calls `resetCamera()`. And `resetCamera` now clears `focusedId`, which it did not: focus is state the *caller* reads, so a reset that moved the camera home while still naming a member left the next tap on that one member's sun asking to pull back out from a view already out. One member, silently dead, only after a reset |
+
+**The lesson, and it is the file's recurring one.** Four of these six are a rule that was right somewhere and applied one case too wide, and in three of them **the comment asserting the rule was itself wrong** — `touch-action` "does not govern multi-touch here" was the sentence that stood in front of the pinch bug for the whole port. A comment stating a browser behaviour is a claim, and a claim nothing tests is a claim that drifts.
+
+---
+
+## What the first person outside the project reported ✅ answered
+
+Three reports from one friend's first session. **None was a renderer bug, and two were not bugs at all** — worth writing down, because each looked like one.
+
+| Report | What it actually was |
+|---|---|
+| "Their planets aren't moving" | **Reduce Motion**, which the scene honours by design: read once at mount, every orbit held still while the sky draws perfectly. Indistinguishable, to the person holding the phone, from a renderer that stopped ticking. Two things changed rather than none: the lab's diagnostics print the value the renderer was given, and **a line under every galaxy card now says the setting is on and the stillness is deliberate**. A correctly-honoured accessibility setting that looks like a fault is a support burden that would have recurred for every user who has it on |
+| "The invite came back expired straight away" | **Not the invite link, and not "expired".** The message was `INVITE_LINK_MISSING`, met by inviting somebody by name before any link existed. The timestamps tell the rest: link minted 03:12:09, notification 03:12:10, so the fix was found and applied within a second and the invite worked. **What survived in memory was not the sentence but a bad feeling about invites**, which is the real cost of a refusal standing between someone and the thing they asked for. **Migration 110**: an admin inviting into a Circle with no live link now gets one minted. The rule it was protecting is untouched — `create_invite_link` *rotates*, so minting over a live link would revoke what people are already holding, and this fires only when nothing is live and there is nothing to revoke. A plain member is still refused, because `create_invite_link` is admins-only and this must not become a way around that |
+| "They couldn't pick their sun colour" | **There is no picker**, and the answer was to show rather than to ask. Sun colour is derived from the user id by `memberSun.ts` — six presets, hashed, stable across devices, no schema and no settings screen — which was the deliberate answer to goal cosmetics being cut. So onboarding's first-goal screen now **draws the sun beside the form**: it is not a preview, it is the sun they already have, the one every Circle will show them. Choosing a category puts a planet around it in that colour. `resolveSunColor` still prefers a stored `sunPresetId` the day a picker exists |
+
+**The first-goal preview, and the one honesty problem in it.** The planet's colour is real and the surface is not: the renderer hashes a goal's id to pick a surface, and the row's id does not exist until the form is submitted. A convincing-looking uuid there would be a promise the next screen breaks, so the placeholder id is named as one. `beltMode` is `"off"` rather than `"auto"` for the same reason — the belt is rolled by migration 107's column default at insert, and `auto` would show a ring the real goal has a four-in-five chance of not getting: a coin flip presented as a preview.
+
+**And it cannot be tested end to end**, which is recorded rather than worked around. The onboarding gate is "never had a goal", goal rows are never deleted, so no fixture account can be in that state — and minting one leaves an `auth.users` row nothing in the app can clean up. The snapshot builder is unit-tested; the wiring is a manual row. That same unreachability is why this screen shipped the disabled-`<option>` defect that an audit, not a person, caught.
 
 ---
 

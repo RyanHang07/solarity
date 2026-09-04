@@ -73,6 +73,35 @@
 }
 
 /*
+ * ─── the expanded frame gives the notch its margin back ──────────────────────
+ *
+ * **`body` pays the safe-area inset and a `fixed` element never sees it.** The
+ * root layout asks for `viewport-fit=cover` and a translucent status bar, so
+ * the app draws under the camera housing on purpose and `body` hands the
+ * content its margin back with padding. `position: fixed` is laid out against
+ * the viewport, not against that padded box — so the expanded galaxy is the one
+ * thing in the entire app that never got the margin, and installed to the home
+ * screen, where there is no browser chrome above it, the Dynamic Island sat on
+ * top of the Close button. In a tab it looks fine, which is why it took a PWA
+ * to find.
+ *
+ * **Padding rather than insets on the fixed box**, so the sky still reaches
+ * every edge: a background paints the whole border box, while `inset-0` on the
+ * absolutely-positioned canvas and controls resolves against the *padding* box.
+ * The picture and the buttons move in; the black does not, and there is no seam
+ * because the canvas clears to the same `--galaxy-sky`.
+ *
+ * All four sides. Landscape puts the inset on the left or right, and the home
+ * indicator takes a slice from the bottom where the camera bar lives.
+ */
+[data-viewhole][data-open] {
+  padding-top: env(safe-area-inset-top);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+}
+
+/*
  * The frame morphs between its two rectangles, which is the whole effect: a
  * card-sized window widening in all four directions at once, and narrowing back.
  *

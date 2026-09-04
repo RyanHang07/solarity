@@ -16,7 +16,7 @@
 
 ## Verify
 
-Cheapest first. `lib/database.types.ts` is **current as of migration 106**, hand-patched as a delta for steps 18 to 20: four RPCs, five enum values and six columns. Regenerate it properly after the next migration, preserving `graphql_public`, which the MCP generator omits.
+Cheapest first. `lib/database.types.ts` is **current as of migration 110**, hand-patched as a delta since 106: four RPCs, five enum values and six columns for steps 18 to 20, then `goals.belt_visible` and the roster's new fields for 107 to 109. Migration 110 changed a function body only and needed no delta. Regenerate it properly after the next migration, preserving `graphql_public`, which the MCP generator omits.
 
 ```
 rm -rf .next/dev
@@ -71,42 +71,11 @@ After that: `/admin` appears, a link shows up at the bottom of Settings, and fur
 
 ---
 
-## The manual pass
+## What is left: the manual pass
 
-**Everything below has failed in a browser while passing headless**, which is why the list exists at all. Rows 1 to 15 passed on 1 September; they are kept as the regression pass to repeat before a deploy, not as outstanding work.
+**Everything on this list has failed in a browser while passing headless**, which is why the list exists at all. Rows 1 to 24 are run and written up in `history.md`, along with the six defects they found. **This is the remainder, and it is the whole of what stands before a deploy.** Every item needs a device or a dashboard; none of it is code.
 
-### On a real iPhone, installed to the home screen
-
-| | Check | Why it is on this list |
-|---|---|---|
-| 1 | Settings → **Add a picture** → Take Photo | The picker is opened by a `<label>`; `input.click()` on a hidden input silently returns nothing on iOS |
-| 2 | Same, from **Photo Library** with a **portrait** shot | Orientation is applied by `createImageBitmap`, which retries without its options argument on older Safari. A sideways avatar means the retry path ran |
-| 3 | Same, with a **HEIC** from the camera roll | HEIC decoding belongs to the browser. Safari can; Chrome on Android cannot, and must say so rather than fail silently |
-| 4 | The picture appears on `/profile` and on a Circle roster row | The bucket is private; every render is a signed URL |
-| 5 | **Replace** it, then reload twice | One fixed key, overwritten in place. A second object means the key is not fixed |
-| 6 | Check in with a photo, add a note | The pipeline that took three device bugs to get right. Regression check |
-
-### In any browser, signed in as two accounts
-
-| | Check | Why |
-|---|---|---|
-| 7 | Tap all five tabs. The bar must not flash or move | It lives in `(shell)/layout.tsx` and is never unmounted. A flicker means it is being rebuilt |
-| 8 | Open a Circle-mate's profile from a roster row | Reached from the expanded panel, not the row |
-| 9 | Toggle **Show my streaks and totals** off, then view your own profile | Your own stats show either way; only other people lose them |
-| 10 | Block them. Their profile 404s. **Then check from their browser** | Mutual invisibility. The blocker cannot see this half |
-| 11 | Unblock from Settings → Blocked | The only route back, because blocking hides the page Block was on |
-| 12 | Report a photo, a note, and a profile | Three report types, one of them added by migration 88 |
-| 13 | Achieve a goal, set a deadline in the past | Achieving is irreversible and confirms; a past deadline is legitimate and reads as overdue |
-| 14 | Open the delete-account panel and **cancel** | Confirm the submit stays disabled until the username matches exactly |
-| 15 | **Goals → a retired goal → its record.** Check a past day shows its note | Step 16. Photos older than 90 days are gone by retention, and the page must say so rather than show a broken frame |
-
-**Rows 1 to 15 all passed on 1 September, on a real iPhone installed to the home screen.** The avatar pipeline was the last feature shipped with no run on hardware, and it needed no fixes: the label-opened picker, EXIF rotation, HEIC, all four render sites, the fixed key across two reloads.
-
-### The galaxy, and the five new auth screens — **outstanding**
-
-Rows 16 to 30 have never been run. **This is the whole of what is left before a deploy**, and everything on it needs either a device or a dashboard.
-
-#### Getting the app onto the phone in the first place
+### Getting the app onto the phone
 
 **`npm run preview`** — `next build && next start -H 0.0.0.0`. Then `http://<your-LAN-IP>:3000` in Safari, with the phone on the same Wi-Fi.
 
@@ -117,55 +86,47 @@ Rows 16 to 30 have never been run. **This is the whole of what is left before a 
 | Find the IP | `ipconfig` on Windows — the IPv4 address of the Wi-Fi adapter, usually `192.168.…`. Not `127.0.0.1` |
 | Windows Firewall | It will ask, or silently block, on the first inbound connection. Allow Node on **private** networks |
 | **http, not https, and it works on purpose** | `upgrade-insecure-requests` would rewrite the page's own bundle to `https://192.168.…`, which nothing answers — and WebKit applies it where Chromium exempts localhost. `proxy.ts` derives `secure` from the *connection*, so a plain-http origin never gets the directive. That trap cost a whole debugging session once; it is handled |
-| No service worker | An http origin is not a secure context, so the PWA will not install and push will not register. Irrelevant for the galaxy, and the reason the install flow is tested on the deployed URL instead |
-| **Google sign-in bounces to production** | `signInWithGoogle` builds `redirectTo` from the request's `Origin`, which is correct — but **Supabase silently falls back to the Site URL when a `redirectTo` is not in its allowlist**, so the flow completes on the deployed origin instead of the phone. Not a bug and not fixable in code: an allowlist that trusted whatever the caller asked for would be an open redirect. **Sign in with email and password on the LAN instead**, which needs no configuration and no production auth change |
+| No service worker | An http origin is not a secure context, so the PWA will not install and push will not register. **Rows A1 to A3 below need the installed app**, so those go through the deployed URL |
+| **Google sign-in bounces to production** | `signInWithGoogle` builds `redirectTo` from the request's `Origin`, which is correct — but **Supabase silently falls back to the Site URL when a `redirectTo` is not in its allowlist**, so the flow completes on the deployed origin instead of the phone. Not a bug and not fixable in code: an allowlist that trusted whatever the caller asked for would be an open redirect. **Sign in with email and password on the LAN instead** |
 
-#### The galaxy, on a phone — **run, and it found four things**
+### A. Re-verify the fixes from 4 September
 
-The pass was run on a real phone against `npm run preview`. **Worst frame at 10 × 10 was 17ms**, which is a clean 60 and settles the question the lab was built to ask: no fallback renderer, no alpha-shaped albedo, the clip mask stays.
+**Eleven checks over the day's fixes, none yet seen working on hardware.** Lettered rather than numbered because they are re-checks of rows already run, not new ground.
 
-| | Check | Result |
+| | Check | What would fail |
 |---|---|---|
-| 16 | **`/admin/galaxy-lab` at 10 × 10.** Worst frame | ✅ **17ms.** A hitch starts around 50ms. The stencil mask is affordable on the hardware people have |
-| 17 | One finger scrolls the page, two fingers pan the galaxy | ❌ **Two fingers zoomed the page instead**, and the camera never saw them. Fixed — see below |
-| 18 | Open and close the viewhole ten times | ✅ Stayed clean |
-| 19 | The same on an iPhone older than iOS 18 | ⬜ Still to do. Needs the older device |
-| 20 | Overview, then check off a goal | ✅ The planet lights before the write returns |
-| 21 | Hover a member on a desktop, then tap on a phone | ❌ **Desktop named them, the phone showed nothing.** The touch branch was an early `return`. Fixed — see below |
-| 22 | An archived Circle's sky | ✅ Frozen, and the camera still moves |
-| 23 | A Circle with a member who has no goals | ✅ An empty sun, and the sky does not close |
-| 24 | Reduce Motion, both surfaces | ✅ Still scene, no transition. **Now says so**: a line under the card explains the orbits are held still on purpose, because "their planets aren't moving" was the first report from outside the project and a correctly-honoured setting is indistinguishable from a dead renderer. Re-check that the line appears, and that it disappears when the setting is turned off |
-| 24b | **Closing the expanded view leaves the camera where the finger left it** | ❌ Not on the original list, and worth being: a member focused at 3× fills a 256px card with one sun. Fixed — see below |
+| A1 | **Installed to the home screen**, expand the galaxy | The frame clears the Dynamic Island, Close is tappable, and the camera bar clears the home indicator. This is the bug a browser tab cannot show |
+| A2 | Same, landscape | The inset moves to the left or right, and the padding is on all four sides for that reason |
+| A3 | Same, then rotate while expanded | The canvas re-measures through the `ResizeObserver`; the frame is `fixed`, so nothing else should move |
+| A4 | **In the card, on touch**: drag one finger, then two | Neither should move the sky, and the page should scroll in both cases. The camera bar is the whole control set here, deliberately |
+| A5 | **Expanded, on touch**: pinch, then two-finger drag | Both should now drive the scene, because nothing behind it can scroll |
+| A6 | The `−` and `+` buttons on the touch camera bar | New. They are the only zoom a card has |
+| A7 | **A Circle: tap a member's planet, then their sun** | The name appears both times, fades after about two seconds, and does not stick when you tap elsewhere. The sun should also fly the camera |
+| A8 | Expand, focus a member, close — **then tap that same member's sun** | Closing returns to the default framing, and that one member must still respond. Before the fix they were silently dead after a reset |
+| A9 | Reduce Motion on, then off **without reloading** | A line under the card appears and disappears with the setting |
+| A10 | `/onboarding/goal` on a phone | The sun draws alone, choosing a category adds a planet in that colour with no belt ring, and the picker's placeholder is selectable. **Overlaps row 26** and can be done in one sitting |
+| A11 | Invite somebody into a **brand-new** Circle without generating a link first | Migration 110. It should simply work |
 
-##### What those three cost, and what changed
-
-| Finding | The fix, and why it is not the obvious one |
-|---|---|
-| **Pinch does nothing; the whole page zooms** | `touch-action: pan-y` on the canvas is what lets a thumb scroll the page through an embedded galaxy, and a comment here claimed it left multi-touch alone. It does not: once `touch-action` names a browser gesture **iOS routes the entire stream to the browser**, so two fingers become a page zoom and the canvas is sent `pointercancel` mid-gesture. The trade is real in a card and worthless full screen, so it is now made per state — `setPageScrollThrough(!expanded)`. **Pinch works expanded; the card keeps its page scroll and gets its zoom buttons back.** Those buttons had been removed on the reasoning that "pinch is better than a button at it", which was true and left a phone with no way to zoom at all |
-| **A tap names nobody** | The hover handler returned early on `(pointer: coarse)`, on the sound worry that a name shown on tap would stick — a finger's "leave" arrives as it lifts, so honour it and the label dies in the same breath it appears. The cure was aimed at the wrong half: the leave is now ignored on touch and the label **expires on a timer** instead |
-| **`pointercancel` was never handled** | Found while reading the above, not by using it. A cancelled pointer never comes up, so its entry sat in `activePointers` forever — the next single finger looked like the second of a pair, started a pinch against a stale coordinate, and left `cameraInteracting` stuck true, which silently disables auto-fit for the rest of the mount |
-| **The camera survived the close** | Closing now calls `resetCamera()`. And `resetCamera` now clears `focusedId`, which it did not: focus is state the *caller* reads, so a reset that moved the camera home while still naming a member left the next tap on that one member's sun asking to pull back out from a view already out. One member, silently dead, only after a reset |
-
-#### The five auth screens, never driven on a device
+### B. The five auth screens, never driven on a device
 
 | | Check | Why |
 |---|---|---|
 | 25 | Sign up with a **new** email, on the phone | The whole front door, step 20, on hardware for the first time |
-| 26 | The **first goal** screen: watch the sun draw, then open the category picker and choose one | Two things at once, and it is the only screen where either can be seen. **iOS draws a `<select>` as a wheel**, and this form shipped with a disabled placeholder — the exact defect step 16 fixed, caught by an audit rather than by use. **And the preview now hangs off that same picker**: choosing a category should put a planet around the sun immediately, in the category's colour, with no belt. **No e2e can reach this screen**, and that is not an oversight — the gate is "never had a goal", goal rows are never deleted, so no fixture account can be in that state and minting one leaves an `auth.users` row nothing can clean up. The snapshot builder is unit-tested; the wiring is this row |
+| 26 | The **first goal** screen: watch the sun draw, then open the category picker and choose one | Two things at once, and the only screen where either can be seen. **iOS draws a `<select>` as a wheel**, and this form shipped with a disabled placeholder — the exact defect step 16 fixed, caught by an audit rather than by use. **And the preview hangs off that same picker.** **No e2e can reach this screen**, and that is structural rather than an oversight: the gate is "never had a goal", goal rows are never deleted, so no fixture account can be in that state, and minting one leaves an `auth.users` row nothing can clean up. The snapshot builder is unit-tested; the wiring is this row |
 | 27 | Confirmation email → the confirm link → onboarding | A deep link into an installed PWA behaves differently from a tab |
 | 28 | **Forgot password**, all the way through | Never run outside a desktop browser |
 | 29 | The landing page and `/support` at 375px | Deliberately plain, and never seen small |
-| 30 | `E2E_PROD=1 npm run test:e2e:ios` | The only pass that sees the CSP that ships. **It has already earned its place**: PixiJS needs `new Function`, the dev policy allows it and the shipped one does not, so the galaxy had never run in a production build. `dashboard.spec.ts` now asserts the galaxy renders, which is what turns that class of failure from silence into red |
+| 30 | `E2E_PROD=1 npm run test:e2e:ios` | The only pass that sees the CSP that ships. **It has already earned its place**: PixiJS needs `new Function`, the dev policy allows it and the shipped one does not, so the galaxy had never run in a production build. `dashboard.spec.ts` now asserts the galaxy renders, which turns that class of failure from silence into red |
 
-#### Reported by the first person outside the project
+### C. The code graph
 
-Three reports from one friend's first session. **None of them is a renderer bug, and two are not bugs at all** — which is worth writing down, because each looked like one.
+| | | |
+|---|---|---|
+| C1 | **Regenerate `graphify-out/`** | `graphify . update`, then `node scripts/graph-freshness.mjs` until it exits clean. Migration 110, `setPageScrollThrough`, `GalaxyPreview` and `buildFirstGoalPreview` are all missing from it |
 
-| Report | What it actually is |
-|---|---|
-| "Their planets aren't moving" | Almost certainly **Reduce Motion**, which the scene honours by design: it is read once at mount and holds every orbit still while drawing the sky perfectly. Indistinguishable, to the person holding the phone, from a renderer that stopped ticking — so the lab's diagnostics now **print it**, and the next report of this answers itself. Confirm by asking them to check iOS → Accessibility → Motion |
-| "The invite came back expired straight away" | **Not the invite link, and not "expired".** The message was `INVITE_LINK_MISSING` — "This Circle has no live invite link. Generate one below" — met by inviting somebody by name before any link existed. The timestamps say the rest: link minted 03:12:09, notification 03:12:10, one second apart, so the fix was found and applied immediately and the invite worked. **What survived in memory was not the sentence but a bad feeling about invites**, which is the real cost of a refusal standing between someone and the thing they asked for. Fixed in **migration 110**: an admin inviting into a Circle with no live link now gets one minted. The rule it was protecting is untouched — `create_invite_link` *rotates*, so minting over a live link would revoke what people are holding, and this only fires when nothing is live and there is nothing to revoke. A plain member is still refused, because `create_invite_link` is admins-only and this must not be a way around it |
-| "They couldn't pick their sun colour" | **There is no picker.** Sun colour is derived from the user id by `memberSun.ts` — six presets, hashed, stable across devices, no schema and no settings screen. That was the deliberate answer to goal cosmetics being cut, and `resolveSunColor` already prefers a stored `sunPresetId` the day one exists. So this is a **feature request with the groundwork done**, not a broken control |
+### The regression pass, before any deploy
+
+**Rows 1 to 15 in `history.md`** — avatars, the tab bar, blocking, reporting, achieving, deletion, the goal record. They passed on 1 September and are kept as a pre-deploy checklist rather than as outstanding work.
 
 ---
 
@@ -173,7 +134,7 @@ Three reports from one friend's first session. **None of them is a renderer bug,
 
 **Steps 21 to 27 are done and are written up in `history.md`** — the port, three migrations, both surfaces, the viewhole, the controls, a first goal at signup, and the lab that measures ten by ten on a device.
 
-What is left of it is **not code**. It is the manual pass above, the design system below, and the two dials nobody has lived with yet:
+What is left of it is **not code**. It is the manual pass above and the two dials nobody has lived with yet:
 
 | Dial | Where | What to weigh |
 |---|---|---|
@@ -184,9 +145,26 @@ What is left of it is **not code**. It is the manual pass above, the design syst
 
 ---
 
-## The design system, and what still blocks it
+## The design system
 
-**Deferred behind the galaxy, and blocked on one unanswered question:** what form the design system is in — Figma, tokens, references, or nothing yet.
+**There is no design yet, and nothing is waiting on one.** This section is not a blocked task; it is the brief for when the pass starts, and the constraints below exist so they are known going in rather than discovered halfway. The pass depends on nothing above it and can begin whenever.
+
+### The approach: a mock UI first, then extract, then replace
+
+Three phases, in this order, and the order is the point.
+
+| | Phase | What it produces |
+|---|---|---|
+| 1 | **Build a model UI**, by hand, off to one side. Buttons in every state, inputs, a select, a card, a list row, a heading scale, a panel, an empty state, an error | The mock. **Not a screen from the app** — a page of specimens, so a decision is made once against the component rather than five times against five screens that happen to use it |
+| 2 | **Extract the repeated Tailwind into named classes**, using `@utility` or `@apply` in `globals.css` alongside the existing tokens | The vocabulary. This is the artifact the rest of the pass consumes, and it is derived from something that was drawn rather than guessed at up front |
+| 3 | **Replace the placeholder markup systematically**, surface by surface, swapping hand-tuned utility strings for the named classes | The restyle |
+
+**Why the mock comes first and is thrown at nothing.** A design system invented in the abstract produces tokens nobody can picture and classes that fit no real control. Drawing the specimens first means every class in phase 2 already has one correct rendering behind it, and phase 3 becomes substitution rather than judgement — which is what makes it safe to do a screen at a time, and what makes a half-finished pass leave a working app rather than a mixed one.
+
+**Two things to hold onto while doing it**, both learned here already:
+
+- **The mock is a page, so it can live at a route and be looked at on a phone.** `/admin/galaxy-lab` earned its keep exactly this way: the fix for "it looks wrong on mobile" is an instrument, not a guess. An admin-only route costs nothing and is the natural home.
+- **Phase 3 is where the e2e suite is most at risk**, and it is also the thing that makes phase 3 safe. Every locator names a role, an accessible name, a label or a landmark, so swapping classes is invisible to it and swapping *markup* is not. Run the suite per surface, not once at the end.
 
 The galaxy's own design question is answered. `--galaxy-sky` is a token in `globals.css`, deliberately outside the light/dark swap, because a galaxy is a night sky in both themes and the nine category colours were seeded to glow on black — `#FFD500` and `#6EE62E` are near-unreadable on white.
 
@@ -198,7 +176,7 @@ The galaxy's own design question is answered. `--galaxy-sky` is a token in `glob
 | The five auth screens | 20e to 20j. Forms with borders and gaps and no more |
 | `/support` | Seven `<Answer>` sections and a `mailto:` |
 
-**The rest of the app is not plain**, and that is the harder half: the dashboard, the roster, the Circle page and the goal record all carry hand-written Tailwind tuned per screen. A design system has to absorb those without regressing them.
+**The rest of the app is not plain**, and that is the harder half of phase 3: the dashboard, the roster, the Circle page and the goal record all carry hand-written Tailwind tuned per screen. Those are not placeholders to be swapped, they are decisions that were made — so each one is a judgement about whether the system's version is better, and the honest answer will sometimes be no.
 
 ### What is already in place, and what it constrains
 
@@ -208,6 +186,7 @@ The galaxy's own design question is answered. `--galaxy-sky` is a token in `glob
 | The tab bar lives in `(shell)/layout.tsx` and is never unmounted | A restyle must not make it remount. Manual pass row 7 checks exactly this |
 | `env(safe-area-inset-*)` is consumed by the header | The layout already pays for `viewport-fit=cover`. New chrome at the top or bottom has to as well |
 | **`script-src`** is nonce-based; **`style-src`** deliberately keeps `'unsafe-inline'` | Checked rather than assumed, and it came out the opposite way round to the guess: inline styles are fine, because `next/font` and Tailwind need them and a nonce on `style-src` would switch `'unsafe-inline'` off. So a CSS-in-JS library is not a CSP problem. **A design library that ships a `<script>` is**, and it needs a nonce or an origin in `lib/security-headers.ts`. Also: any new origin must go in both the dev and prod arms, which step 20h's Turnstile entry got wrong once |
+| Tailwind v4, configured in CSS rather than a JS config | The vocabulary from phase 2 belongs in `globals.css` beside `--galaxy-sky` and `--viewhole-ms`, as `@theme` tokens and `@utility` classes. There is no `tailwind.config.js` to add to, and adding one back would split the source of truth in two |
 | The galaxy needs no CSP change at all | Checked directive by directive. `pixi.js` is bundled so `script-src: 'self'` covers it; textures are canvas-generated and `img-src` already allows `data:` and `blob:`; `worker-src` already allows `blob:`, widened in step 13 for the photo compressor. **Worth knowing before someone widens it just in case** |
 | Placeholder icons are still in `public/` | Icons are on the v2 list and belong to this pass |
 | The e2e suite locates by role and accessible name | A restyle that changes markup can break locators. `getByLabel` in particular reads **all** of a `<label>`'s text — see `patterns.md`, "a label that names more than the label" |
@@ -277,19 +256,13 @@ Keep the posture **deny-by-default**: enumerate what is *public*, so a forgotten
 
 ### Before launch
 
-**Two things left, and neither is a feature.**
-
-| | | |
-|---|---|---|
-| 1 | **The manual pass, rows 16 to 30** | The galaxy on a phone and the five auth screens. It is one list above rather than three lists in three places |
-| 2 | **Regenerate `graphify-out/`** | `graphify . update`, then `node scripts/graph-freshness.mjs` until it exits clean |
-
-**Also worth a run before any deploy:** `E2E_PROD=1 npm run test:e2e:ios`, which is the only pass that sees the CSP that ships — and it matters more now, because step 20h added two directives to it.
+**One thing left, and it is not a feature.** The manual pass — sections A, B and C of "What is left" above. It is one list there rather than three lists in three places.
 
 **Closed since this list was written**
 
 - ~~`npm run build`~~ — **green, 3 September**, with `pixi.js` installed and the renderer behind a dynamic import.
-- ~~A green suite~~ — **green again, 3 September**, after the galaxy, three migrations and two new gates. The last full run had failed in three separate ways and every one was the test rather than the app: the terms gate was a new precondition `auth.setup.ts` did not meet; `getByLabel("Password", { exact: true })` could not match a field whose accessible name had absorbed its own hint; and `getByRole("alert")` was reading Next's empty dev-overlay node instead of the error on screen. All three are in `patterns.md`.
+- ~~A green suite~~ — **green again, 4 September**, after the galaxy's touch fixes, migration 110 and the first-goal preview. The run before that had failed in three separate ways and every one was the test rather than the app: the terms gate was a new precondition `auth.setup.ts` did not meet; `getByLabel("Password", { exact: true })` could not match a field whose accessible name had absorbed its own hint; and `getByRole("alert")` was reading Next's empty dev-overlay node instead of the error on screen. All three are in `patterns.md`.
+- ~~The galaxy on a phone, rows 16 to 24~~ — **run 4 September.** Worst frame 17ms at 10 × 10, six defects found and fixed, one row skipped on purpose. Written up in `history.md`.
 - ~~Security headers~~ — step 12.
 - ~~`pushsubscriptionchange` handler~~ — step 10f. `sw.js` listens and `resubscribeIfPermitted` repairs a rotated endpoint without ever prompting.
 - ~~Wire rate limits into each new action~~ — **every limit in `lib/ratelimit.ts` now has a caller.** `searchUsers` and `inviteUser` were the last two.
@@ -300,7 +273,7 @@ Keep the posture **deny-by-default**: enumerate what is *public*, so a forgotten
 
 **The one standing risk, written down rather than fixed.** Every RPC in the app is reachable directly at `/rest/v1/rpc/` by anyone holding a session, so the rate limits in `lib/ratelimit.ts` bound what the *app* does rather than what a determined caller can. `search_users` is the one where that matters most, because it is the app's only directory. Its real defences are in the database: three characters minimum, escaped wildcards, ten rows, and blocks excluded.
 
-**Leaked-password protection is still off**, and it now matters in a way it did not before step 20: passwords exist. It is a paid-plan toggle in the Supabase dashboard, so it belongs on the launch list rather than in a migration.
+**Leaked-password protection stays off. Decided, not pending.** It is a paid-plan toggle in the Supabase dashboard that checks new passwords against HaveIBeenPwned. Recorded as a decision rather than deleted, so it is not rediscovered as an oversight: what the app does have is Supabase's own length and complexity floor, and the far larger share of accounts arrive through Google, where no password exists here to leak. Revisit if password sign-up becomes the common path.
 
 ### After the first design version
 
@@ -309,7 +282,7 @@ Turning Turnstile on, which is configuration in three dashboards and a decision 
 ### Deferred to v2
 
 - Replace the placeholder icons — **folded into the design pass above.**
-- ~~All visual design~~ — **no longer deferred. It is the current work.** See the galaxy steps above and `product-and-design.md`.
+- ~~All visual design~~ — **no longer deferred, and nothing blocks it.** The galaxy is built; the brief and its constraints are in "The design system" above, and in `product-and-design.md`.
 - ~~A moderation console~~ — **pulled out of v2 and made step 17.**
 
 ---
