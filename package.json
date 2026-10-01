@@ -46,7 +46,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "jsdom": "^30.0.1",
-    "nodemailer": "^9.0.5",
+    "nodemailer": "^10.0.9",
     "supabase": "^2.111.0",
     "tailwindcss": "^4",
     "tsx": "^4.20.0",
