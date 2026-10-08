@@ -24,7 +24,7 @@
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.2",
     "browser-image-compression": "^2.0.2",
-    "next": "^16.3.4",
+    "next": "^16.3.8",
     "obscenity": "^0.4.6",
     "pixi.js": "^8.8.1",
     "react": "19.2.8",
